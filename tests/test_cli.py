@@ -94,7 +94,8 @@ def test_occupied_port_refuses_before_opening_or_resuming_workspace(
         assert not root.exists()
 
 
-def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stop_signal", [signal.SIGTERM, signal.SIGINT], ids=["sigterm", "sigint"])
+def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, stop_signal):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -133,7 +134,7 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch):
         else:
             failure = "The local server did not become ready within 30 seconds."
     finally:
-        process.terminate()
+        process.send_signal(stop_signal)
         try:
             stdout, stderr = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -171,8 +172,9 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch):
                 if item
             )
         )
-    # Uvicorn completes lifespan shutdown, then preserves the received signal.
-    assert process.returncode == -signal.SIGTERM
+    # Uvicorn completes lifespan shutdown; Control-C has the conventional CLI exit code.
+    assert process.returncode == (130 if stop_signal == signal.SIGINT else -signal.SIGTERM)
     assert "Application shutdown complete." in stderr
+    assert "Traceback" not in stderr
     assert f"127.0.0.1:{port}" in stdout
     assert "0.0.0.0" not in stdout + stderr

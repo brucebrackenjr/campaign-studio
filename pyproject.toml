@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "campaign-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "A local campaign production and review application."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -13,7 +13,7 @@ dependencies = [
   "uvicorn>=0.34,<1",
   "jinja2>=3.1.6,<4",
   "pydantic>=2.11,<3",
-  "pillow>=12,<13",
+  "pillow>=13,<14",
   "fonttools>=4.60,<5",
   "openai>=2,<3",
   "httpx>=0.28,<1",

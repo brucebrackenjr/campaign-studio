@@ -128,7 +128,7 @@ def load_image(path: Path | io.BytesIO) -> tuple[Image.Image, str]:
             )
         image = image.convert("RGBA" if alpha else "RGB")
         return image, kind
-    except (OSError, UnidentifiedImageError, ImageCms.PyCMSError, ValueError) as error:
+    except (OSError, SyntaxError, UnidentifiedImageError, ImageCms.PyCMSError, ValueError) as error:
         if isinstance(error, ImageProblem):
             raise
         raise ImageProblem("The image could not be decoded. Choose a valid PNG or JPEG.") from error

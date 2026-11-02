@@ -24,7 +24,9 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Recorded local evidence
 
-The application passed one complete run of **465 Python tests**, plus Ruff lint and formatting checks. The final frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests. The Python result carries by exact backend, Python-test, and configuration identity across the final frontend accessibility and return-path corrections.
+The v0.1.0 release baseline passed one complete run of **465 Python tests**, plus Ruff lint and formatting checks. Its final frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests.
+
+Version 0.1.1 updates Pillow to 13.0.0. Focused checks cover PNG/JPEG decoding, EXIF orientation and malformed metadata refusal, both bundled fonts, opaque and transparent logos, framing, saved-source reuse, and exports. A 54-image comparison preserved output dimensions; newly rendered pixels can differ slightly after the dependency update. All 30 existing campaign PNGs passed inspection and exported byte-for-byte unchanged under the new dependency. Real CLI checks cover both Control-C and SIGTERM shutdown. The browser interface is unchanged.
 
 | Area | Recorded checks |
 | --- | --- |
@@ -49,5 +51,5 @@ The separate CLI replay fixture retains an October 29, 2026 master with 244 text
 
 [README](../README.md) documents Python 3.14.4, the two installation routes, configuration, example inputs, and recovery behavior. Local installation proof is macOS. Linux is the configured CI target; native Windows is unsupported because local locking uses POSIX `fcntl`.
 
-The [GitHub Actions workflow](../.github/workflows/checks.yml) checks locked installation, style, Python/JavaScript behavior, requirements-export consistency, conventional installation, smoke, and samples without provider credentials. The workflow is configured; remote CI has not run.
+The [GitHub Actions workflow](../.github/workflows/checks.yml) checks locked installation, style, cold CLI startup, Python/JavaScript behavior, requirements-export consistency, conventional installation, smoke, and samples without provider credentials. Measured results are recorded with each [CI run](https://github.com/brucebrackenjr/campaign-studio/actions).
 

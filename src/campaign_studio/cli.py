@@ -48,7 +48,10 @@ def serve(settings: Settings) -> int:
         )
         server = uvicorn.Server(config)
         print(f"Opening Motif – Campaign Studio at http://127.0.0.1:{settings.port}/", flush=True)
-        server.run(sockets=[listener])
+        try:
+            server.run(sockets=[listener])
+        except KeyboardInterrupt:
+            return 130
         return 0 if server.started else 1
 
 

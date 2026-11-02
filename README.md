@@ -403,6 +403,8 @@ The application distinguishes a missing image source, a usable received response
 
 ## Metrics and their meaning
 
+Completed run records and current output coverage show what was produced; the workspace campaign count also includes drafts. Processing time, source reuse, attempts, and cost provide evidence of production efficiency. Quantifying time saved requires a measured manual baseline for the same campaign and output scope.
+
 | Metric | What it measures |
 | --- | --- |
 | Planned outputs | Product × market × format combinations in the current plan. |

@@ -4,6 +4,8 @@ import hashlib
 import io
 import json
 import struct
+import subprocess
+import sys
 import zlib
 
 import pytest
@@ -16,6 +18,64 @@ from campaign_studio.config import Settings
 from campaign_studio.intake import UPLOAD_LIMIT
 
 
+def test_repeated_png_exif_is_bounded_and_refused_without_losing_valid_upload(tmp_path):
+    exif = Image.Exif()
+    exif[274] = 6
+    with io.BytesIO() as buffer:
+        Image.new("RGB", (2, 3), "#123456").save(buffer, format="PNG", exif=exif)
+        valid = buffer.getvalue()
+    # A tiny image with a large repeated EXIF prefix bypasses pixel-count limits.
+    # Keep this CPU-regression check in a subprocess so a vulnerable dependency
+    # cannot hang the test runner. No oversized pixel allocation is involved.
+    data = b"Exif\0\0" * 1_000_000 + exif.tobytes()
+    chunk = struct.pack(">I", len(data)) + b"eXIf" + data
+    chunk += struct.pack(">I", zlib.crc32(b"eXIf" + data))
+    (tmp_path / "valid.png").write_bytes(valid)
+    with io.BytesIO() as buffer:
+        Image.new("RGB", (2, 3), "#123456").save(buffer, format="PNG")
+        plain = buffer.getvalue()
+    (tmp_path / "repeated.png").write_bytes(plain[:33] + chunk + plain[33:])
+    code = """
+import hashlib
+from pathlib import Path
+import sys
+from campaign_studio.imaging import load_image
+from campaign_studio.intake import Intake
+from campaign_studio.state import State
+from campaign_studio.storage import Storage
+from campaign_studio.workspace import ActionError
+root = Path(sys.argv[1])
+storage = Storage(root / 'runtime')
+State(storage)
+intake = Intake(storage)
+payload = (root / 'valid.png').read_bytes()
+accepted = intake.upload(payload, 'image/png')
+image, kind = load_image(storage.path(accepted['reference']))
+assert kind == 'PNG' and image.size == (3, 2)
+assert image.getpixel((0, 0)) == (18, 52, 86)
+image.close()
+before = {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+          for p in storage.path('private/uploads').glob('*')}
+try:
+    intake.upload((root / 'repeated.png').read_bytes(), 'image/png')
+except ActionError as error:
+    assert error.status == 422 and error.code == 'upload_image'
+    assert error.input_image['kind'] == 'decode_failure'
+else:
+    raise AssertionError('Malformed repeated EXIF was accepted')
+assert before == {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in storage.path('private/uploads').glob('*')}
+assert storage.path(accepted['reference']).read_bytes() == payload
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.parametrize(
     "malformed,reader,content_type,reason",
     [
@@ -25,7 +85,12 @@ from campaign_studio.intake import UPLOAD_LIMIT
             "image/png",
             "broken PNG file",
         ),
-        (b"\xff\xd8\xff\xd9", JpegImagePlugin.JpegImageFile, "image/jpeg", "index out of range"),
+        (
+            b"\xff\xd8\xff\xd9",
+            JpegImagePlugin.JpegImageFile,
+            "image/jpeg",
+            "not identified by this driver",
+        ),
     ],
     ids=["png-chunk", "jpeg-missing-frame"],
 )
@@ -33,7 +98,7 @@ def test_malformed_supported_header_is_safe_without_changing_saved_work(
     tmp_path, malformed, reader, content_type, reason
 ):
     # Genuine signatures select the direct readers. PNG rejects its chunk name;
-    # JPEG wraps its missing-frame IndexError as SyntaxError.
+    # JPEG rejects a stream without an image frame.
     with pytest.raises(SyntaxError, match=reason):
         reader(io.BytesIO(malformed))
     app = create_app(
