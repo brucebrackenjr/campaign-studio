@@ -16,6 +16,8 @@ from campaign_studio.intake import Intake
 from campaign_studio.state import State
 from campaign_studio.storage import Storage
 
+COLD_STARTUP_TIMEOUT_SECONDS = 60
+
 
 @pytest.fixture(autouse=True)
 def isolated_configuration(tmp_path, monkeypatch):
@@ -116,8 +118,9 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, st
         text=True,
     )
     try:
-        # Fresh setup composes the bundled campaign before the server becomes ready.
-        deadline = time.monotonic() + 30
+        # Cold example composition takes about 30 seconds on shared Linux runners;
+        # allow bounded scheduling headroom before requiring healthy HTTP responses.
+        deadline = time.monotonic() + COLD_STARTUP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 failure = "The local server exited before becoming ready."
@@ -132,7 +135,10 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, st
             except URLError, TimeoutError:
                 time.sleep(0.05)
         else:
-            failure = "The local server did not become ready within 30 seconds."
+            failure = (
+                "The local server did not become ready within "
+                f"{COLD_STARTUP_TIMEOUT_SECONDS} seconds."
+            )
     finally:
         process.send_signal(stop_signal)
         try:
