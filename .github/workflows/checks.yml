@@ -35,12 +35,15 @@ jobs:
         run: |
           uv run --locked ruff check .
           uv run --locked ruff format --check .
+      - name: JavaScript controller tests
+        run: |
+          mkdir -p .checks
+          node --version
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=.checks/javascript.xml tests/*.test.cjs
       - name: Diagnose cold CLI startup
         run: uv run --locked pytest -vv -s --tb=short tests/test_cli.py::test_real_server_starts_on_loopback_and_shuts_down --junitxml=.checks/startup.xml
-      - name: Behavioral tests
-        run: |
-          uv run --locked pytest --junitxml=.checks/pytest.xml
-          node --test --test-reporter=junit --test-reporter-destination=.checks/javascript.xml tests/*.test.cjs
+      - name: Python behavioral tests
+        run: uv run --locked pytest --junitxml=.checks/pytest.xml
       - name: Verify the evaluator dependency export
         run: |
           uv export --locked --no-dev --group build --no-emit-project --output-file requirements.txt
@@ -58,3 +61,19 @@ jobs:
       - name: Write measured results
         if: always()
         run: python scripts/ci_summary.py
+      - name: Preserve check reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: check-reports
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            .checks/startup.xml
+            .checks/pytest.xml
+            .checks/javascript.xml
+            .checks/smoke.json
+            .checks/sample-run.json
+            .checks/alternate-sample.json
+            .checks/replay-sample.json

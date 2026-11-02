@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import xml.etree.ElementTree as ET
+from html import escape
 from pathlib import Path
 
 lines = [
@@ -12,6 +13,7 @@ lines = [
     f"Python: `{platform.python_version()}`; platform: `{platform.system()}`.",
 ]
 for reference, label in (
+    (".checks/startup.xml", "Cold CLI startup tests"),
     (".checks/pytest.xml", "Python tests"),
     (".checks/javascript.xml", "JavaScript controller tests"),
 ):
@@ -29,6 +31,25 @@ for reference, label in (
         lines.append(
             label + ": " + ", ".join(f"{value} {name}" for name, value in totals.items()) + "."
         )
+        failures = [
+            (case, problem)
+            for case in cases
+            for tag in ("failure", "error")
+            if (problem := case.find(tag)) is not None
+        ]
+        for case, problem in failures[:8]:
+            name = "::".join(value for value in (case.get("classname"), case.get("name")) if value)
+            detail = "\n".join(value for value in (problem.get("message"), problem.text) if value)
+            lines.append(
+                f"<details><summary>{escape(name or 'Unnamed test')}</summary>\n\n"
+                f"<pre>{escape(detail[:4000] or 'No failure detail recorded.')}</pre>\n\n"
+                "</details>"
+            )
+        if failures:
+            lines.append(
+                f"Showing up to 8 failures with 4,000 characters each. "
+                f"Complete records: `{reference}` in the check-reports artifact."
+            )
     else:
         lines.append(f"{label} report unavailable; no test pass is inferred.")
 sample = Path(".checks/smoke.json")
