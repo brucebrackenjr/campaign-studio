@@ -24,9 +24,11 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Recorded local evidence
 
-The v0.1.0 release baseline passed one complete run of **465 Python tests**, plus Ruff lint and formatting checks. Its final frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests.
+The v0.1.1 release baseline passed one complete run of **467 Python tests**, plus Ruff lint and formatting checks. Its frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests.
 
 Version 0.1.1 updates Pillow to 13.0.0. Focused checks cover PNG/JPEG decoding, EXIF orientation and malformed metadata refusal, both bundled fonts, opaque and transparent logos, framing, saved-source reuse, and exports. A 54-image comparison preserved output dimensions; newly rendered pixels can differ slightly after the dependency update. All 30 existing campaign PNGs passed inspection and exported byte-for-byte unchanged under the new dependency. Real CLI checks cover both Control-C and SIGTERM shutdown. The browser interface is unchanged.
+
+Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs. Focused checks forbid composition and production execution during setup, verify fresh identities and exact imported PNGs, and exercise missing, changed, and interrupted resources. An actual API journey applied wording, font, framing, and logo changes, then recomposed and exported all 30 images with zero provider attempts. Restart preserved the accepted revision and files. Instrumented fresh setup reached health in 1.28 seconds on the local Mac. The full candidate suite, independent review, and final source-ZIP installation are recorded separately as they complete.
 
 | Area | Recorded checks |
 | --- | --- |
@@ -39,7 +41,7 @@ The conventional Python/pip source-ZIP route was verified on the preceding relea
 
 ## Genuine generation and examples
 
-The supplied seasonal imagery was prepared outside Motif. Fresh-workspace setup composes Autumn Winds locally and leaves Bridle & Bough’s missing image planned but unconfirmed. Both included starting campaigns have zero application attempts.
+The supplied seasonal imagery was prepared outside Motif. Fresh-workspace setup installs Autumn Winds’ packaged final PNGs with their editable inputs and leaves Bridle & Bough’s missing image planned but unconfirmed. Both included starting campaigns have zero application attempts. Later edits and deliberate local production use the ordinary renderer.
 
 A separate explicitly authorized Bridle review made one successful application request. One generated source plus two reused scenes produced 18 final PNGs. Recorded usage supports an estimated AI cost of $0.09943. The shipped Bridle starting state is not replaced by that completed review campaign.
 

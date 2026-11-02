@@ -135,14 +135,14 @@ The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; envi
 
 ## Try a complete workflow without a key
 
-On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. First setup composes Autumn’s 30 PNGs locally, so it takes longer than later launches; the page is served when setup completes. No API key or provider call is used during this setup.
+On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. Autumn’s 30 finished PNGs are included in the package and copied with their editable sources, wording, and layouts. First setup does not render those images or make an API request.
 
 | Included campaign | Initial state | Useful evaluation path |
 | --- | --- | --- |
 | **Autumn Winds – Stay a little longer** | Five products, English (United States) and Spanish (Mexico), and **30 completed PNGs**. Zero application requests. | Choose **Continue working**, inspect the images in Studio, make a local correction, and use Handoff to export. |
 | **Bridle & Bough – Let winter run wild** | Three products and both markets; **18 planned outputs**. The **Brass sleigh-bell strap** concept is missing, and its one-request plan is unconfirmed. Zero application requests. | Open its Campaign or Production page to inspect the supplied assets and missing-image plan. Generating the missing concept requires your own key and separate explicit confirmation. |
 
-The supplied seasonal imagery was prepared externally with built-in image generation. Autumn’s installed PNGs are composed locally from those sources; setup is not evidence of a new application image-generation call. Bridle does not start with 18 completed images.
+The supplied seasonal imagery was prepared externally with built-in image generation. Autumn’s final PNGs were composed from those sources during package preparation. They remain editable through the normal Studio tools. Bridle does not start with 18 completed images.
 
 Setup is once per fresh workspace, not whenever the campaign count reaches zero. Existing workspaces are not automatically populated, and deleting a bundled campaign does not bring it back. If initial setup fails, startup stops; any ordinary campaign records already created remain, and the next launch opens that state without repeating setup or buying imagery.
 

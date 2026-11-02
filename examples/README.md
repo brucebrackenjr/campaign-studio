@@ -2,7 +2,7 @@
 
 ## Included seasonal campaigns
 
-The official launcher installs two ordinary campaigns once in an absent or empty workspace. Autumn Winds has five products, both markets, and 30 locally composed PNGs. Bridle & Bough has three products, both markets, and an unconfirmed 18-output plan with one missing Brass sleigh-bell strap concept. Both begin with zero application provider attempts. The supplied scenes and logos were prepared externally with built-in image generation; their provenance does not imply a new Motif request.
+The official launcher installs two ordinary campaigns once in an absent or empty workspace. Autumn Winds has five products, both markets, and 30 pre-rendered PNGs packaged with their editable sources, wording, and layouts. Installation copies those finished images without composing them. Bridle & Bough has three products, both markets, and an unconfirmed 18-output plan with one missing Brass sleigh-bell strap concept. Both begin with zero application provider attempts. The supplied scenes and logos were prepared externally with built-in image generation; their provenance does not imply a new Motif request.
 
 The source package contains the [Autumn brief and assets](../src/campaign_studio/resources/campaigns/autumn-winds/) and [Bridle brief and assets](../src/campaign_studio/resources/campaigns/bridle-and-bough/). To import another copy, select its `brief.json` in **Import brief**, then attach the named logo and image files. If using a separately supplied import ZIP, extract it first. Motif imports JSON, not ZIP files. Every import receives a fresh UUID, including duplicate display names.
 

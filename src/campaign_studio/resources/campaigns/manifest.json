@@ -1,20 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
   "campaigns": [
     {
       "slug": "bridle-and-bough",
       "brief": "bridle-and-bough/brief.json",
-      "compose": false,
       "files": {
         "assets/bentwood-toboggan.png": "99b5cf78a19e3466f79e6d3666feaab7da44fd598648d5326531b22d2cd325d5",
         "assets/logo.png": "a3552cc9f2251d8615c788d075de7f342db23edd62a96e4887ae975013f74d9d",
         "assets/long-ride-blanket.png": "ee7fa0d62d0f4b80b75cf67112b183b6d7fec98406de6c7bb2f14b695bc8b286"
-      }
+      },
+      "prepared_outputs": null
     },
     {
       "slug": "autumn-winds",
       "brief": "autumn-winds/brief.json",
-      "compose": true,
       "files": {
         "assets/botanical-leaf-press.png": "6f7ca60f4e4610ce6e70da5be622a5b93293a42f09bfca7590631897e4bb44cc",
         "assets/copperleaf-sculpture.png": "ce60637606c7903e9a7f7fa4a4f7b6ac8d83569f8f7903132119834efe3907bc",
@@ -22,6 +21,10 @@
         "assets/logo.png": "8af5fc01bfb0c23c811234a977c55c26b6ef893e5ef3317859264d10d37cf861",
         "assets/maplewing-chair.png": "0de094d3827b21d3e8ee13f12a3e3bcdd5be3e617d706acaebf9cce4a9fefb7d",
         "assets/orchard-apple-baker.png": "1d0a906c50d290b71ca4e6130bd4e6358694a0a93b2dcf686553b34209593f9c"
+      },
+      "prepared_outputs": {
+        "path": "autumn-winds/prepared-outputs.json",
+        "sha256": "075d6a02b1a8a210654acb780565cc4c77f6db6d44c348bd07e758bd705a95fe"
       }
     }
   ]

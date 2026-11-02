@@ -80,9 +80,7 @@ def create_app(
         if fresh:
             from campaign_studio.bundled import install_campaigns
 
-            await install_campaigns(
-                app.state.workspace, app.state.runner, product_limit=settings.product_limit
-            )
+            await install_campaigns(app.state.workspace, product_limit=settings.product_limit)
         yield
         active = [task for task in app.state.operations.values() if not task.done()]
         for task in active:

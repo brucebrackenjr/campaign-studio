@@ -3,7 +3,10 @@
 import asyncio
 import copy
 import hashlib
+import importlib.util
 import json
+import threading
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from campaign_studio.app import create_app
 from campaign_studio.bundled import RECEIPT, install_campaigns, load_campaigns
+from campaign_studio.bundled_outputs import install_prepared_outputs
 from campaign_studio.cleanup import Cleanup
 from campaign_studio.config import Settings
 from campaign_studio.intake import Intake
@@ -20,13 +24,22 @@ from campaign_studio.state import State
 from campaign_studio.storage import Storage, StorageError
 from campaign_studio.workspace import Workspace
 
+# The maintainer script is a source tool, not an installed application module.
+_builder_spec = importlib.util.spec_from_file_location(
+    "bundled_output_builder",
+    Path(__file__).resolve().parents[1] / "scripts/build_bundled_outputs.py",
+)
+_builder = importlib.util.module_from_spec(_builder_spec)
+_builder_spec.loader.exec_module(_builder)
+build_prepared_outputs = _builder.build_prepared_outputs
+
 
 @pytest.fixture
 def bundle(tmp_path):
     fixture_storage = Storage(tmp_path / "synthetic-inputs")
     _, example = write_sample(fixture_storage, 3)
     source = tmp_path / "bundle"
-    manifest = {"version": 1, "campaigns": []}
+    manifest = {"version": 2, "campaigns": []}
     for slug, count, compose in [("supplied", 5, True), ("missing", 3, False)]:
         folder = source / slug
         (folder / "assets").mkdir(parents=True)
@@ -52,42 +65,41 @@ def bundle(tmp_path):
         (folder / "brief.json").write_text(json.dumps(raw))
         for path, payload in payloads.items():
             (folder / path).write_bytes(payload)
-        manifest["campaigns"].append(
-            {
-                "slug": slug,
-                "brief": f"{slug}/brief.json",
-                "compose": compose,
-                "files": {p: hashlib.sha256(b).hexdigest() for p, b in payloads.items()},
-            }
-        )
+        entry = {
+            "slug": slug,
+            "brief": f"{slug}/brief.json",
+            "prepared_outputs": None,
+            "files": {p: hashlib.sha256(b).hexdigest() for p, b in payloads.items()},
+        }
+        if compose:
+            build_prepared_outputs(source, entry, Storage(tmp_path / f"build-{slug}"))
+        manifest["campaigns"].append(entry)
     (source / "manifest.json").write_text(json.dumps(manifest))
     return source
 
 
-def test_install_claim_local_composition_missing_plan_and_deleted_examples_stay_deleted(
+def test_install_claim_prepared_images_missing_plan_and_deleted_examples_stay_deleted(
     tmp_path, bundle, monkeypatch
 ):
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
-    runner = Runner(workspace.state)
-    original_execute = runner.execute
+    original_install = install_prepared_outputs
 
     async def simultaneous_install():
-        reached, release = asyncio.Event(), asyncio.Event()
+        reached, release = threading.Event(), threading.Event()
 
-        async def hold_local(run_id, provider=None):
-            assert provider is None
+        def hold_local(*args):
             reached.set()
-            await release.wait()
-            return await original_execute(run_id)
+            assert release.wait(10)
+            return original_install(*args)
 
-        monkeypatch.setattr(runner, "execute", hold_local)
-        first = asyncio.create_task(install_campaigns(workspace, runner, source=bundle))
-        arrival = asyncio.create_task(reached.wait())
+        monkeypatch.setattr("campaign_studio.bundled.install_prepared_outputs", hold_local)
+        first = asyncio.create_task(install_campaigns(workspace, source=bundle))
+        arrival = asyncio.create_task(asyncio.to_thread(reached.wait, 10))
         done, _ = await asyncio.wait({first, arrival}, return_when=asyncio.FIRST_COMPLETED)
         if first in done:
             arrival.cancel()
             return await first
-        assert await install_campaigns(workspace, runner, source=bundle) is None
+        assert await install_campaigns(workspace, source=bundle) is None
         release.set()
         return await first
 
@@ -109,7 +121,7 @@ def test_install_claim_local_composition_missing_plan_and_deleted_examples_stay_
         preview = cleanup.preview_campaign(identity)
         cleanup.delete_campaign(identity, preview["token"])
     before = workspace.storage.path(RECEIPT).read_bytes()
-    assert asyncio.run(install_campaigns(workspace, runner, source=bundle)) is None
+    assert asyncio.run(install_campaigns(workspace, source=bundle)) is None
     assert workspace.storage.path(RECEIPT).read_bytes() == before
     with workspace.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
@@ -128,7 +140,7 @@ def test_official_first_start_uses_workspace_freshness_not_campaign_count(
             (root / "leave-me.txt").write_text("unrelated content")
     calls = []
 
-    async def record(workspace, runner, **options):
+    async def record(workspace, **options):
         calls.append(workspace.storage.root)
 
     monkeypatch.setattr("campaign_studio.bundled.install_campaigns", record)
@@ -184,26 +196,147 @@ def test_curated_hashes_and_paths_are_verified_before_any_campaign_is_created(tm
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
     (bundle / "supplied/assets/logo.png").write_bytes(b"changed")
     with pytest.raises(StorageError, match="does not match"):
-        asyncio.run(install_campaigns(workspace, Runner(workspace.state), source=bundle))
+        asyncio.run(install_campaigns(workspace, source=bundle))
     assert not workspace.storage.path(RECEIPT).exists()
     with workspace.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
 
 
-def test_compose_flag_cannot_authorize_missing_imagery(tmp_path, bundle, monkeypatch):
-    manifest = json.loads((bundle / "manifest.json").read_bytes())
-    manifest["campaigns"].reverse()
-    manifest["campaigns"][0]["compose"] = True
-    (bundle / "manifest.json").write_text(json.dumps(manifest))
+def test_prepared_import_cannot_authorize_missing_imagery(tmp_path, bundle, monkeypatch):
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
-    runner = Runner(workspace.state)
-
-    async def unexpected_execution(*args, **kwargs):
-        pytest.fail("A missing source must be refused before execution or confirmation")
-
-    monkeypatch.setattr(runner, "execute", unexpected_execution)
-    with pytest.raises(StorageError, match="requires new imagery"):
-        asyncio.run(install_campaigns(workspace, runner, source=bundle))
+    receipt = asyncio.run(install_campaigns(workspace, source=bundle))
+    missing = workspace.run_for(receipt["campaigns"][1]["id"])
+    _, campaigns = load_campaigns(bundle)
+    _, original, _, prepared = campaigns[0]
+    with pytest.raises(StorageError, match="complete supplied-image plan"):
+        install_prepared_outputs(workspace.state, missing["id"], original, prepared)
     with workspace.storage.connect() as db:
-        assert [r[0] for r in db.execute("SELECT state FROM runs")] == ["planned"]
+        assert workspace.state.run(missing["id"])["state"] == "planned"
         assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
+
+
+def test_prepared_install_never_renders_and_rebinds_all_outputs_and_metadata(
+    tmp_path, bundle, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Installing prepared examples must not render or execute production")
+
+    monkeypatch.setattr(Runner, "execute", forbidden)
+    monkeypatch.setattr("campaign_studio.rendering.compose", forbidden)
+    _, definitions = load_campaigns(bundle)
+    original = definitions[0][1]
+    prepared = definitions[0][3].descriptor
+    identities = []
+    for folder in ["first", "second"]:
+        workspace = Workspace(State(Storage(tmp_path / folder)))
+        receipt = asyncio.run(install_campaigns(workspace, source=bundle))
+        run = workspace.run_for(receipt["campaigns"][0]["id"])
+        plan = workspace.state.plan(run["id"])
+        revision = workspace.state.revision(run["current_revision"])
+        manifest = json.loads(workspace.storage.path(revision["manifest_ref"]).read_bytes())
+        assert run["state"] == "complete" and run["digest"] == plan.digest
+        assert manifest["evidence"] == "bundled_pre_rendered"
+        assert manifest["metrics"]["pre_rendered_images"] == 30
+        assert manifest["metrics"]["local_render_seconds"] == 0
+        assert manifest["metrics"]["attempted_requests"] == 0
+        assert manifest["metrics"]["cost_status"] == "no_requests"
+        assert manifest["metrics"]["completed_images"] == 30
+        assert len(manifest["outputs"]) == 30
+        old_ids = {p["id"] for p in original["products"]}
+        assert old_ids.isdisjoint(p.id for p in plan.brief.products)
+        assert all(old not in json.dumps(manifest) for old in old_ids)
+        for item, record in zip(manifest["outputs"], prepared["outputs"], strict=True):
+            path = workspace.storage.path(revision["manifest_ref"]).parent / item["file"]
+            assert path.read_bytes() == (bundle / record["file"]).read_bytes()
+            assert item["sha256"] == record["sha256"]
+            assert item["pixel_sha256"] == record["pixel_sha256"]
+        for asset in plan.assets.values():
+            assert asset.reference.startswith(f"campaigns/{run['id']}/inputs/")
+            assert (
+                hashlib.sha256(workspace.storage.path(asset.reference).read_bytes()).hexdigest()
+                == asset.sha256
+            )
+        with workspace.storage.connect() as db:
+            metadata = db.execute("SELECT creative_id,value_json FROM creative_metadata").fetchall()
+            assert len(metadata) == 30
+            assert {row[0] for row in metadata} == {o.id for o in plan.outputs}
+            assert all(json.loads(row[1])["_context"]["content"] for row in metadata)
+            assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
+            assert db.execute("SELECT count(*) FROM package_exports").fetchone()[0] == 0
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM file_owners WHERE reference=?",
+                    (f"campaigns/{run['id']}",),
+                ).fetchone()[0]
+                == 1
+            )
+        identities.append(
+            {run["campaign_id"], run["id"], revision["id"], *(p.id for p in plan.brief.products)}
+        )
+    assert identities[0].isdisjoint(identities[1])
+
+
+@pytest.mark.parametrize("damage", ["missing", "changed"])
+def test_prepared_png_damage_refused_before_any_campaign_exists(tmp_path, bundle, damage):
+    descriptor = json.loads((bundle / "supplied/prepared-outputs.json").read_bytes())
+    target = bundle / descriptor["outputs"][0]["file"]
+    if damage == "missing":
+        target.unlink()
+    else:
+        target.write_bytes(b"changed")
+    workspace = Workspace(State(Storage(tmp_path / "workspace")))
+    with pytest.raises(StorageError, match="bundled output"):
+        asyncio.run(install_campaigns(workspace, source=bundle))
+    assert not workspace.storage.path(RECEIPT).exists()
+    with workspace.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
+
+
+def test_prepared_contract_mismatch_cannot_publish_complete(tmp_path, bundle):
+    descriptor_path = bundle / "supplied/prepared-outputs.json"
+    descriptor = json.loads(descriptor_path.read_bytes())
+    descriptor["outputs"][0]["output"]["copy"]["message"] = "Unrelated output wording"
+    descriptor_path.write_text(json.dumps(descriptor))
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["campaigns"][0]["prepared_outputs"]["sha256"] = hashlib.sha256(
+        descriptor_path.read_bytes()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
+    workspace = Workspace(State(Storage(tmp_path / "workspace")))
+    with pytest.raises(StorageError, match="wording or layout"):
+        asyncio.run(install_campaigns(workspace, source=bundle))
+    with workspace.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
+        assert db.execute("SELECT state,current_revision FROM runs").fetchall() == [
+            ("planned", None)
+        ]
+
+
+def test_interrupted_prepared_copy_stays_owned_and_is_not_reseeded(tmp_path, bundle, monkeypatch):
+    workspace = Workspace(State(Storage(tmp_path / "workspace")))
+    write = workspace.storage.write
+    copied = []
+
+    def interrupted(reference, payload):
+        if "/revisions/" in reference and "/images/" in reference:
+            if copied:
+                raise OSError("controlled copy interruption")
+            copied.append(reference)
+        return write(reference, payload)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(workspace.storage, "write", interrupted)
+        with pytest.raises(OSError, match="controlled copy interruption"):
+            asyncio.run(install_campaigns(workspace, source=bundle))
+    receipt = json.loads(workspace.storage.path(RECEIPT).read_bytes())
+    campaign = receipt["campaigns"][0]["id"]
+    run = workspace.run_for(campaign)
+    assert run["state"] == "planned" and run["current_revision"] is None
+    assert workspace.storage.path(copied[0]).exists()
+    assert asyncio.run(install_campaigns(workspace, source=bundle)) is None
+    cleanup = Cleanup(workspace.state)
+    preview = cleanup.preview_campaign(campaign)
+    cleanup.delete_campaign(campaign, preview["token"])
+    assert not workspace.storage.path(copied[0]).exists()
+    assert (bundle / "supplied/prepared-outputs.json").exists()

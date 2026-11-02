@@ -1,0 +1,4553 @@
+{
+  "version": 1,
+  "brief_sha256": "303007eb6be3c516df40a246765e9fb60d07d61311c7e6d55cad21af0aa802b3",
+  "assets": {
+    "assets/botanical-leaf-press.png": "6f7ca60f4e4610ce6e70da5be622a5b93293a42f09bfca7590631897e4bb44cc",
+    "assets/copperleaf-sculpture.png": "ce60637606c7903e9a7f7fa4a4f7b6ac8d83569f8f7903132119834efe3907bc",
+    "assets/leaflight-lantern.png": "dc9dd33b681708b1b1f1baa60cc46250a2d608ea1a1d831438759b0705c3b9b3",
+    "assets/logo.png": "8af5fc01bfb0c23c811234a977c55c26b6ef893e5ef3317859264d10d37cf861",
+    "assets/maplewing-chair.png": "0de094d3827b21d3e8ee13f12a3e3bcdd5be3e617d706acaebf9cce4a9fefb7d",
+    "assets/orchard-apple-baker.png": "1d0a906c50d290b71ca4e6130bd4e6358694a0a93b2dcf686553b34209593f9c"
+  },
+  "fonts": {
+    "noto_sans": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "barlow_condensed": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9"
+  },
+  "text_color": "#FFF4DC",
+  "rendered_with": {
+    "application": "0.1.2",
+    "pillow": "13.0.0"
+  },
+  "outputs": [
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/1x1",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "en-US",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.03,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.24,
+              "width": 0.88,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.34,
+              "width": 0.88,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/1x1/en-US.png",
+      "bytes": 1512776,
+      "sha256": "0741097b23ae42d30e8becfabd2274b5b4cc8f39c247cd035b4cf3533c5cf738",
+      "pixel_sha256": "3616c51f5631abe28b7291ca59aaadf745ea74fb1b09dbfce504c32af7f72232",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/9x16",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "en-US",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/9x16/en-US.png",
+      "bytes": 2138212,
+      "sha256": "f49a10534b19281299d64b4baa0632454b4d1e1aa56a0a5640a125438e8982d4",
+      "pixel_sha256": "fb90ce43fd90ffb7d387daf7767cb4c21c62afe254fa5c6cfd69326b062c56f7",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/16x9",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "en-US",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.055,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.055,
+              "top": 0.24,
+              "width": 0.57,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.055,
+              "top": 0.34,
+              "width": 0.57,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/16x9/en-US.png",
+      "bytes": 2325475,
+      "sha256": "4fed4742c3a3204020b5120542dee1260a6ef9a2e2d60dae7d117fd55682f658",
+      "pixel_sha256": "3a55a27059f513ce5f225987bc09f71ed5de906397052e9bdc862075e7ea8c95",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/1x1",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "es-MX",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.03,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.24,
+              "width": 0.88,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.34,
+              "width": 0.88,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/1x1/es-MX.png",
+      "bytes": 1514056,
+      "sha256": "513bd74cca3aa46a945ad74ef5bf1128eedb9ff8500dba5c8137bec29a8a4d2a",
+      "pixel_sha256": "c1b0b14cfbc1a7bb143b8c2e28239492c90b083cf350bb5f77d183e7679b9e97",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/9x16",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "es-MX",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/9x16/es-MX.png",
+      "bytes": 2140811,
+      "sha256": "4de46ca1f3e27ffb10229ef01de719a544ea4e3766366ac402d2402cada0c65a",
+      "pixel_sha256": "881728c2ab606f2e114f6a6a56dbf0cae930ee371875c34b12dc960833a3fbe5",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/16x9",
+        "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+        "market": "es-MX",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.65,
+          "focal_y": 0.66,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.055,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.055,
+              "top": 0.24,
+              "width": 0.57,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.055,
+              "top": 0.34,
+              "width": 0.57,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/16x9/es-MX.png",
+      "bytes": 2327731,
+      "sha256": "a9024815917038cdb6796b8e5c47fa58a8a24bbb3caea771e45f50ee6b4abcf4",
+      "pixel_sha256": "4557090545dfba1fc1c096c5257314331a5bcf16a4bdbae2a8eac3ee3defd1c4",
+      "findings": [
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-8a7435d0d0835754b45f3faa7363ee5f/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+            "product_name": "Leaflight lantern",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/en-US/1x1",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "en-US",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.03,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.24,
+              "width": 0.88,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.34,
+              "width": 0.88,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/1x1/en-US.png",
+      "bytes": 2032316,
+      "sha256": "8bb4959df4ee0daaf514b2edbce40c7b60ebcc7052ff293a03d1b2194a1b7b3a",
+      "pixel_sha256": "e4bfc76c5a6e965fb183d7c1dc66d41474bc53753f40d8b89230e8d5b58a5adb",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/en-US/9x16",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "en-US",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/9x16/en-US.png",
+      "bytes": 2662019,
+      "sha256": "3ed771a1a25677bd705f83069b0c4e9a6460dba23dd4e86995f2834f89e5510e",
+      "pixel_sha256": "74ff7f93c77e23b100746822f629609ec5225da93639b9f5f12bdc52a6e0858b",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/en-US/16x9",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "en-US",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.055,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.055,
+              "top": 0.24,
+              "width": 0.57,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.055,
+              "top": 0.34,
+              "width": 0.57,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/16x9/en-US.png",
+      "bytes": 3041696,
+      "sha256": "022bbccbe84266b23d47412bb309882b04381303a8ed7e285ada2c426881343d",
+      "pixel_sha256": "8542a11e291d24407c90279810f90ff2bad7c6c58f5f6bed37bd95e392c900de",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/es-MX/1x1",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "es-MX",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.03,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.24,
+              "width": 0.88,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.34,
+              "width": 0.88,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/1x1/es-MX.png",
+      "bytes": 2033605,
+      "sha256": "edb40a93730b0536b4639ff9d3842a36cc0377dda902ed6f135764cb50711af6",
+      "pixel_sha256": "6bf582e361c50f9f6c70ec59c7b5ffd16af612579ac203ecfbd81facb10a464e",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/es-MX/9x16",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "es-MX",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/9x16/es-MX.png",
+      "bytes": 2664001,
+      "sha256": "c29dbf6bbe8102afdd94e352066d36bc2983086b530d1070f3a1ad25c61d4156",
+      "pixel_sha256": "5f0333fa3ae26cfc88a9a29d35d071cdb1b4ddc96e1b8b491163b571cbb84643",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-55fc083d0ff1503987de64345e58373b/es-MX/16x9",
+        "product_id": "p-55fc083d0ff1503987de64345e58373b",
+        "market": "es-MX",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.5,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.055,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.055,
+              "top": 0.24,
+              "width": 0.57,
+              "font_size": 72,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.055,
+              "top": 0.34,
+              "width": 0.57,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/16x9/es-MX.png",
+      "bytes": 3044532,
+      "sha256": "b79c6ce574bd6c1cb02d811c850bd10d21c38c077afab0ed80f34e2ceb831140",
+      "pixel_sha256": "a40ba0da4fd94f022fa211ea99a81bd735dbcc489d88610d80b2dadffa8414c1",
+      "findings": [
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-55fc083d0ff1503987de64345e58373b/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-55fc083d0ff1503987de64345e58373b",
+            "product_name": "Copperleaf wind sculpture",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/1x1",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "en-US",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 54,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/1x1/en-US.png",
+      "bytes": 1902527,
+      "sha256": "fa4e35613e9ead32282d5323326f6e7f5d7abc037eca37eb4e67a3a02f3b2b3c",
+      "pixel_sha256": "2da6fc08c0ef07e249c164068154b12ba99c66fc9430fc8ad4e2dca79b8c763f",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/9x16",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "en-US",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/9x16/en-US.png",
+      "bytes": 2294519,
+      "sha256": "3b1a840a6ee10c16c1af3e3ba5b2c554d584493f92c8022a2d59923b4e80529d",
+      "pixel_sha256": "3b6489ef2922b82f0621ab2be0750e2907a85dfaffd1d36d99b8bf7c1f9c32d9",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/16x9",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "en-US",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/16x9/en-US.png",
+      "bytes": 2855769,
+      "sha256": "43d15ec71c2ddb555f746aa1c70d6dfe5a1b9cb2b49606b4949b31aabd006ea3",
+      "pixel_sha256": "c417646de8a43d3b1e5fdd30841f5bad9a7116bb53fe86fd77c166f0971318f4",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/1x1",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "es-MX",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 54,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/1x1/es-MX.png",
+      "bytes": 1904410,
+      "sha256": "05aaf41b094eac84c2e2f0a5e2e2284ea5b0ae68b2150977bbb0df3d51430419",
+      "pixel_sha256": "7e15faef052441e23adfe44cad0bc3348c57cbd466dc52de5a60f13af9938ad2",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/9x16",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "es-MX",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/9x16/es-MX.png",
+      "bytes": 2296175,
+      "sha256": "3488c789004760a75acbe89e634a0e99b599b133652482ff19bdadb3012845f4",
+      "pixel_sha256": "c9646cc7f5228f0ce664ec594146b3bbab070afe5f6cbdbfed341043bb60acd9",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/16x9",
+        "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+        "market": "es-MX",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.55,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/16x9/es-MX.png",
+      "bytes": 2857771,
+      "sha256": "6e85046008fe251d4eb2cadbe04f4e95e131f02ac8db3e7b211485a9daa9c273",
+      "pixel_sha256": "85daa64153739086f34af768db347e27e49c7f9aa2fd2b21e4c5f79e6ce24f3e",
+      "findings": [
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+            "product_name": "Maplewing fireside chair",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/1x1",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "en-US",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 54,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/1x1/en-US.png",
+      "bytes": 1829130,
+      "sha256": "b8fe0042bb43c5b08c2692298f54de23e572b41ff943ed4e58414f147fcb08d9",
+      "pixel_sha256": "b06b1a73c63432f58b745f7186a1dd6abb76ad8fbc050080ad9b6601fdb44942",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/9x16",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "en-US",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/9x16/en-US.png",
+      "bytes": 2387414,
+      "sha256": "1e0a87b974dd7caeba3704b30425110e7327a71081806e42615efa28ed9abd84",
+      "pixel_sha256": "256ba3d32c18010d2aead5142277e564ac0041a9d1ae7079b88bafdfe0faa9b2",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/16x9",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "en-US",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/16x9/en-US.png",
+      "bytes": 2882020,
+      "sha256": "df6c2d95e0efe6730bafd7bfa069555e0128418977005f5216d8799e3ad6f49e",
+      "pixel_sha256": "6436acf16216907d54b1787cbd1d872f8c0a70d285effd5b3abb291d0491221c",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/1x1",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "es-MX",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 54,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/1x1/es-MX.png",
+      "bytes": 1830560,
+      "sha256": "3e0257235b97f66b64622ca455fdbc0912c7697789df952299e24948ca697945",
+      "pixel_sha256": "24b37a043a6c728cb7fe2576eb10f813435a43f7532f2709b54bd40fbe0cfd04",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/9x16",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "es-MX",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/9x16/es-MX.png",
+      "bytes": 2389448,
+      "sha256": "6623e0fc857c3a74a57c3a3d82b38da8b758526675bd1fb5a4e0c26a7a7a40f3",
+      "pixel_sha256": "0068867ca0e8296cf9d0725dbeb0b852d9bf7781a6bd0e9a98caaa3a02cee1e7",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/16x9",
+        "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+        "market": "es-MX",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/16x9/es-MX.png",
+      "bytes": 2884565,
+      "sha256": "f8b1ed9dffed6b84813e3438b41d0b2e0576d07a8d0455557dc3d1f30332ee78",
+      "pixel_sha256": "ccbf7c6ad582882dcceffaed365b05013772760a2250db283fe53efd29b3350a",
+      "findings": [
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-af2be177f2cd5f8f9ed7b441ff4a8b75/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+            "product_name": "Botanical leaf press",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/en-US/1x1",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "en-US",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.25,
+              "top": 0.41,
+              "width": 0.7,
+              "font_size": 66,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.25,
+              "top": 0.49,
+              "width": 0.65,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/1x1/en-US.png",
+      "bytes": 1788666,
+      "sha256": "3d3f86b2a0ff3cb5e707e517e66d67fa0be768e23f6255dcc562026072f551a1",
+      "pixel_sha256": "24893b4fed92dc6480ba04e21e6e70751740d653f34758f0e8da1eb1172b94b7",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/en-US/9x16",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "en-US",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/9x16/en-US.png",
+      "bytes": 2337519,
+      "sha256": "259ed8a7e072dc8dcea597d1256453c7d8e5dee6cf4b7919b36614c10802c44a",
+      "pixel_sha256": "7e1ff57f51d238008600f2fe3ee23b01d9f437b96b9e7ac2ae78ebe501e45da7",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/en-US/16x9",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "en-US",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Stay a little longer.",
+          "cta": "Explore autumn."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/16x9/en-US.png",
+      "bytes": 2766741,
+      "sha256": "855a0d898a0f607853c03260034fa61caf29165ea9bb80543e40ccd8c81050d6",
+      "pixel_sha256": "4bb6a1e05cbe4662d45390b020eae523c1f3090bc31dc0aaa4e36f0e253ae72f",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/en-US/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "en-US",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/es-MX/1x1",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "es-MX",
+        "ratio": "1:1",
+        "width": 1080,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.32
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.25,
+              "top": 0.41,
+              "width": 0.7,
+              "font_size": 66,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.25,
+              "top": 0.49,
+              "width": 0.65,
+              "font_size": 32,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/1x1/es-MX.png",
+      "bytes": 1790013,
+      "sha256": "36bb66f1b6fbee8a8b7b8358fb374022a0f20c6606b0528241b33c34e60d8848",
+      "pixel_sha256": "3a3a35bc77f520de4b0e75a600190fb6386647e6f24bad4100a3f75e731cc370",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/1x1",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/1x1",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/1x1",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "1:1",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/es-MX/9x16",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "es-MX",
+        "ratio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.06,
+            "top": 0.035,
+            "width": 0.38
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.06,
+              "top": 0.21,
+              "width": 0.88,
+              "font_size": 84,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.06,
+              "top": 0.29,
+              "width": 0.88,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/9x16/es-MX.png",
+      "bytes": 2339328,
+      "sha256": "ed3c2635e04a6c4bfb22cbc77422fe7e24c9f36985f468b574cb8fe5786a146b",
+      "pixel_sha256": "013755db736c05e4196a95759a75304736d687f9ff20f0271eb350263ea80bae",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/9x16",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/9x16",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/9x16",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "9:16",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    },
+    {
+      "output": {
+        "id": "p-4e0606e87af95766bbddf23f50e02798/es-MX/16x9",
+        "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+        "market": "es-MX",
+        "ratio": "16:9",
+        "width": 1920,
+        "height": 1080,
+        "copy": {
+          "message": "Quédate un poco más.",
+          "cta": "Descubre el otoño."
+        },
+        "framing": {
+          "focal_x": 0.64,
+          "focal_y": 0.5,
+          "zoom": 1.0,
+          "copy_placement": "top",
+          "subject_box": null,
+          "inherit_subject": true,
+          "logo_placement": {
+            "left": 0.34,
+            "top": 0.03,
+            "width": 0.22
+          },
+          "text_placements": {
+            "message": {
+              "left": 0.34,
+              "top": 0.24,
+              "width": 0.42,
+              "font_size": 60,
+              "font_id": "barlow_condensed",
+              "color": "#FFF4DC"
+            },
+            "cta": {
+              "left": 0.34,
+              "top": 0.34,
+              "width": 0.42,
+              "font_size": 36,
+              "font_id": "noto_sans",
+              "color": "#FFF4DC"
+            }
+          }
+        }
+      },
+      "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/16x9/es-MX.png",
+      "bytes": 2769216,
+      "sha256": "617cacf1ece3038f86c13e5289221d892c7e4adf89769ece2fd43351348edbc6",
+      "pixel_sha256": "9dce648469d2e1f4369b7fbcc92e02bb0ae0f13f19bb7173605e3b975a0cf7ee",
+      "findings": [
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/16x9",
+          "rule": "image_integrity",
+          "severity": "pass",
+          "evidence": "The exported PNG decodes at its declared dimensions.",
+          "remedy": "Correct this input before continuing.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/16x9",
+          "rule": "logo_pixels",
+          "severity": "pass",
+          "evidence": "Compared exported opaque logo pixels with the supplied logo.",
+          "remedy": "Restore the supplied logo and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": null,
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "logo_path"
+                ],
+                "label": "Logo",
+                "code": "logo_pixels",
+                "message": "Restore the supplied logo and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Headline: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "message",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        },
+        {
+          "item": "p-4e0606e87af95766bbddf23f50e02798/es-MX/16x9",
+          "rule": "controlled_text_color",
+          "severity": "pass",
+          "evidence": "Call to action: compared exposed opaque text pixels with the selected brand color; not OCR.",
+          "remedy": "Restore the supplied text color and recompose this output.",
+          "context": {
+            "product_id": "p-4e0606e87af95766bbddf23f50e02798",
+            "product_name": "Orchard apple baker",
+            "market": "es-MX",
+            "ratio": "16:9",
+            "text_block": "cta",
+            "fields": [
+              {
+                "path": [
+                  "brand",
+                  "text_color"
+                ],
+                "label": "Text color",
+                "code": "controlled_text_color",
+                "message": "Restore the supplied text color and recompose this output.",
+                "product_index": null,
+                "market": null
+              }
+            ],
+            "phrase": null
+          }
+        }
+      ]
+    }
+  ]
+}

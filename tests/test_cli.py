@@ -118,8 +118,8 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, st
         text=True,
     )
     try:
-        # Cold example composition takes about 30 seconds on shared Linux runners;
-        # allow bounded scheduling headroom before requiring healthy HTTP responses.
+        # First launch installs and validates prepared examples before serving HTTP.
+        # Keep a bounded allowance for cold disk access on shared runners.
         deadline = time.monotonic() + COLD_STARTUP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if process.poll() is not None:
