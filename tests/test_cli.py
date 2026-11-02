@@ -103,6 +103,10 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch):
     # Explicit launcher settings must win over broad Uvicorn environment defaults.
     monkeypatch.setenv("UVICORN_HOST", "0.0.0.0")
     opener = build_opener(ProxyHandler({}))
+    started = time.monotonic()
+    ready_seconds = None
+    failure = None
+    shutdown_failed = False
     process = subprocess.Popen(
         [sys.executable, "-m", "campaign_studio", "serve"],
         cwd=tmp_path,
@@ -115,25 +119,58 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch):
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                pytest.fail("The local server exited before becoming ready.")
+                failure = "The local server exited before becoming ready."
+                break
             try:
                 with opener.open(f"http://127.0.0.1:{port}/health", timeout=0.5) as response:
                     assert json.load(response)["stage"] == "workflow"
                 with opener.open(f"http://127.0.0.1:{port}/", timeout=0.5) as response:
                     assert "/static/motif/actions.js" in response.read().decode()
+                ready_seconds = time.monotonic() - started
                 break
             except URLError, TimeoutError:
                 time.sleep(0.05)
         else:
-            pytest.fail("The local server did not become ready within 30 seconds.")
+            failure = "The local server did not become ready within 30 seconds."
     finally:
         process.terminate()
         try:
             stdout, stderr = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.communicate()
-            pytest.fail("The local server did not stop cleanly.")
+            stdout, stderr = process.communicate()
+            shutdown_failed = True
+        receipt = tmp_path / "runtime/private/bundled-campaigns.json"
+        try:
+            setup = json.loads(receipt.read_text()) if receipt.is_file() else {}
+        except OSError, ValueError:
+            setup = {"state": "unreadable"}
+        print(
+            "CLI startup measurement: "
+            + json.dumps(
+                {
+                    "ready_seconds": ready_seconds,
+                    "total_seconds": time.monotonic() - started,
+                    "returncode": process.returncode,
+                    "setup_state": setup.get("state"),
+                    "setup_elapsed_seconds": setup.get("elapsed_seconds"),
+                    "setup_campaigns": len(setup.get("campaigns", [])),
+                }
+            )
+        )
+        print("CLI stdout:\n" + stdout)
+        print("CLI stderr:\n" + stderr)
+    if failure or shutdown_failed:
+        pytest.fail(
+            "\n".join(
+                item
+                for item in (
+                    failure,
+                    "The local server did not stop cleanly." if shutdown_failed else None,
+                )
+                if item
+            )
+        )
     # Uvicorn completes lifespan shutdown, then preserves the received signal.
     assert process.returncode == -signal.SIGTERM
     assert "Application shutdown complete." in stderr

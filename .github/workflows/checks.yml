@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CAMPAIGN_STUDIO_DATA_DIR: .checks/runtime
     steps:
@@ -35,6 +35,8 @@ jobs:
         run: |
           uv run --locked ruff check .
           uv run --locked ruff format --check .
+      - name: Diagnose cold CLI startup
+        run: uv run --locked pytest -vv -s --tb=short tests/test_cli.py::test_real_server_starts_on_loopback_and_shuts_down --junitxml=.checks/startup.xml
       - name: Behavioral tests
         run: |
           uv run --locked pytest --junitxml=.checks/pytest.xml
