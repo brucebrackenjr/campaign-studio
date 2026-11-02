@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "campaign-studio"
+version = "0.1.0"
+description = "A local campaign production and review application."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "jinja2>=3.1.6,<4",
+  "pydantic>=2.11,<3",
+  "pillow>=12,<13",
+  "fonttools>=4.60,<5",
+  "openai>=2,<3",
+  "httpx>=0.28,<1",
+  "python-dotenv>=1.2,<2",
+]
+
+[project.scripts]
+campaign-studio = "campaign_studio.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "httpx2>=2.16,<3", "ruff>=0.11,<1"]
+build = ["hatchling==1.29.0"]
+
+[tool.hatch.build]
+exclude = ["**/.campaign-studio-key-*.tmp", "**/.campaign-studio-key.lock"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/campaign_studio"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --basetemp=.pytest-tmp"
+filterwarnings = ["error"]

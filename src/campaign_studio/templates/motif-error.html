@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Motif – Campaign Studio · {{ 'Report not found' if report_not_found else ('Campaign not found' if campaign_not_found else ('Page not found' if not_found else 'Saved work')) }}</title>
+  <link rel="stylesheet" href="/static/motif/styles.css">
+  <link rel="stylesheet" href="/static/motif/refinement.css">
+  <link rel="icon" type="image/svg+xml" href="/static/motif/assets/motif-favicon.svg">
+  <link rel="stylesheet" href="/static/motif/motif.css">
+</head>
+<body>
+  <header class="topbar"><div class="motif-brand"><a href="/" class="wordmark" aria-label="Motif – Campaign Studio home"><i class="mark" aria-hidden="true"></i>Motif</a><span class="motif-descriptor">Campaign Studio</span></div></header>
+  <main>
+    {% if report_not_found %}
+    <div class="page-head"><div><div class="eyebrow">YOUR WORKSPACE</div><h1>Report not found</h1><p>We couldn’t find this report. Open a campaign’s Handoff to create one.</p></div><div class="head-actions"><a class="btn primary" href="/">Back to workbench</a></div></div>
+    {% elif campaign_not_found %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">YOUR WORKSPACE</div>
+    <h1>Campaign not found</h1>
+    <p>We couldn’t find this campaign in your workspace.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn primary" href="/?action=new">Create a campaign</a>
+    <a class="btn" href="/">Back to workbench</a>
+  </div>
+</div>
+    {% else %}
+    <div class="page-head"><div><div class="eyebrow">{{ 'PAGE NOT FOUND' if not_found else 'SAVED WORK' }}</div><h1>{{ 'This page isn’t available.' if not_found else 'This item is unavailable.' }}</h1><p>{{ 'Open your workbench to choose a campaign, then use Campaign, Production, Studio, or Handoff.' if not_found else message }}</p></div><div class="head-actions"><a class="btn primary" href="{{ current_images or '/' }}">{{ 'Open current images' if current_images else 'Open workbench' }}</a></div></div>
+    {% endif %}
+  </main>
+</body>
+</html>

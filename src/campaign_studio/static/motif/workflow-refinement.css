@@ -1,0 +1,39 @@
+/* Shared stage headers and navigation. Load after the page components. */
+.mf-producer-shell main .wf-stage-header{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:100px;margin:0 0 22px;width:100%;grid-column:1 / -1}
+.mf-producer-shell main .wf-stage-header>div:first-child{display:flex;flex-direction:column;min-width:0;gap:0}
+.mf-producer-shell main .wf-stage-header :is(.eyebrow,.pr-eyebrow){order:0;grid-area:auto;align-self:flex-start;font:750 10px/1.5 Noto,Arial,sans-serif;letter-spacing:.13em;margin:0;color:#283129}
+.mf-producer-shell main .wf-stage-header h1{order:1;grid-area:auto;font:600 54px/1.05 Barlow,Arial,sans-serif;letter-spacing:normal;margin:6px 0 9px}
+.mf-producer-shell main .wf-stage-header p{order:2;grid-area:auto;font:400 13px/1.5 Noto,Arial,sans-serif;color:#64715f;margin:0}
+.mf-producer-shell main .wf-stage-header>.bf-primary{font-weight:650}
+.wf-sequence-actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-shrink:0}
+.wf-sequence-actions .wf-previous{background:transparent;border-color:transparent}
+.mf-producer-shell .hlb .bf-tab-row{display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid #c6d0b9;margin-bottom:18px;padding-bottom:7px}
+.mf-producer-shell .hlb .bf-tab-row .bf-tabs{flex:1;min-width:0;width:auto;margin:0;border-bottom:0}
+.wf-production-sidebar{display:flex;flex-direction:column;gap:0;min-width:0;background:#edf0e2;border:1px solid #c6d0b9;border-top:4px solid #56734e;border-radius:5px;overflow:hidden}
+.wf-production-sidebar .wf-product-management{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px;border-bottom:1px solid #c6d0b9}
+.wf-product-management .pr-cap{font:650 14px/1.4 Noto,Arial,sans-serif;color:#3e5539;white-space:nowrap}
+.wf-product-management .pr-button{min-height:36px;padding:7px 12px;font-size:12px!important}
+.wf-production-sidebar .pr-action-panel{border:0;border-radius:0;min-height:0;padding:17px 18px;background:transparent}
+.wf-production-sidebar .pr-action-panel>h2{margin-top:7px}
+.wf-output-coverage{margin:0 18px;padding:13px 0;border-top:1px solid #c6d0b9;font:12px/1.6 Noto,Arial,sans-serif;color:#64715f}
+.wf-output-coverage summary{color:#283129;font-weight:650;cursor:pointer}
+.wf-output-coverage summary:hover{color:#b72f1d}
+.wf-output-coverage .wf-formats{display:flex;gap:16px;margin:12px 0 8px;color:#283129}
+.wf-output-coverage .wf-formats span{display:flex;flex-direction:column}
+.wf-output-coverage .wf-formats small{font-size:11px;color:#64715f}
+.wf-output-coverage .wf-markets{display:flex;flex-wrap:wrap;gap:4px 12px}
+.wf-studio-availability{font-size:12px;color:#64715f;margin-top:9px}
+@media(max-height:820px){
+ .mf-producer-shell main .wf-stage-header{min-height:88px;margin-bottom:17px}
+ .mf-producer-shell main .wf-stage-header h1{font-size:46px;margin:4px 0 7px}
+ .wf-production-sidebar .wf-product-management{padding:12px 15px}
+ .wf-production-sidebar .pr-action-panel{padding:14px 15px}
+ .wf-output-coverage{margin:0 15px;padding:11px 0}
+ .mf-producer-shell .hlb .bf-tab-row{margin-bottom:15px;padding-bottom:5px}
+}
+@media(max-width:1050px){.wf-sequence-actions{flex-wrap:wrap;max-width:280px}.mf-producer-shell main .wf-stage-header{align-items:flex-start}}
+.pr-card-facts .pr-output-summary{margin-left:auto}
+
+.mf-producer-shell #project-save-recovery:empty{display:none}
+
+.hlb .bf-tab-row .wf-sequence-actions .bf-button{font-size:12px;font-weight:400;min-height:36px;padding:6px 10px;background:transparent;border-color:transparent}

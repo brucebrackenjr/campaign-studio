@@ -1,0 +1,9 @@
+/* Motif identity colors and type refinements; existing workflow layout remains. */
+.motif-brand { display: flex; align-items: center; gap: 18px; flex: none; }
+.motif-descriptor { border-left: 1px solid #cccfc4; padding-left: 18px; min-height: 24px; display: flex; align-items: center; font-size: 10px; line-height: 1.4; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
+.mark { flex: none; clip-path: polygon(0 100%, 0 0, 23.077% 0, 50% 42.308%, 76.923% 0, 100% 0, 100% 100%, 76.923% 100%, 76.923% 38.462%, 50% 76.923%, 23.077% 38.462%, 23.077% 100%); }
+.motif-brand .wordmark { white-space: nowrap; }
+@media (max-width: 800px) {
+  .motif-brand { gap: 12px; }
+  .motif-descriptor { padding-left: 12px; font-size: 9px; letter-spacing: 1.1px; }
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+{% macro sentence(value) -%}
+{% set text = value.rstrip() %}{{ text }}{% if text and not text.endswith(('.', '!', '?', '…')) %}.{% endif %}
+{%- endmacro %}
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ campaign.campaign_name }} – Motif campaign report</title>
+<style>body{margin:0;background:#f5f3eb;color:#26372a;font:15px/1.5 Arial,sans-serif}header{background:#263b2d;color:#f6f2df;padding:48px 6%}h1{font-size:56px;line-height:1.05;max-width:900px;margin:16px 0}h2{font-size:30px;margin-top:0}nav{padding:20px 6%;border-bottom:1px solid #cad2bd;display:flex;gap:25px;flex-wrap:wrap}a{color:inherit}main{padding:30px 6%}section{margin-bottom:42px}.stats{display:flex;gap:40px;flex-wrap:wrap}.stats strong{font-size:32px;display:block}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}.card{background:#fffdf7;border:1px solid #cbd2c0;border-radius:5px;overflow:hidden}.image{height:330px;background:#e2e5d9;padding:18px;display:flex;align-items:center;justify-content:center}.image{overflow:hidden}.image a{display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-width:0;min-height:0}.image img{width:100%;height:100%;object-fit:contain;max-width:100%;max-height:100%}.info{padding:20px}.info h3{margin:0 0 8px}.tag{background:#e1e9d4;padding:4px 7px;border-radius:4px;font-size:11px;display:inline-block}.missing{height:330px;background:#e7e8dd;display:grid;place-content:center;padding:18px;text-align:center}.muted{color:#68745e;font-size:13px}.details{padding:20px;background:#e6ecd9}.desc{font-size:13px}.row{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #d4dcc6;padding:14px 0}footer{border-top:1px solid #cbd2bd;padding:25px 6%;font-size:12px}a:focus-visible{outline:3px solid #c43826;outline-offset:5px}@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}h1{font-size:42px}}@media(max-width:550px){.grid{grid-template-columns:1fr}.image{height:360px}}@media print{.card{break-inside:avoid}nav{display:none}}</style>
+</head><body>
+<header>
+<div style="letter-spacing:3px;font-size:12px">{{ brand_name }} / CAMPAIGN REVIEW</div>
+<h1>{{ campaign.campaign_name }}</h1>
+<p>Revision {{ revision_number }} · {{ 'Complete campaign package' if campaign.complete else 'Partial campaign package' }} · {{ campaign.metrics.completed_images }} of {{ campaign.metrics.requested_images }} images</p>
+<p style="font-size:13px">Open, inspect, and retrieve every available full-size PNG. This report works offline.{% if report_created_label %}<br>Report snapshot · {{ report_created_label }}. Later work is not included.{% endif %}</p>
+</header>
+<nav aria-label="Recipient report sections"><a href="#images">Creative overview</a><a href="#production">Production record</a><a href="#provenance">Origins &amp; descriptions</a></nav>
+<main>
+<section class="stats" aria-label="Package summary">
+<div><strong>{{ campaign.product_names|length }}</strong>{{ 'product' if campaign.product_names|length==1 else 'products' }}</div>
+<div><strong>{{ campaign.outputs|map(attribute='market')|unique|list|length }}</strong>markets</div>
+<div><strong>{{ campaign_display.spend }}</strong>Campaign spend estimate{% if campaign_display.spend_helper %}<p class="muted">{{ campaign_display.spend_helper }}</p>{% endif %}</div>
+</section>
+<section id="images"><h2>The complete picture.</h2>
+<p class="muted">Click an image for its full-size PNG.</p>
+<div class="grid">
+{% for market,language in languages.items() %}{% for ratio,size in sizes.items() %}
+{% for output in campaign.outputs if output.market==market and output.ratio==ratio %}
+{% set name=campaign.product_names[output.product_id] %}
+{% set source=campaign.sources|selectattr('product_id','equalto',output.product_id)|first %}
+<article class="card">
+{% if output.file %}
+<div class="image"><a href="{{ output.file }}"><img src="{{ output.file }}" alt="{{ output.accessible_description or ('Image description not supplied. ' ~ name ~ ', ' ~ language ~ ', ' ~ size ~ '.') }}" aria-describedby="description-{{ output.product_id }}-{{ market }}-{{ ratio|replace(':','x') }}"></a></div>
+{% else %}<div class="missing"><strong>Image not available</strong><p>Not available: {{ output.omission }}</p></div>{% endif %}
+<div class="info">
+<h3>{{ name }}</h3><p class="muted">{{ language }} · {{ size }} {{ ratio }}<br>{{ output.width }} × {{ output.height }} PNG</p>
+
+<p class="desc" id="description-{{ output.product_id }}-{{ market }}-{{ ratio|replace(':','x') }}"><b>Image description:</b> {{ output.accessible_description or 'Not supplied.' }}</p>
+<p class="muted"><b>Origin:</b> {{ source.provenance.label }}</p>
+{% if output.file %}<a href="{{ output.file }}" download>Download full-size PNG ↓</a>{% endif %}
+<details><summary>Wording origin</summary>
+<p>{{ sentence(output.copy_provenance.origin.label) }} {{ sentence(output.copy_provenance.origin.rights) }}</p>
+</details>
+</div></article>
+{% endfor %}{% endfor %}{% endfor %}
+</div></section>
+<section id="production">
+<h2>The work behind the work.</h2>
+<div class="row"><span>Campaign / saved revision</span><b>{{ campaign.campaign_name }} / revision {{ revision_number }}</b></div>
+<div class="row"><span>Current images · available / expected</span><b>{{ campaign.metrics.completed_images }} / {{ campaign.metrics.requested_images }}</b></div>
+<div class="row"><span>Campaign generation attempts</span><b>{{ campaign_display.attempts }}{% if campaign_display.attempts_helper %}<br><small class="muted">{{ campaign_display.attempts_helper }}</small>{% endif %}</b></div>
+<div class="row"><span>This operation · processing</span><b>{{ (campaign.metrics.elapsed_processing_seconds|string ~ ' seconds') if campaign.metrics.elapsed_processing_seconds is not none else 'Not recorded' }}</b></div>
+<div class="row"><span>Campaign spend estimate</span><b>{{ campaign_display.spend }}{% if campaign_display.spend_helper %}<br><small class="muted">{{ campaign_display.spend_helper }}</small>{% endif %}</b></div>
+<div class="row"><span>Time comparison</span><b>Not estimated – complete baseline not supplied</b></div>
+<details><summary>Full production details and estimates</summary>
+<p>{{ campaign.metrics.completed_images }} of {{ campaign.metrics.requested_images }} requested images saved.</p>
+<p>{{ campaign.metrics.reused_sources }} {{ 'product uses' if campaign.metrics.reused_sources==1 else 'products use' }} supplied or replayed imagery.</p>
+<p>{{ campaign.metrics.attempted_requests }} image {{ 'request' if campaign.metrics.attempted_requests==1 else 'requests' }} for this saved run through this revision, with an allowance of {{ campaign.metrics.request_allowance }}.</p>
+<ul><li>{{ campaign.metrics.successful_requests }} image {{ 'response' if campaign.metrics.successful_requests==1 else 'responses' }} decoded</li><li>{{ campaign.metrics.failed_requests }} failed {{ 'request' if campaign.metrics.failed_requests==1 else 'requests' }}</li><li>{{ campaign.metrics.unknown_requests }} {{ 'request without a confirmed result' if campaign.metrics.unknown_requests==1 else 'requests without confirmed results' }}</li><li>{{ campaign.metrics.received_pending_local }} received {{ 'response' if campaign.metrics.received_pending_local==1 else 'responses' }} awaiting local processing</li></ul>
+{% for usage in campaign.metrics.reported_usage %}<p>Attempt {{ usage.attempt }} usage: {% if usage.tokens %}{{ usage.tokens.get('input_tokens') if usage.tokens.get('input_tokens') is number else 'Not recorded' }} input tokens · {{ usage.tokens.get('output_tokens') if usage.tokens.get('output_tokens') is number else 'Not recorded' }} output tokens · {{ usage.tokens.get('total_tokens') if usage.tokens.get('total_tokens') is number else 'Not recorded' }} total tokens{% else %}Not reported.{% endif %}</p>{% endfor %}
+{% set estimate=campaign.production_cost_estimate %}
+<p><strong>Saved plan estimate:</strong> {% if estimate and estimate.estimated_usd is not none %}{{ compact_usd(estimate.estimated_usd) }} USD for {{ estimate.request_count }} planned new generation {{ 'request' if estimate.request_count==1 else 'requests' }}.{% else %}Not estimated. No verified estimate is available for these model settings.{% endif %} This estimates generation requests, not exported images or prior attempts.</p>
+{% if estimate and estimate.status=='estimated' %}{% for product_id,request in estimate.requests.items() %}<p>{{ campaign.product_names.get(product_id,'Generated image') }} · {{ request.model }} · {{ request.size }} · {{ request.quality }} quality</p>{% endfor %}<ul>{% for assumption in estimate.assumptions %}<li>{{ assumption }}</li>{% endfor %}</ul>{% endif %}
+{% set usage_estimate=campaign.usage_cost_estimate %}
+{% if campaign.metrics.attempted_requests %}
+<p><strong>This run · usage estimate:</strong> {% if usage_estimate and usage_estimate.estimated_usd is not none %}${{ '%.4f'|format(usage_estimate.estimated_usd) }} USD.{% else %}Estimate incomplete. {{ incomplete_reason(usage_estimate or {}, detail=True) }}{% endif %} Estimates are not provider bills. Failed or interrupted requests may still incur charges.</p>
+{% if usage_estimate and usage_estimate.estimated_usd is none and usage_estimate.known_usage_subtotal_usd > 0 %}<p>Known reported-usage subtotal: ${{ '%.4f'|format(usage_estimate.known_usage_subtotal_usd) }} USD; {{ usage_estimate.unreported_attempts }} {{ 'request' if usage_estimate.unreported_attempts==1 else 'requests' }} could not be estimated. This subtotal is not the total cost.</p>{% endif %}
+{% else %}<p>No new image requests or generation charges for this run.</p>{% endif %}
+{% if estimate and estimate.pricing_source and estimate.pricing_date %}<p class="muted">Pricing reference: {{ estimate.pricing_source }} · {{ estimate.pricing_date }}. Estimates are not invoices or spending caps.</p>{% endif %}
+{% if campaign_display.detail %}<p><strong>Campaign estimate:</strong> {% if campaign_display.has_known_portion %}{{ campaign_display.spend_helper }} {% endif %}{{ campaign_display.detail }}</p>{% endif %}
+<p class="muted">{% if campaign.campaign_metrics.usage_cost_estimate.pricing_source and campaign.campaign_metrics.usage_cost_estimate.pricing_date %}Campaign usage pricing reference: {{ campaign.campaign_metrics.usage_cost_estimate.pricing_source }} · {{ campaign.campaign_metrics.usage_cost_estimate.pricing_date }}. {% endif %}Each request uses its saved model and verified pricing where available. An incomplete estimate is not a total.</p>
+<p>Measured processing for this saved revision operation: {{ (campaign.metrics.elapsed_processing_seconds|string ~ ' seconds') if campaign.metrics.elapsed_processing_seconds is not none else 'Not recorded' }}. Local rendering: {{ (campaign.metrics.local_render_seconds|string ~ ' seconds') if campaign.metrics.local_render_seconds is not none else 'Not recorded' }}. This is not total campaign working time. Time saved has not been measured.</p>
+<p class="muted">Saved version: <code>{{ campaign.revision_id }}</code><br>Image descriptions snapshot: <code>{{ campaign.producer_metadata_snapshot.snapshot_id }}</code>. Updating these details does not change image pixels.</p>
+
+</details>
+<a href="manifest.json">Open the technical manifest</a>
+</section>
+<section id="provenance"><h2>Origins stay with the images.</h2><div class="details">
+{% for source in campaign.sources %}<h3>{{ campaign.product_names[source.product_id] }}</h3><p>{{ {'finished_scene':'Supplied finished scene','prepared_product':'Prepared product','concept':'Description-only concept'}.get(source.role,'Saved source') }} · {{ sentence(source.provenance.label) }} {{ sentence(source.provenance.rights) }}</p>{% endfor %}
+<h3>Logo origin</h3><p>{{ sentence(campaign.logo_provenance.label) }} {{ sentence(campaign.logo_provenance.rights) }}</p>
+{% if campaign.replay %}<p>{% if campaign.replay.historical_requests is number %}Example imagery was prepared earlier: {{ campaign.replay.historical_requests }} historical requests. Excluded from this campaign’s totals.{% else %}Example imagery was prepared earlier; its request count was not recorded.{% endif %}</p>{% endif %}
+<p>Supplied descriptions belong to this exact saved revision and description snapshot.</p>
+</div><p>Unknown rights remain unspecified. No Content Credentials claim is made. Private keys, raw provider responses, and personal paths are excluded.</p></section>
+</main><footer><span style="display:inline-flex;align-items:center;gap:8px"><svg width="18" height="18" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="#e34530" d="M0 26V0H6L13 11L20 0H26V26H20V10L13 20L6 10V26Z" transform="translate(3 5.53) skewY(-11)"/></svg><strong>Motif</strong><span>– Campaign Studio</span></span><span style="margin-left:16px">A complete visual handoff.</span></footer>
+</body></html>

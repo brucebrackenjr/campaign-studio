@@ -1,0 +1,43 @@
+/* Existing editor surfaces fill the shell's stable canvas and control slots. */
+body.ws-active #main{max-width:none;padding:0}
+.ws-workspace .mf-stage,.ws-workspace .framing-visual,.ws-workspace .mf-logo-stage{width:100%;height:100%;min-height:0;padding:0;border:0;background:transparent}
+.ws-workspace.mf-logo-modal{display:grid;overflow:visible;height:calc(100dvh - 64px)}
+.ws-workspace.mf-editor.is-direct .mf-editor-tools{padding:0;border:0;background:transparent;gap:10px}
+.ws-workspace .mf-output{position:relative;flex:none}
+.ws-workspace .mf-output>img,.ws-workspace .mf-output>canvas{width:100%;height:100%;object-fit:contain}
+.ws-workspace .mf-output>[hidden]{display:none}
+.ws-workspace #frame-live{inset:0;width:100%;height:100%}
+.ws-workspace .mf-logo-context,.ws-workspace .mf-logo-dirty{display:none}
+.ws-workspace .ws-control-footer>.row{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.ws-workspace .ws-control-footer p{white-space:pre-line;font-size:11px}
+.ws-workspace .mf-word-label{flex-wrap:wrap;gap:4px}
+.ws-workspace .mf-all-products{font-size:10px}
+.ws-workspace .mf-combined-wording textarea{min-height:64px;resize:vertical}
+.ws-workspace .mf-blocks{margin-top:12px}
+.ws-workspace .framing-tools{gap:12px}
+.ws-workspace .mf-logo-tools{display:flex;flex-direction:column;gap:14px}
+.ws-workspace .mf-logo-stage .mf-logo-canvas{flex:none}
+.ws-workspace .mf-logo-sub{position:fixed}
+
+.ws-workspace .ws-thumb img{min-height:0;max-height:100%;max-width:100%;width:100%;height:100%}
+.ws-workspace .ws-blocks{display:flex;margin:0 0 6px;padding:3px}
+.ws-workspace .ws-blocks button{min-height:36px;padding:7px 5px;border:0;background:transparent;font-size:12px}
+.ws-workspace .ws-blocks button[aria-pressed=true]{background:#fffef9;border:0;box-shadow:0 1px 3px #243c2c15}
+.ws-workspace [data-mf-field][hidden]{display:none}
+
+.ws-workspace .ws-canvas-content>.creative-image{width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}
+.ws-workspace :is(.mf-direct-handle,.mf-logo-handle):is(.nw,.se){cursor:nwse-resize}
+.ws-workspace :is(.mf-direct-handle,.mf-logo-handle):is(.ne,.sw){cursor:nesw-resize}
+
+.ws-workspace .mf-word-field{gap:6px;margin-bottom:6px}
+.ws-workspace .ws-control-footer>.ws-text-footer{display:block}
+.ws-workspace .ws-text-actions{display:flex;flex-wrap:nowrap;gap:6px;align-items:center}
+.ws-workspace .ws-text-actions button{font-size:12px;min-height:38px;padding:6px}
+.ws-workspace .ws-text-actions [data-action="resetText"]{margin-right:auto;font-weight:400}
+.ws-workspace .ws-text-footer>[data-action="recoverText"]{margin-bottom:6px}
+@media(max-height:820px){.ws-workspace.mf-editor.is-direct .mf-editor-tools{gap:8px}.ws-workspace .ws-blocks{margin-bottom:4px}.ws-workspace .mf-word-field{margin-bottom:4px}}
+
+.ws-workspace .ws-control-footer>.ws-framing-actions{flex-wrap:nowrap;gap:6px;align-items:center}
+.ws-workspace .ws-framing-actions button{font-size:12px;min-height:38px;padding:6px 10px}
+.ws-workspace .ws-framing-actions [data-action="restoreFrame"]{margin-right:auto;font-weight:400}
+.ws-workspace #frame-status:empty{display:none}

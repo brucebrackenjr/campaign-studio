@@ -1,0 +1,624 @@
+{
+  "schema_version": 1,
+  "campaign_id": "6316374e-bce1-55df-b7ca-5b141ebf4a87",
+  "name": "Bridle & Bough – Let winter run wild",
+  "audience": "People who love snowy ranches, horses, cabin weekends, and beautifully made winter equipment.",
+  "creative_direction": "A rural snowy ranch inspired by a winter sleigh ride: deep fresh snow, pine forests, horses, and a rustic cabin with warm window light. Photograph tactile wood, brass, leather, and wool naturally. Leave quiet pale space for dark espresso campaign lettering. The full product should occupy the central third with room for portrait, square, and landscape crops. No baked-in words or logos.",
+  "brand": {
+    "id": "bridle-and-bough",
+    "name": "Bridle & Bough",
+    "logo_path": "assets/logo.png",
+    "logo_provenance": {
+      "label": "Saddlestitch logo",
+      "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+      "synthetic": false
+    },
+    "palette": [
+      "#38271E",
+      "#FFF4DC",
+      "#8C3035",
+      "#294C40"
+    ],
+    "text_color": "#38271E"
+  },
+  "copy_provenance": {
+    "label": "Supplied English and Spanish campaign wording.",
+    "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+    "synthetic": false
+  },
+  "markets": {
+    "en-US": {
+      "copy": {
+        "message": "Let winter run wild.",
+        "cta": "Explore the collection."
+      },
+      "phrase_rules": [
+        {
+          "id": "no-unqualified-guarantee",
+          "phrase": "guaranteed",
+          "match": "whole_word"
+        }
+      ]
+    },
+    "es-MX": {
+      "copy": {
+        "message": "Vive el invierno a lo grande.",
+        "cta": "Explora la colección."
+      },
+      "phrase_rules": [
+        {
+          "id": "no-unqualified-guarantee",
+          "phrase": "garantizado",
+          "match": "whole_word"
+        }
+      ]
+    }
+  },
+  "products": [
+    {
+      "id": "p-d4c210ab1e6258128f19db7d60ce7e33",
+      "name": "Bentwood toboggan",
+      "description": "A crafted bentwood toboggan with a cognac leather seat and a red tow rope.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/bentwood-toboggan.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.32,
+                "width": 0.88,
+                "font_size": 66,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.42,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.32,
+                "width": 0.88,
+                "font_size": 66,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.42,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.58,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-6f75541770de56ab82c3f2e7c1cd59be",
+      "name": "Long Ride sleigh blanket",
+      "description": "A thick burgundy, cream, and charcoal checked wool blanket with cream fringe, draped over a wooden sleigh.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/long-ride-blanket.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.68,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.26,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.36,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.68,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.72,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.68,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.26,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.36,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.68,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.72,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-b66d7f81e3555bddb1274856c765b0ee",
+      "name": "Brass sleigh-bell strap",
+      "description": "A richly patinated brown leather horse sleigh-bell strap with polished brass bells, stitched edges, and an antique brass buckle.",
+      "source": {
+        "role": "concept",
+        "imagery_absent": true,
+        "description": "A richly patinated brown leather horse sleigh-bell strap with polished brass bells, stitched edges, and an antique brass buckle. Arrange the entire strap in a loose curve on fresh snow near a rustic cabin. Photograph from a slightly elevated angle; product small and centered in the lower half, with quiet pale snow in the upper half for campaign wording. No writing or logo in the scene.",
+        "provenance": {
+          "label": "Fictional product concept; no source image is included.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.26,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.36,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.26,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.36,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.29
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.17
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#38271E"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#38271E"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

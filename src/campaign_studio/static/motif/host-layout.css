@@ -1,0 +1,21 @@
+/* Load after existing Motif presentation CSS. Add mf-producer-shell to the
+   existing application root. Keep one main; do not nest a second shell. */
+.mf-producer-shell{--mf-page-gutter:32px}
+.mf-producer-shell main{width:100%;max-width:none;margin:0;padding-left:var(--mf-page-gutter);padding-right:var(--mf-page-gutter)}
+.mf-producer-shell .topbar,.mf-producer-shell .bottom-meta{padding-left:var(--mf-page-gutter);padding-right:var(--mf-page-gutter)}
+.mf-producer-shell #brief-root,.mf-producer-shell .hlb,.mf-producer-shell .bf-layout,.mf-producer-shell .bf-products,.mf-producer-shell .bf-tabs{width:100%;max-width:none;margin-left:0;margin-right:0}
+.mf-producer-shell .bf-layout{grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:24px}
+.mf-producer-shell .bf-head,.mf-producer-shell .page-head{width:100%;max-width:none;align-items:center;margin-left:0;margin-right:0}
+.mf-producer-shell .bf-head h1,.mf-producer-shell .page-head h1{font-family:Barlow;font-size:54px;line-height:1.05;letter-spacing:normal;margin:6px 0 9px}
+/* Use the shared heading markup in HOST_INTEGRATION.html: eyebrow, title,
+   then supporting line. Do not leave Campaign's eyebrow below its title. */
+.mf-producer-shell .mf-page-title-group .eyebrow{font-size:10px;letter-spacing:.13em;font-weight:750}
+.mf-producer-shell .mf-page-title-group>p{font-size:13px;line-height:1.5;margin:0;color:#64715f}
+.mf-producer-shell .bf-pair{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.mf-producer-shell .bf-field input,.mf-producer-shell .bf-field textarea{width:100%;max-width:none}
+.mf-producer-shell .pr-page-head{width:100%;max-width:none}
+.mf-producer-shell .mf-neutral-mark{display:grid;place-items:center;width:35px;height:35px;padding:8px;border:0;border-radius:50%;background:#e7ecdf}
+.mf-producer-shell .mf-neutral-mark img{width:21px;height:21px;display:block}
+@media(max-height:820px){.mf-producer-shell main{padding-top:16px;padding-bottom:12px}.mf-producer-shell .bf-layout{gap:20px}.mf-producer-shell .bf-head h1,.mf-producer-shell .page-head h1{font-size:46px;margin:4px 0 7px}}
+@media(max-width:1150px){.mf-producer-shell .bf-layout{grid-template-columns:minmax(0,1.5fr) minmax(290px,1fr)}}
+@media(max-width:900px){.mf-producer-shell{--mf-page-gutter:24px}.mf-producer-shell .bf-layout{grid-template-columns:1fr}}

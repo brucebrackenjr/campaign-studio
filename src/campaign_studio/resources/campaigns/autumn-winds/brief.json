@@ -1,0 +1,999 @@
+{
+  "schema_version": 1,
+  "campaign_id": "8d327173-abcd-525f-a8e1-88e80f5d5cee",
+  "name": "Autumn Winds – Stay a little longer",
+  "audience": "Design-conscious people who enjoy autumn gardens, quiet evenings, and thoughtfully made objects for home.",
+  "creative_direction": "Rich New England autumn: copper, walnut, red and golden foliage, warm firelight, and tactile materials. Vary garden, porch, and indoor settings. Ground each product naturally. Leave calm dark space for the ivory logo, headline, and call to action. Keep the whole product small enough to crop and reposition across social formats.",
+  "brand": {
+    "id": "autumn-winds",
+    "name": "Autumn Winds",
+    "logo_path": "assets/logo.png",
+    "logo_provenance": {
+      "label": "Windwritten logo",
+      "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+      "synthetic": false
+    },
+    "palette": [
+      "#FFF4DC",
+      "#B5542F",
+      "#733B31",
+      "#263B2E"
+    ],
+    "text_color": "#FFF4DC"
+  },
+  "copy_provenance": {
+    "label": "Supplied English and Spanish campaign wording.",
+    "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+    "synthetic": false
+  },
+  "markets": {
+    "en-US": {
+      "copy": {
+        "message": "Stay a little longer.",
+        "cta": "Explore autumn."
+      },
+      "phrase_rules": [
+        {
+          "id": "no-unqualified-guarantee",
+          "phrase": "guaranteed",
+          "match": "whole_word"
+        }
+      ]
+    },
+    "es-MX": {
+      "copy": {
+        "message": "Quédate un poco más.",
+        "cta": "Descubre el otoño."
+      },
+      "phrase_rules": [
+        {
+          "id": "no-unqualified-guarantee",
+          "phrase": "garantizado",
+          "match": "whole_word"
+        }
+      ]
+    }
+  },
+  "products": [
+    {
+      "id": "p-8a7435d0d0835754b45f3faa7363ee5f",
+      "name": "Leaflight lantern",
+      "description": "A patinated copper lantern with maple-leaf cutwork and warm candlelight.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/leaflight-lantern.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.24,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.34,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.24,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.34,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.65,
+            "focal_y": 0.66,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-55fc083d0ff1503987de64345e58373b",
+      "name": "Copperleaf wind sculpture",
+      "description": "A kinetic sculpture with sculpted copper maple leaves and a weighted bronze base.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/copperleaf-sculpture.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.24,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.34,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.03,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.24,
+                "width": 0.88,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.34,
+                "width": 0.88,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.5,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.055,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.055,
+                "top": 0.24,
+                "width": 0.57,
+                "font_size": 72,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.055,
+                "top": 0.34,
+                "width": 0.57,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5",
+      "name": "Maplewing fireside chair",
+      "description": "A crafted timber lounge chair with burnt-orange upholstery and a cognac leather headrest.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/maplewing-chair.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 54,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 54,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.55,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-af2be177f2cd5f8f9ed7b441ff4a8b75",
+      "name": "Botanical leaf press",
+      "description": "A walnut botanical press with brass tightening knobs and a carved leaf motif.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/botanical-leaf-press.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 54,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 54,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-4e0606e87af95766bbddf23f50e02798",
+      "name": "Orchard apple baker",
+      "description": "A deep-red enameled cast-iron apple baker with its matching lid and baked orchard apples.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/orchard-apple-baker.png",
+        "provenance": {
+          "label": "AI-created product photograph, supplied with this example.",
+          "rights": "Created for the Motif demonstration; fictional brand and product concepts.",
+          "synthetic": false
+        }
+      },
+      "framing": {
+        "en-US": {
+          "1:1": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.25,
+                "top": 0.41,
+                "width": 0.7,
+                "font_size": 66,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.25,
+                "top": 0.49,
+                "width": 0.65,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        },
+        "es-MX": {
+          "1:1": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.32
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.25,
+                "top": 0.41,
+                "width": 0.7,
+                "font_size": 66,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.25,
+                "top": 0.49,
+                "width": 0.65,
+                "font_size": 32,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "9:16": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.06,
+              "top": 0.035,
+              "width": 0.38
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.06,
+                "top": 0.21,
+                "width": 0.88,
+                "font_size": 84,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.06,
+                "top": 0.29,
+                "width": 0.88,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          },
+          "16:9": {
+            "focal_x": 0.64,
+            "focal_y": 0.5,
+            "zoom": 1,
+            "logo_placement": {
+              "left": 0.34,
+              "top": 0.03,
+              "width": 0.22
+            },
+            "text_placements": {
+              "message": {
+                "left": 0.34,
+                "top": 0.24,
+                "width": 0.42,
+                "font_size": 60,
+                "font_id": "barlow_condensed",
+                "color": "#FFF4DC"
+              },
+              "cta": {
+                "left": 0.34,
+                "top": 0.34,
+                "width": 0.42,
+                "font_size": 36,
+                "font_id": "noto_sans",
+                "color": "#FFF4DC"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

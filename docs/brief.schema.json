@@ -1,0 +1,790 @@
+{
+  "$defs": {
+    "Box": {
+      "additionalProperties": false,
+      "description": "Optional subject bounds in oriented image coordinates, from zero to one.",
+      "properties": {
+        "left": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Left",
+          "type": "number"
+        },
+        "top": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Top",
+          "type": "number"
+        },
+        "right": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Right",
+          "type": "number"
+        },
+        "bottom": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Bottom",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left",
+        "top",
+        "right",
+        "bottom"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "Brand": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "logo_path": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Logo Path",
+          "type": "string"
+        },
+        "logo_provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "palette": {
+          "items": {
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Palette",
+          "type": "array"
+        },
+        "text_color": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Text Color",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "logo_path",
+        "logo_provenance",
+        "palette",
+        "text_color"
+      ],
+      "title": "Brand",
+      "type": "object"
+    },
+    "Concept": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "const": "concept",
+          "title": "Role",
+          "type": "string"
+        },
+        "imagery_absent": {
+          "const": true,
+          "title": "Imagery Absent",
+          "type": "boolean"
+        },
+        "description": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Description",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "role",
+        "imagery_absent",
+        "description",
+        "provenance"
+      ],
+      "title": "Concept",
+      "type": "object"
+    },
+    "Copy": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Message",
+          "type": "string"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "maxLength": 5000,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cta"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "Copy",
+      "type": "object"
+    },
+    "FinishedScene": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "const": "finished_scene",
+          "title": "Role",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Path",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "subject_box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "role",
+        "path",
+        "provenance"
+      ],
+      "title": "FinishedScene",
+      "type": "object"
+    },
+    "Framing": {
+      "additionalProperties": false,
+      "description": "Local output choices; these never alter the provider request or source image.",
+      "properties": {
+        "focal_x": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Focal X",
+          "type": "number"
+        },
+        "focal_y": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Focal Y",
+          "type": "number"
+        },
+        "zoom": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Zoom",
+          "type": "number"
+        },
+        "copy_placement": {
+          "default": "top",
+          "enum": [
+            "top",
+            "bottom"
+          ],
+          "title": "Copy Placement",
+          "type": "string"
+        },
+        "subject_box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "inherit_subject": {
+          "default": true,
+          "title": "Inherit Subject",
+          "type": "boolean"
+        },
+        "logo_placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogoPlacement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "text_placements": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TextPlacement"
+          },
+          "propertyNames": {
+            "enum": [
+              "message",
+              "cta"
+            ]
+          },
+          "title": "Text Placements",
+          "type": "object"
+        }
+      },
+      "title": "Framing",
+      "type": "object"
+    },
+    "LogoPlacement": {
+      "additionalProperties": false,
+      "description": "Proportional logo bounds in output-canvas coordinates, from zero to one.",
+      "properties": {
+        "left": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Left",
+          "type": "number"
+        },
+        "top": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Top",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left",
+        "top",
+        "width"
+      ],
+      "title": "LogoPlacement",
+      "type": "object"
+    },
+    "MarketContent": {
+      "additionalProperties": false,
+      "properties": {
+        "copy": {
+          "$ref": "#/$defs/Copy"
+        },
+        "phrase_rules": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PhraseRule"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phrase Rules"
+        }
+      },
+      "required": [
+        "copy"
+      ],
+      "title": "MarketContent",
+      "type": "object"
+    },
+    "Override": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "anyOf": [
+            {
+              "maxLength": 5000,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "maxLength": 5000,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cta"
+        }
+      },
+      "title": "Override",
+      "type": "object"
+    },
+    "PhraseRule": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "phrase": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Phrase",
+          "type": "string"
+        },
+        "match": {
+          "default": "literal",
+          "enum": [
+            "literal",
+            "whole_word"
+          ],
+          "title": "Match",
+          "type": "string"
+        },
+        "case_sensitive": {
+          "default": false,
+          "title": "Case Sensitive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "phrase"
+      ],
+      "title": "PhraseRule",
+      "type": "object"
+    },
+    "PreparedProduct": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "const": "prepared_product",
+          "title": "Role",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Path",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "opaque_nonreflective_product_confirmed": {
+          "const": true,
+          "title": "Opaque Nonreflective Product Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "role",
+        "path",
+        "provenance",
+        "opaque_nonreflective_product_confirmed"
+      ],
+      "title": "PreparedProduct",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Description",
+          "type": "string"
+        },
+        "source": {
+          "discriminator": {
+            "mapping": {
+              "concept": "#/$defs/Concept",
+              "finished_scene": "#/$defs/FinishedScene",
+              "prepared_product": "#/$defs/PreparedProduct"
+            },
+            "propertyName": "role"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/FinishedScene"
+            },
+            {
+              "$ref": "#/$defs/PreparedProduct"
+            },
+            {
+              "$ref": "#/$defs/Concept"
+            }
+          ],
+          "title": "Source"
+        },
+        "copy_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Override"
+          },
+          "propertyNames": {
+            "enum": [
+              "en-US",
+              "es-MX"
+            ]
+          },
+          "title": "Copy Overrides",
+          "type": "object"
+        },
+        "framing": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/$defs/Framing"
+            },
+            "propertyNames": {
+              "enum": [
+                "1:1",
+                "9:16",
+                "16:9"
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "enum": [
+              "en-US",
+              "es-MX"
+            ]
+          },
+          "title": "Framing",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "source"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "rights": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Rights",
+          "type": "string"
+        },
+        "synthetic": {
+          "default": false,
+          "title": "Synthetic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "label",
+        "rights"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Replay": {
+      "additionalProperties": false,
+      "properties": {
+        "partial": {
+          "default": false,
+          "title": "Partial",
+          "type": "boolean"
+        },
+        "sources": {
+          "maxProperties": 5,
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9-]{0,63}$": {
+              "$ref": "#/$defs/ReplayMaster"
+            }
+          },
+          "title": "Sources",
+          "type": "object"
+        },
+        "historical_requests": {
+          "minimum": 1,
+          "title": "Historical Requests",
+          "type": "integer"
+        },
+        "history": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "History",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sources",
+        "historical_requests",
+        "history"
+      ],
+      "title": "Replay",
+      "type": "object"
+    },
+    "ReplayMaster": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 5000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Model",
+          "type": "string"
+        },
+        "generated_on": {
+          "format": "date",
+          "title": "Generated On",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "model",
+        "generated_on",
+        "provenance"
+      ],
+      "title": "ReplayMaster",
+      "type": "object"
+    },
+    "TextPlacement": {
+      "additionalProperties": false,
+      "description": "Canvas position, independent wrapping measure, and actual output font size.",
+      "properties": {
+        "left": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Left",
+          "type": "number"
+        },
+        "top": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Top",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        },
+        "font_size": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Font Size",
+          "type": "integer"
+        },
+        "font_id": {
+          "default": "noto_sans",
+          "enum": [
+            "noto_sans",
+            "barlow_condensed"
+          ],
+          "title": "Font Id",
+          "type": "string"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        }
+      },
+      "required": [
+        "left",
+        "top",
+        "width",
+        "font_size"
+      ],
+      "title": "TextPlacement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "campaign_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Campaign Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 5000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Name",
+      "type": "string"
+    },
+    "audience": {
+      "maxLength": 5000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Audience",
+      "type": "string"
+    },
+    "creative_direction": {
+      "maxLength": 5000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Creative Direction",
+      "type": "string"
+    },
+    "brand": {
+      "$ref": "#/$defs/Brand"
+    },
+    "copy_provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "markets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MarketContent"
+      },
+      "maxProperties": 2,
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "en-US",
+          "es-MX"
+        ]
+      },
+      "title": "Markets",
+      "type": "object"
+    },
+    "products": {
+      "items": {
+        "$ref": "#/$defs/Product"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Products",
+      "type": "array"
+    },
+    "replay": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Replay"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "campaign_id",
+    "name",
+    "audience",
+    "creative_direction",
+    "brand",
+    "copy_provenance",
+    "markets",
+    "products"
+  ],
+  "title": "Brief",
+  "type": "object"
+}

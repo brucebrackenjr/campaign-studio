@@ -1,0 +1,31 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.campaign-studio-key-*.tmp
+.campaign-studio-key.lock
+*.pem
+*.key
+
+# Private runtime data and local tooling
+.campaign-studio/
+.tools/
+.venv/
+.venv-*/
+.checks/
+*.sqlite*
+*.db
+*.log
+
+# Python build and check output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.coverage*
+htmlcov/
+build/
+dist/
+.DS_Store

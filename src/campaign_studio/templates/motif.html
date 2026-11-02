@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#ec4933">
+  <meta name="campaign-token" content="{{ csrf }}">
+  <title>Motif – Campaign Studio</title>
+  <link rel="stylesheet" href="/static/motif/styles.css">
+  <link rel="stylesheet" href="/static/motif/refinement.css">
+  <link rel="stylesheet" href="/static/motif/workbench.css">
+  <link rel="stylesheet" href="/static/motif/controls.css">
+  <link rel="stylesheet" href="/static/motif/logo-controls.css">
+  <link rel="stylesheet" href="/static/motif/save-state.css">
+  <link rel="stylesheet" href="/static/motif/editor-controls.css">
+  <link rel="stylesheet" href="/static/motif/brief-flow.css">
+  <link rel="icon" type="image/svg+xml" href="/static/motif/assets/motif-favicon.svg">
+  <link rel="stylesheet" href="/static/motif/motif.css">
+  <link rel="stylesheet" href="/static/motif/wording.css">
+  <link rel="stylesheet" href="/static/motif/producer-repair.css">
+  <link rel="stylesheet" href="/static/motif/host-layout.css">
+  <link rel="stylesheet" href="/static/motif/operation-panel.css">
+  <link rel="stylesheet" href="/static/motif/product-refinement.css">
+<link rel="stylesheet" href="/static/motif/product-followup.css">
+  <link rel="stylesheet" href="/static/motif/studio-shell.css">
+  <link rel="stylesheet" href="/static/motif/studio-workspace.css">
+  <link rel="stylesheet" href="/static/motif/workflow-refinement.css">
+  <script defer src="/static/motif/studio-shell.js"></script>
+  <script defer src="/static/motif/producer-repair.js"></script>
+  <script defer src="/static/motif/api.js"></script>
+  <script defer src="/static/motif/wording.js"></script>
+  <script defer src="/static/motif/brief-flow.js"></script>
+  <script defer src="/static/motif/local-dialogs.js"></script>
+  <!-- Ordered deferred scripts: designer pure components, then host controllers.
+       actions.js installs the shared event and modal lifecycle after those definitions. -->
+  <script defer src="/static/motif/storage-components.js"></script>
+  <script defer src="/static/motif/editor-controls.js"></script>
+  <script defer src="/static/motif/direct-manipulation.js"></script>
+  <script defer src="/static/motif/logo-controls.js"></script>
+  <script defer src="/static/motif/save-state.js"></script>
+  <script defer src="/static/motif/presentation.js"></script>
+  <script defer src="/static/motif/review.js"></script>
+  <script defer src="/static/motif/text.js"></script>
+  <script defer src="/static/motif/framing.js"></script>
+  <script defer src="/static/motif/studio.js"></script>
+  <script defer src="/static/motif/production.js"></script>
+  <script defer src="/static/motif/storage.js"></script>
+  <script defer src="/static/motif/logo.js"></script>
+  <script defer src="/static/motif/studio-workspace.js"></script>
+  <script defer src="/static/motif/project.js"></script>
+  <script defer src="/static/motif/brief-host.js"></script>
+  <script defer src="/static/motif/local-host.js"></script>
+  <script defer src="/static/motif/wording-host.js"></script>
+  <script defer src="/static/motif/producer-host.js"></script>
+  <script defer src="/static/motif/actions.js"></script>
+</head>
+<body class="mf-save-shell mf-producer-shell" data-campaign="{{ campaign_id or '' }}" data-page="{{ page }}" data-cap="{{ cap }}">
+  <a class="skip" href="#main">Skip to workspace</a>
+  <div id="app"></div>
+  <div id="overlay"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

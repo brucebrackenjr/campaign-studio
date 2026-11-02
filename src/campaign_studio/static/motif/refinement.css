@@ -1,0 +1,134 @@
+/* Motif viewport refinement. Original styles.css, app.js, type, and colors are retained. */
+@media (min-width: 1101px) {
+  /* 01 – Shared desktop composition. */
+  .topbar { height: 64px; }
+  .workflow button { padding-top: 9px; padding-bottom: 9px; }
+  main { padding-top: 20px; padding-bottom: 24px; }
+  .page-head { margin-bottom: 20px; }
+  .page-head > div:first-child { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 16px; row-gap: 8px; }
+  .page-head h1 { grid-column: 1 / -1; grid-row: 1; }
+  .page-head .eyebrow { grid-column: 1; grid-row: 2; margin-bottom: 0; line-height: 21px; align-self: center; }
+  .page-head p { grid-column: 2; grid-row: 2; margin-top: 0; }
+  .page-head > div:first-child:not(:has(.eyebrow)) p { grid-column: 1 / -1; }
+  .tabs { margin-bottom: 18px; }
+  .tabs button { padding-top: 10px; padding-bottom: 10px; }
+  .bottom-meta { padding-top: 10px; padding-bottom: 10px; }
+  
+
+  /* 02 – Home: the hero and workbench share one viewport. Intrinsic content may grow. */
+  #app:has(main > .hero) { min-height: 100dvh; display: flex; flex-direction: column; }
+  #app:has(main > .hero) > .topbar { flex-shrink: 0; }
+  #app:has(main > .hero) > main { width: 100%; flex: 1; margin: 0 auto; padding-bottom: 20px; }
+  main > .hero { min-height: 300px; height: clamp(300px, calc(100dvh - 470px), 440px); }
+  .hero-copy { padding: 22px 32px; display: flex; flex-direction: column; justify-content: center; }
+  .hero h1 { font-size: clamp(72px, 9.4vh, 86px); margin: 10px 0 12px; }
+  .hero p { max-width: 520px; margin-bottom: 16px; }
+  .hero-art .art-card:first-child { width: clamp(184px, 25vh, 230px); top: 25px; left: 14%; }
+  .hero-art .art-card:nth-child(2) { width: clamp(156px, 21vh, 190px); top: 40px; left: 49%; }
+  .hero-stamp { width: 78px; height: 78px; font-size: 24px; bottom: 20px; right: 24px; }
+  main:has(> .hero) > .section-title { margin: 18px 0 12px; }
+  .campaign-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .campaign-card:not([data-action="new"]) { display: grid; grid-template-columns: clamp(138px, 12vw, 180px) minmax(0, 1fr); }
+  .campaign-image { height: 146px; min-height: 146px; }
+  .campaign-card .info { padding: 16px 18px; }
+  .campaign-card h3 { margin: 5px 0; }
+  .campaign-card .info > .small:last-child { margin-top: 8px !important; }
+  .campaign-card[data-action="new"] { min-height: 146px !important; grid-template-columns: 62px auto; grid-template-rows: auto auto; column-gap: 18px; text-align: left !important; align-content: center; }
+  .campaign-card[data-action="new"] > .display { grid-column: 1; grid-row: 1 / 3; align-self: center; }
+  .campaign-card[data-action="new"] > h3 { grid-column: 2; margin: 0; }
+  .campaign-card[data-action="new"] > p { grid-column: 2; padding: 6px 0 0 !important; }
+  main:has(> .hero) > .empty { padding: 18px 30px; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; text-align: left; gap: 0 20px; }
+  main:has(> .hero) > .empty .empty-symbol { grid-row: 1 / 3; }
+  main:has(> .hero) > .empty h2 { font-size: 32px; margin: 0 0 5px; }
+  main:has(> .hero) > .empty p { max-width: none; margin: 0; grid-column: 2; }
+  main:has(> .hero) > .empty .btn { grid-column: 3; grid-row: 1 / 3; }
+
+  /* 03 – Brief: related fields share rows; words and controls retain their size. */
+  .brief-grid > .panel:has(#campaign-name) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 22px; padding: 20px; align-content: start; }
+  .brief-grid > .panel:has(#campaign-name) > h2,
+  .brief-grid > .panel:has(#campaign-name) > .two-col { grid-column: 1 / -1; }
+  .brief-grid > .panel:has(#campaign-name) h2 { margin-bottom: 0; }
+  .brief-grid > .panel:has(#campaign-name) .field { margin-bottom: 0; align-content: start; }
+  .brief-grid > .panel:has(#campaign-name) textarea { min-height: 98px; }
+  .brief-grid:has(#campaign-name) aside .rule { margin: 14px 0; }
+  .brief-grid:has(#campaign-name) .summary-number { margin: 12px 0 !important; }
+  .brief-grid:has(#campaign-name) .data-list { gap: 9px; }
+  .brief-grid:has(#campaign-name) aside.stack { gap: 12px; align-content: start; }
+
+  .brief-grid:has(#campaign-name) aside > .panel { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-content: start; }
+  .brief-grid:has(#campaign-name) aside > .panel > .eyebrow,
+  .brief-grid:has(#campaign-name) aside > .panel > .rule,
+  .brief-grid:has(#campaign-name) aside > .panel > h3,
+  .brief-grid:has(#campaign-name) aside > .panel > .data-list { grid-column: 1 / -1; }
+  .brief-grid:has(#campaign-name) aside > .panel > p { align-self: center; }
+
+  .brief-grid:has(#campaign-name) aside .check-row { display: grid; grid-template-columns: 14px 1fr; gap: 4px 6px; margin: 6px 0; }
+  .brief-grid:has(#campaign-name) aside .check-row input { grid-row: 1 / 3; }
+  .brief-grid:has(#campaign-name) aside .check-row span { grid-column: 2; }
+  .brief-grid:has(#campaign-name) .data-list > div { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+
+  /* 04 – Production and its progress/recovery views. */
+  .metric { display: flex; align-items: center; gap: 16px; padding: 10px 22px; }
+  .metric > div:last-child { margin-top: 0; }
+  /* Keep the Studio current-image ratio together at its original type size. */
+  .review-toolbar + .metric-grid > .metric:first-child > .mini-number { white-space: nowrap; flex-shrink: 0; }
+  main > .metric-grid { margin-bottom: 18px !important; }
+  main:has(> .metric-grid) > .brief-grid { grid-template-columns: minmax(0, 1fr) 380px; }
+  .cost-box { padding: 22px; }
+  .cost-box .summary-number { margin: 12px 0 10px; }
+  .cost-box .rule { margin: 14px 0; }
+  .plan-table td { padding: 14px 18px; }
+  .plan-table th { padding-top: 11px; padding-bottom: 11px; }
+  .brief-grid:has(.cost-box) > section > .panel { padding: 20px; }
+  .brief-grid:has(.cost-box) > section > .panel .rule { margin: 14px 0; }
+  .stage { padding-top: 14px; padding-bottom: 14px; }
+
+  .brief-grid:has(.progress-line) { align-items: start; }
+  .brief-grid:has(.progress-line) > aside { display: contents; }
+  .brief-grid:has(.progress-line) > aside > .panel:last-child { grid-column: 1 / -1; }
+  .brief-grid:has(.progress-line) > aside > .panel:last-child .stack { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .brief-grid:has(.progress-line) > aside > .panel:first-child > div:has(> .creative-image) { display: flex !important; align-items: center; justify-content: center; }
+  .brief-grid:has(.progress-line) > aside .creative-image { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+
+  /* 05 – Review: give the viewport to the art, retaining visible review controls. */
+  main > .review-toolbar { margin-bottom: 14px; }
+  .preview-title { margin-bottom: 10px; }
+  main .preview-grid .lightbox { height: clamp(268px, calc(100dvh - 510px), 550px); padding: 18px; }
+  .preview-meta { padding-top: 9px; padding-bottom: 6px; }
+  .review-actions { padding-top: 6px; }
+  .review-foot { margin-top: 12px; padding-top: 12px; }
+  main:has(> .preview-grid) { padding-bottom: 18px; }
+  main > .overview-grid .overview-image,
+  main > .overview-grid .missing-tile { height: clamp(134px, calc((100dvh - 520px) / 2), 240px); }
+  .overview-item .info { padding: 10px 14px; }
+  .overview-item .row { margin-top: 6px; }
+  .pagination { padding-top: 14px; }
+
+  /* 06 – Handoff: package details sit beside the visual inventory. */
+  main:has(> .export-hero) { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px 24px; }
+  main:has(> .export-hero) > .page-head { grid-column: 1 / -1; margin-bottom: 4px; }
+  main:has(> .export-hero) > .export-hero { grid-column: 1 / -1; padding: 18px 24px; }
+  main:has(> .export-hero) > .notice,
+  main:has(> .export-hero) > [data-wording-slot] { grid-column: 1 / -1; margin: 0; }
+  main:has(> .export-hero) > .two-col { grid-column: 1; grid-row: span 4; display: flex; flex-direction: column; gap: 16px; margin-top: 0 !important; }
+  main:has(> .export-hero) > .two-col > .panel { padding: 18px; }
+  main:has(> .export-hero) .data-row { gap: 12px; padding: 9px 0; }
+  main:has(> .export-hero) .data-row span { flex: 0 0 94px; }
+  main:has(> .export-hero) > .section-title { grid-column: 2; margin: 0; align-self: start; }
+  main:has(> .export-hero) > .review-toolbar { grid-column: 2; margin-bottom: 0; }
+  main:has(> .export-hero) > .overview-grid { grid-column: 2; gap: 14px; }
+  main:has(> .export-hero) > .pagination { grid-column: 2; padding-top: 0; }
+  main:has(> .export-hero) .file-list { font-size: 11px; }
+
+  /* 07 – Dialogs: stable header/footer with only their contents scrolling. */
+  .modal { display: flex; flex-direction: column; max-height: calc(100dvh - 40px); overflow: hidden; }
+  .modal-head { flex-shrink: 0; padding: 20px 28px 16px; }
+  .modal-body { min-height: 0; overflow-y: auto; padding: 20px 28px; }
+  .modal-foot { flex-shrink: 0; padding-top: 14px; padding-bottom: 14px; }
+  .editor-grid .lightbox { height: clamp(280px, calc(100dvh - 340px), 430px); }
+  .large-inspector .lightbox { height: clamp(320px, calc(100dvh - 240px), 500px); }
+}
+/* Once columns cannot retain useful width, let the original responsive layout reflow. */
+
+/* Narrow Campaign forms retain their content inset. */
+@media(max-width:800px) { body.mf-brief-page #main { padding:20px; } }

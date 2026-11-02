@@ -1,0 +1,37 @@
+/* Product editor and campaign controls. Load after the Brief and producer styles.
+   Host owns committed mode, save admission, upload, deletion, and pending edits. */
+.hlb .bf-tab-row{display:flex;align-items:stretch;justify-content:space-between;gap:24px;border-bottom:1px solid var(--bf-line);margin-bottom:18px;min-height:54px}
+.mf-producer-shell .hlb .bf-tab-row .bf-tabs,.hlb .bf-tab-row .bf-tabs{width:auto;flex:1;min-width:0;border-bottom:0;margin:0;align-items:stretch}
+
+.hlb .bf-products-top .bf-add-product{min-height:42px;padding:10px 16px;font-size:14px;font-weight:650}
+.hlb .bf-products-top .pr-add-group{flex-direction:row;align-items:center;gap:14px}
+.hlb .bf-products-top .pr-cap{order:-1}
+.hlb .bf-product{position:relative}
+.hlb .bf-product h3{padding-right:24px}
+.hlb .bf-remove-product{position:absolute;top:6px;right:6px;width:30px;height:30px;display:grid;place-items:center;padding:0;border:1px solid #d7dccf;background:var(--bf-paper);color:#697463;font:24px/1 Arial,sans-serif}
+.hlb .bf-remove-product:hover:not(:disabled){background:#fff0e5;border-color:#d7885b;color:#a43b22}
+.hlb .bf-product-photo-button{position:relative;align-self:stretch;justify-self:stretch;width:100%;min-height:inherit;overflow:hidden;border:0;padding:0;background:#e5e7db;border-radius:4px}
+.hlb .bf-product-photo-button img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.hlb .bf-photo-edit{position:absolute;left:0;right:0;bottom:0;background:#283129ed;color:#fff;padding:9px 4px;font-size:11px;font-weight:650;opacity:0;transition:opacity .12s}
+.hlb .bf-product-photo-button:hover .bf-photo-edit,.hlb .bf-product-photo-button:focus-visible .bf-photo-edit{opacity:1}
+.hlb .bf-product-photo-button:focus-visible{outline:none}
+.hlb .bf-product-photo-button:focus-visible::after{content:"";position:absolute;inset:4px;border:3px solid #fff;border-radius:2px;box-shadow:0 0 0 1px #283129;pointer-events:none;z-index:2}
+.hlb .bf-generation-tile{align-self:stretch;justify-self:stretch;width:100%;min-height:inherit;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;border:0;border-radius:4px;padding:14px 9px;background:#e5ebda;color:#3c5135;font-size:12px;font-weight:650;line-height:1.5;text-align:center}
+.hlb .bf-generation-symbol{font:36px/1 Arial,sans-serif;color:#657d53}
+.hlb .bf-generation-tile:hover:not(:disabled){background:#d8e2cc;color:#283129}
+.hlb .bf-generation-tile:focus-visible{outline:3px solid #345a3c;outline-offset:-5px}
+.pr-editor.pr-editor-stable,.pr-editor.pr-editor-stable.modal{display:flex;flex-direction:column;height:min(660px,calc(100dvh - 48px));max-height:calc(100dvh - 48px);overflow:hidden}
+.pr-editor-stable>.modal-head,.pr-editor-stable>.modal-foot{flex:none}
+.pr-editor-stable>.pr-editor-body,.pr-editor-stable>.pr-editor-body.modal-body{flex:1;min-height:0;overflow:auto;align-content:start;grid-auto-rows:min-content;overscroll-behavior:contain}
+.pr-editor-stable .pr-field-hint{display:block;font-size:11px;line-height:1.5;font-weight:400;color:var(--pr-muted)}
+.pr-editor-stable .pr-concept-panel{min-height:230px}
+.pr-editor-stable .pr-product-error{grid-column:1/-1;display:flex;gap:12px;align-items:flex-start;background:#fff0e5;border:1px solid #e6b18f;border-left:4px solid #c95a2e;border-radius:4px;padding:12px 14px;color:#843b25;margin-bottom:-10px;font-size:12px;line-height:1.5}
+.pr-product-error>span{flex:none;display:grid;place-items:center;width:21px;height:21px;background:#a84324;color:white;border-radius:50%;font-weight:750}
+.pr-editor-stable .pr-product-error p{margin-top:2px;color:#843b25}
+.pr-editor-stable [aria-invalid=true]{border-color:#c95a2e;background:#fff8f2}
+.pr-remove-dialog .pr-eyebrow{color:#8a3a25;margin-bottom:12px}
+.pr-remove-dialog h2{overflow-wrap:anywhere}
+.pr-remove-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+.pr-remove-actions .pr-button{margin-top:0}
+@media(max-height:820px){.hlb .bf-tab-row{min-height:48px;margin-bottom:16px}.pr-editor-stable .pr-concept-panel{min-height:216px}}
+@media(max-width:760px){.hlb .bf-tab-row{flex-wrap:wrap;gap:8px}.hlb .bf-tab-row .bf-tabs{flex-basis:100%;gap:20px}.pr-editor-stable>.pr-editor-body,.pr-editor-stable>.pr-editor-body.modal-body{grid-template-columns:1fr}.pr-editor-stable>.modal-foot{gap:10px;padding:12px 16px}.pr-editor-stable>.modal-foot>div{flex-wrap:wrap}.pr-close-note{max-width:120px}}

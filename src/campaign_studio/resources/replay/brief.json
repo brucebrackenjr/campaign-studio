@@ -1,0 +1,95 @@
+{
+  "campaign_id": "74d68837-ca7c-509b-b296-2abd7122b1b8",
+  "name": "HOLD – Make the next move",
+  "audience": "People exploring a fictional climbing collection.",
+  "creative_direction": "Recompose the saved demonstration sources locally. No new image generation.",
+  "brand": {
+    "id": "hold",
+    "name": "HOLD",
+    "logo_path": "assets/logo.png",
+    "logo_provenance": {
+      "label": "Locally authored fictional HOLD wordmark.",
+      "rights": "Created for this demonstration; no real-brand affiliation is claimed.",
+      "synthetic": false
+    },
+    "palette": [
+      "#FFFFFF"
+    ],
+    "text_color": "#FFFFFF"
+  },
+  "copy_provenance": {
+    "label": "Supplied demonstration copy.",
+    "rights": "Authored for this fictional campaign; no translation or legal approval is claimed.",
+    "synthetic": false
+  },
+  "markets": {
+    "en-US": {
+      "copy": {
+        "message": "Make the next move.",
+        "cta": "Explore the collection"
+      },
+      "phrase_rules": null
+    },
+    "es-MX": {
+      "copy": {
+        "message": "Siempre contigo.",
+        "cta": "Explora la colección"
+      },
+      "phrase_rules": []
+    }
+  },
+  "products": [
+    {
+      "id": "product-a",
+      "name": "HOLD brush roll concept",
+      "description": "A fictional canvas climbing-brush roll with a natural-wood brush and charcoal straps.",
+      "source": {
+        "role": "concept",
+        "imagery_absent": true,
+        "description": "An original burnt-clay canvas climbing-brush roll and natural-wood brush. The supplied replay master was generated for this fictional concept before replay.",
+        "provenance": {
+          "label": "Original fictional concept with no supplied product photograph at the time of generation.",
+          "rights": "Created for this demonstration; no real-product affiliation or product-preservation claim.",
+          "synthetic": false
+        }
+      }
+    },
+    {
+      "id": "product-b",
+      "name": "HOLD wrapped chalk",
+      "description": "A fictional wrapped chalk block shown in a prepared granite scene.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/product-b-scene.png",
+        "provenance": {
+          "label": "AI-created fictional demonstration input, prepared before the application run.",
+          "rights": "Created for this fictional demonstration; not commercial product photography.",
+          "synthetic": false
+        },
+        "subject_box": {
+          "left": 0.37,
+          "top": 0.43,
+          "right": 0.63,
+          "bottom": 0.7
+        }
+      }
+    }
+  ],
+  "replay": {
+    "sources": {
+      "product-a": {
+        "path": "assets/saved-concept.png",
+        "sha256": "449367792647e62d2bfbe90ab788f0eb9c122e34ac3e35c02adddfd5ddc6eb9e",
+        "model": "gpt-image-2.5-flare-2026-09-08",
+        "generated_on": "2026-10-29",
+        "provenance": {
+          "label": "Genuine application-generated concept master retained from one deliberate image request.",
+          "rights": "AI-generated for this fictional demonstration. Exact saved bytes are reused locally.",
+          "synthetic": false
+        }
+      }
+    },
+    "historical_requests": 1,
+    "history": "The included concept master was produced by one application image request on October 29, 2026. The chalk scene was supplied separately. Replay makes zero new image requests; historical provider charges are not confirmed."
+  }
+}

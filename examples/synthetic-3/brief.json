@@ -1,0 +1,101 @@
+{
+  "campaign_id": "10a02c18-9114-53ce-beb7-b41293746c84",
+  "name": "Synthetic installation campaign",
+  "audience": "People evaluating the local workflow using synthetic fixtures.",
+  "creative_direction": "Geometric shapes for behavior checks. Not photography.",
+  "brand": {
+    "id": "synthetic-brand",
+    "name": "Synthetic brand",
+    "logo_path": "assets/logo.png",
+    "logo_provenance": {
+      "label": "Synthetic geometric fixture",
+      "rights": "Locally authored test graphics",
+      "synthetic": true
+    },
+    "palette": [
+      "#FFFFFF"
+    ],
+    "text_color": "#FFFFFF"
+  },
+  "copy_provenance": {
+    "label": "Illustrative supplied copy",
+    "rights": "Authored for synthetic checks",
+    "synthetic": true
+  },
+  "markets": {
+    "en-US": {
+      "copy": {
+        "message": "Made for everyday moments.",
+        "cta": "Explore the collection."
+      },
+      "phrase_rules": [
+        {
+          "id": "test-block",
+          "phrase": "TESTBLOCK"
+        }
+      ]
+    }
+  },
+  "products": [
+    {
+      "id": "product-1",
+      "name": "Synthetic product 1",
+      "description": "A geometric test subject, not a real product photograph.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/product-1.png",
+        "provenance": {
+          "label": "Synthetic geometric fixture",
+          "rights": "Locally authored test graphics",
+          "synthetic": true
+        },
+        "subject_box": {
+          "left": 0.39,
+          "top": 0.39,
+          "right": 0.61,
+          "bottom": 0.61
+        }
+      }
+    },
+    {
+      "id": "product-2",
+      "name": "Synthetic product 2",
+      "description": "A geometric test subject, not a real product photograph.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/product-2.png",
+        "provenance": {
+          "label": "Synthetic geometric fixture",
+          "rights": "Locally authored test graphics",
+          "synthetic": true
+        },
+        "subject_box": {
+          "left": 0.39,
+          "top": 0.39,
+          "right": 0.61,
+          "bottom": 0.61
+        }
+      }
+    },
+    {
+      "id": "product-3",
+      "name": "Synthetic product 3",
+      "description": "A geometric test subject, not a real product photograph.",
+      "source": {
+        "role": "finished_scene",
+        "path": "assets/product-3.png",
+        "provenance": {
+          "label": "Synthetic geometric fixture",
+          "rights": "Locally authored test graphics",
+          "synthetic": true
+        },
+        "subject_box": {
+          "left": 0.39,
+          "top": 0.39,
+          "right": 0.61,
+          "bottom": 0.61
+        }
+      }
+    }
+  ]
+}
