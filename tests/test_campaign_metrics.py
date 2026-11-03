@@ -10,7 +10,7 @@ from zipfile import ZipFile
 
 import httpx
 import pytest
-from campaign_fixtures import zip_root
+from campaign_fixtures import independent_brief, zip_root
 from fastapi.testclient import TestClient
 from test_provider_runner import generated_case
 from test_workflow import edit_copy, revise
@@ -41,7 +41,7 @@ def test_campaign_metrics_reads_attempts_and_publication_from_one_snapshot(
     cid = state.run(run)["campaign_id"]
     plan_ref = state.run(run)["plan_ref"]
     state.set_status(run, "running")
-    manifest_ref = f"private/runs/{run}/controlled-publication.json"
+    manifest_ref = state.storage.project(cid).ref(f"Runs/{run}/controlled-publication.json")
     state.storage.write(
         manifest_ref,
         json.dumps(
@@ -164,7 +164,8 @@ def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path)
     value = state.plan(run_a).brief.model_dump()
     value["campaign_id"] = "014c1210-29a9-50d2-823a-7a936aecd62b"
     b = value["campaign_id"]
-    run_b = state.create(make_plan(Brief.model_validate(value), state.storage), 1)
+    independent = independent_brief(state, Brief.model_validate(value), b)
+    run_b = state.create(make_plan(independent, state.storage), 1)
     state.confirm(run_b, state.plan(run_b).digest)
     mocked_production(state, runner, run_b, response, {"input_tokens": 12, "output_tokens": 34})
     b_total = state.campaign_metrics(b)
@@ -298,7 +299,7 @@ def test_damaged_coverage_does_not_fabricate_complete_zero_or_drop_known_attempt
     state.set_status(run_id, "running")
     attempt = state.reserve(run_id, "product-1")
     state.finish_attempt(attempt["id"], "failed", usage={"input_tokens": 100, "output_tokens": 200})
-    reference = f"private/runs/{run_id}/damaged-manifest.json"
+    reference = state.storage.project(cid).ref(f"Runs/{run_id}/damaged-manifest.json")
     state.storage.write(
         reference,
         json.dumps(

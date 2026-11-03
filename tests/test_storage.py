@@ -70,7 +70,7 @@ def test_sqlite_connections_commit_rollback_and_close(storage):
 
 
 def test_reinitializing_preserves_existing_files(storage):
-    source = storage.path("campaigns/source.txt")
+    source = storage.path("Projects/source.txt")
     source.write_text("original")
     storage.initialize()
     assert source.read_text() == "original"
@@ -78,20 +78,21 @@ def test_reinitializing_preserves_existing_files(storage):
 
 def test_readable_delivery_names_keep_private_and_path_boundaries(storage, tmp_path):
     reference = (
-        "exports/Autumn – Café/images/Maple chair/English (United States)/Square - 1080x1080.png"
+        "Projects/Autumn-12345678/Exports/Autumn – Café/images/Maple chair/"
+        "English (United States)/Square - 1080x1080.png"
     )
     storage.write(reference, b"verified image")
     assert storage.path(reference).read_bytes() == b"verified image"
     for unsafe in (
-        "exports/../private/key",
-        "exports//file",
-        "exports/.hidden",
-        "exports/CON.txt",
-        "exports/a\\b",
-        "exports/a:stream",
-        "exports/a#b",
-        "exports/a%2fb",
-        "exports/a\nfile",
+        "Projects/Autumn-12345678/Exports/../private/key",
+        "Projects/Autumn-12345678/Exports//file",
+        "Projects/Autumn-12345678/Exports/.hidden",
+        "Projects/Autumn-12345678/Exports/CON.txt",
+        "Projects/Autumn-12345678/Exports/a\\b",
+        "Projects/Autumn-12345678/Exports/a:stream",
+        "Projects/Autumn-12345678/Exports/a#b",
+        "Projects/Autumn-12345678/Exports/a%2fb",
+        "Projects/Autumn-12345678/Exports/a\nfile",
         "private/Readable name",
         "campaigns/Café",
     ):
@@ -99,7 +100,9 @@ def test_readable_delivery_names_keep_private_and_path_boundaries(storage, tmp_p
             storage.path(unsafe)
     outside = tmp_path / "outside"
     outside.mkdir()
-    (storage.root / "exports" / "linked folder").symlink_to(outside, target_is_directory=True)
+    (storage.root / "Projects/Autumn-12345678/Exports" / "linked folder").symlink_to(
+        outside, target_is_directory=True
+    )
     with pytest.raises(StorageError):
-        storage.write("exports/linked folder/file.png", b"no")
+        storage.write("Projects/Autumn-12345678/Exports/linked folder/file.png", b"no")
     assert not list(outside.iterdir())

@@ -133,6 +133,8 @@ CAMPAIGN_STUDIO_PORT=8001 uv run --locked campaign-studio serve --data-dir ./mot
 
 The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in the launch directory’s `.env`. The data directory path must not pass through a symbolic link. Motif does not search for, merge, or migrate another workspace. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
 
+Version 0.2.0 uses the project-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, choose an empty directory with `campaign-studio serve --data-dir ./motif-projects`.
+
 ## Try a complete workflow without a key
 
 On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. Autumn’s 30 finished PNGs are included in the package and copied with their editable sources, wording, and layouts. First setup does not render those images or make an API request.
@@ -366,15 +368,24 @@ Temporary previews and accepted PNGs use the same compositor. Publication saves 
 
 Motif uses one continuously saved project, not a version-history product. Quiet autosave and deliberate product commits share version-checked authored persistence. A stale browser tab cannot silently overwrite a newer save; a lost acknowledgement can be reconciled without treating a repeated request as a different edit.
 
-Campaign identity is a canonical hyphenated UUID, separate from its display name. SQLite’s small `campaigns(id)` registry establishes existence before production, with related execution and ownership records. Duplicate names are allowed, and renaming leaves the identity and URL unchanged. Draft content stays in JSON; the registry does not duplicate creative content.
+Campaign identity is a canonical hyphenated UUID, separate from its display name. SQLite records the full campaign ID and its permanent project folder before production. Duplicate names are allowed, and renaming leaves the identity and URL unchanged. Draft content stays in JSON; the registry does not duplicate creative content.
 
 The workspace holds uploads, source snapshots, received material, execution records, accepted PNGs, and app-created packages. It is separate from the virtual environment. Removing application code does not remove the data directory. Credentials are also separate from campaign data.
 
-The storage split follows the shape of the data. JSON holds the editable document, including unfinished fields, and readable plan/manifest snapshots. SQLite records campaign identity, production state, attempts, descriptions, and file relationships. Ordinary files hold images, preserved provider material, and exports so the compositor and recipient can use them directly. This avoids large image blobs in database rows; the trade-off is keeping file contents and recorded state consistent when publishing or recovering work.
+Open `Projects/` in the workspace to find a folder for each campaign, such as `Autumn Winds-901f13e2/`. The label comes from the brand or campaign name at creation. The suffix identifies the project. Renaming a campaign keeps its folder and links stable.
+
+| Inside a project | Contents |
+| --- | --- |
+| `Brief/` | The editable draft and the original imported JSON, when supplied. |
+| `Assets/` | This project’s copies of uploaded product photos and logos. |
+| `Runs/<id>/` | The production plan, frozen inputs, request records, received source images, and revisions with finished PNGs. |
+| `Exports/` | Managed delivery ZIPs and offline report folders. |
+
+One SQLite database in `private/state.sqlite3` records every campaign’s identity, production state, attempts, descriptions, and managed file locations. Pick the same photo in two campaigns and each receives its own copy. Back up the whole workspace, including SQLite, with Motif stopped.
 
 After successful image publication, exact cleanup retains the newest usable output set and a distinct necessary complete fallback. Source imagery, small records, and independent exported packages remain available. Empty failures do not replace usable images. Startup resumes only a previously confirmed cleanup with its existing target list; it does not choose additional files to delete.
 
-**Delete campaign** previews the owned files and estimated space, then requires confirmation. Deletion preserves shared dependencies, unowned files, and originals or downloaded packages outside the workspace. It removes exact accepted targets, not a broad directory guess. Interrupted cleanup keeps a recognizable pending target and resumes the same list on retry or restart.
+**Delete campaign** lists the registered files and estimates the space to reclaim. Confirmation removes those files and the empty project folder. A file you added yourself keeps its folder on disk. Packages you copied elsewhere remain available. An interrupted deletion resumes its confirmed file list after restart or retry.
 
 ### Capacity
 

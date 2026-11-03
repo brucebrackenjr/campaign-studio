@@ -124,7 +124,7 @@ function deletionData(inventory) {
     sourceFilesToRemove: inventory.source_file_count,
     outputPNGs: inventory.output_png_count,
     packages: inventory.package_count,
-    sharedFilesRetained: inventory.shared_file_count,
+    unmanagedFiles: inventory.unmanaged_file_count,
     hasUnsavedEdits:
       deletion?.campaign === draft?.campaign_id && hasPendingNavigationWork(),
   };

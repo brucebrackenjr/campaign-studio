@@ -17,7 +17,7 @@ from campaign_studio.imaging import FontProblem
 from campaign_studio.sample import run_replay, run_sample
 from campaign_studio.smoke import run_smoke
 from campaign_studio.state import StateError
-from campaign_studio.storage import CapacityError, Storage, StorageError
+from campaign_studio.storage import CapacityError, EarlierWorkspace, Storage, StorageError
 
 
 def serve(settings: Settings) -> int:
@@ -37,6 +37,7 @@ def serve(settings: Settings) -> int:
                 file=sys.stderr,
             )
             return 1
+        Storage(settings.data_dir).require_project_layout()
         config = uvicorn.Config(
             create_app(settings, seed_examples=True),
             host="127.0.0.1",
@@ -106,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    except (StateError, ConfigurationError, FontProblem) as error:
+    except (StateError, ConfigurationError, FontProblem, EarlierWorkspace) as error:
         print(str(error), file=sys.stderr)
         return 1
     except (OSError, StorageError, sqlite3.Error) as error:

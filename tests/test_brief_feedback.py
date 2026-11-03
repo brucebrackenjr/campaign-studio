@@ -112,7 +112,10 @@ def test_rejected_logo_preserves_previous_attachment_raw_work_and_upload_ownersh
     project["authored"]["brief"]["brand"]["text_color"] = " .ddd "
     projects.save(cid, AuthoredSave(**{k: project[k] for k in ("version", "base", "authored")}))
     document = intake.read(cid)
-    files = {p: p.read_bytes() for p in state.storage.path("private/uploads").glob("*")}
+    files = {
+        p: p.read_bytes()
+        for p in state.storage.path(state.storage.project(cid).ref("Assets")).rglob("*.png")
+    }
     with state.storage.connect() as db:
         owners = db.execute("SELECT * FROM file_owners ORDER BY reference,campaign_id").fetchall()
     app = create_app(Settings(data_dir=state.storage.root), key_available=lambda: False)
@@ -136,7 +139,8 @@ def test_rejected_logo_preserves_previous_attachment_raw_work_and_upload_ownersh
             assert result.status_code == 422 and result.json()["input_image"]["kind"] == expected
             assert intake.read(cid) == document
             assert {
-                p: p.read_bytes() for p in state.storage.path("private/uploads").glob("*")
+                p: p.read_bytes()
+                for p in state.storage.path(state.storage.project(cid).ref("Assets")).rglob("*.png")
             } == files
             with state.storage.connect() as db:
                 assert (

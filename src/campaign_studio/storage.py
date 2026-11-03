@@ -43,9 +43,25 @@ class StorageError(ValueError):
         self.code = code
 
 
+class EarlierWorkspace(StorageError):
+    """The existing workspace must be opened by its original Motif version."""
+
+
 def _reject_symlinks(path: Path) -> None:
     if any(part.is_symlink() for part in (path, *path.parents)):
         raise StorageError("Symbolic links are not allowed in runtime storage.")
+
+
+def delivery_component(value: str, fallback: str) -> str:
+    """A readable, bounded path component safe for macOS, Windows, and ZIP tools."""
+    value = unicodedata.normalize("NFKC", value)
+    value = "".join(c for c in value if not unicodedata.category(c).startswith("C"))
+    value = re.sub(r'[<>:"/\\|?*#%]', "-", value)
+    value = re.sub(r"\s+", " ", value).strip(" .")
+    value = value.encode("utf-8")[:80].decode("utf-8", errors="ignore").rstrip(" .") or fallback
+    if re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", value):
+        value = "_" + value
+    return value
 
 
 class Storage:
@@ -157,11 +173,42 @@ class Storage:
                     path.rmdir()  # Only empty directories created by this attempt.
         raise StorageError("A new storage identity could not be reserved. Try again.")
 
+    def temporary_file(self, reference):
+        """Record temporary project bytes so a crash leaves an exact cleanup target."""
+        for _ in range(100):
+            temp = f"{reference}.{uuid4().hex}.tmp"
+            path = self.path(temp)
+            if path.exists():
+                continue
+            registered = False
+            if reference.startswith("Projects/"):
+                with self.connect() as db:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == 7:
+                        owner = db.execute(
+                            "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+                        ).fetchone()
+                        if owner:
+                            if not db.execute(
+                                "INSERT OR IGNORE INTO file_owners VALUES (?,?)", (temp, owner[0])
+                            ).rowcount:
+                                continue
+                            registered = True
+            return path, registered
+        raise StorageError("A temporary file could not be reserved. Try again.")
+
+    def finish_temporary(self, path, registered):
+        if registered and not path.exists():
+            with self.connect() as db:
+                db.execute(
+                    "DELETE FROM file_owners WHERE reference=?",
+                    (path.relative_to(self.root).as_posix(),),
+                )
+
     def write_new(self, reference: str, data: bytes) -> None:
         """Publish a new owned file durably without replacing an existing identifier."""
         destination = self.path(reference)
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        temporary = self.path(f"{reference}.{uuid4().hex}.tmp")
+        temporary, registered = self.temporary_file(reference)
         created = False
         linked = False
         try:
@@ -191,13 +238,49 @@ class Storage:
         finally:
             if created:
                 temporary.unlink(missing_ok=True)
+            self.finish_temporary(temporary, registered)
+
+    def require_project_layout(self):
+        database = self.path("private/state.sqlite3")
+        older = any(
+            self.path(name).exists()
+            for name in ("campaigns", "private/brief-drafts", "private/uploads", "exports")
+        )
+        if database.exists() and database.stat().st_size:
+            from contextlib import closing
+
+            with closing(
+                sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)
+            ) as db:
+                version = db.execute("PRAGMA user_version").fetchone()[0]
+                older = version not in (0, 7) or (older and version == 0)
+                columns = {row[1] for row in db.execute("PRAGMA table_info(campaigns)")}
+                older |= bool(columns and "folder" not in columns)
+        if older:
+            raise EarlierWorkspace(
+                "This workspace uses an earlier Motif layout. Open it with the Motif version "
+                "that created it. To start a fresh workspace, use a new folder:\n"
+                "campaign-studio serve --data-dir ./motif-projects"
+            )
+
+    def project(self, campaign_id):
+        from campaign_studio.projects import ProjectFiles
+
+        with self.connect() as db:
+            row = db.execute("SELECT folder FROM campaigns WHERE id=?", (campaign_id,)).fetchone()
+        if not row:
+            raise StorageError(
+                "We couldn’t find this campaign in your workspace.", code="not_found"
+            )
+        return ProjectFiles(self, campaign_id, row[0])
 
     def initialize(self) -> None:
         _reject_symlinks(self.root)
+        self.require_project_layout()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if not self.root.is_dir():
             raise StorageError("Runtime storage must be a directory.")
-        for name in ("campaigns", "private", "smoke"):
+        for name in ("Projects", "private", "smoke"):
             self.path(name).mkdir(exist_ok=True, mode=0o700)
         with self.connect() as connection:
             if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
@@ -212,7 +295,7 @@ class Storage:
         parts = reference.split("/")
         # Delivery names are human-readable; private application references stay
         # deliberately ASCII. Both retain the same traversal and symlink boundary.
-        delivery = parts[0] == "exports"
+        delivery = parts[0] == "Projects"
         valid = (
             all(
                 bool(part)
@@ -237,7 +320,7 @@ class Storage:
         """Publish a complete private file after flushing its bytes to disk."""
         destination = self.path(reference)
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        temporary = self.path(f"{reference}.{uuid4().hex}.tmp")
+        temporary, registered = self.temporary_file(reference)
         created = False
         try:
             with temporary.open("xb") as output:
@@ -255,6 +338,7 @@ class Storage:
         finally:
             if created:
                 temporary.unlink(missing_ok=True)
+            self.finish_temporary(temporary, registered)
 
     @contextmanager
     def exclusive_draft(self) -> Iterator[None]:

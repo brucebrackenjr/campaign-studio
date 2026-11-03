@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 from zipfile import ZipFile
 
 import pytest
+from campaign_fixtures import export_ref, independent_brief
 from pydantic import ValidationError
 from test_workflow import edit_copy, revise, setup_case
 
@@ -169,9 +170,11 @@ def test_metadata_edits_reopen_without_pixels_attempts_or_new_revision(produced,
         "campaign_studio.provider.OpenAIImages.generate",
     ):
         monkeypatch.setattr(method, lambda *a, **kw: pytest.fail("Metadata edit did image work"))
-    export_package(state, revision_id, "exports/before")
-    assert package_is_intact(state, revision_id, "exports/before")
-    old_export = state.storage.path("exports/before/manifest.json").read_bytes()
+    export_package(state, revision_id, export_ref(state, revision_id, "before"))
+    assert package_is_intact(state, revision_id, export_ref(state, revision_id, "before"))
+    old_export = state.storage.path(
+        export_ref(state, revision_id, "before/manifest.json")
+    ).read_bytes()
     descriptions = ["Orange synthetic subject beside English wording.", "Vertical geometric scene."]
     for item, description in zip(first["outputs"][:2], descriptions, strict=True):
         state.update_creative(
@@ -190,10 +193,15 @@ def test_metadata_edits_reopen_without_pixels_attempts_or_new_revision(produced,
         snapshot["outputs"][0]["copy_provenance"]["origin"]
         == state.plan(run_id).brief.copy_provenance.model_dump()
     )
-    assert not package_is_intact(state, revision_id, "exports/before")
-    assert state.storage.path("exports/before/manifest.json").read_bytes() == old_export
-    export_package(state, revision_id, "exports/after")
-    exported = json.loads(state.storage.path("exports/after/manifest.json").read_bytes())
+    assert not package_is_intact(state, revision_id, export_ref(state, revision_id, "before"))
+    assert (
+        state.storage.path(export_ref(state, revision_id, "before/manifest.json")).read_bytes()
+        == old_export
+    )
+    export_package(state, revision_id, export_ref(state, revision_id, "after"))
+    exported = json.loads(
+        state.storage.path(export_ref(state, revision_id, "after/manifest.json")).read_bytes()
+    )
     assert exported.pop("report_created_at").endswith("+00:00")
     assert exported["product_names"] == snapshot["product_names"]
     assert exported["producer_metadata_snapshot"] == snapshot["producer_metadata_snapshot"]
@@ -299,11 +307,15 @@ def test_zip_matches_folder_moves_offline_and_excludes_private_files(produced, t
     (state.storage.root / ".env").write_bytes(b"PRIVATE_SYNTHETIC_SENTINEL")
     if partial:
         with pytest.raises(StateError, match="explicitly"):
-            export_zip(state, revision_id, "exports/blocked.zip")
-    export_package(state, revision_id, "exports/folder", allow_partial=partial)
-    export_zip(state, revision_id, "exports/result.zip", allow_partial=partial)
+            export_zip(state, revision_id, export_ref(state, revision_id, "blocked.zip"))
+    export_package(
+        state, revision_id, export_ref(state, revision_id, "folder"), allow_partial=partial
+    )
+    export_zip(
+        state, revision_id, export_ref(state, revision_id, "result.zip"), allow_partial=partial
+    )
     relocated = tmp_path / "recipient.zip"
-    shutil.copyfile(state.storage.path("exports/result.zip"), relocated)
+    shutil.copyfile(state.storage.path(export_ref(state, revision_id, "result.zip")), relocated)
     extracted = tmp_path / "extracted"
     with ZipFile(relocated) as archive:
         assert archive.testzip() is None
@@ -320,7 +332,7 @@ def test_zip_matches_folder_moves_offline_and_excludes_private_files(produced, t
     for path in extracted.rglob("*"):
         if path.is_file():
             folder_bytes = state.storage.path(
-                f"exports/folder/{path.relative_to(extracted).as_posix()}"
+                export_ref(state, revision_id, f"folder/{path.relative_to(extracted).as_posix()}")
             ).read_bytes()
             if path.name == "manifest.json":
                 archived, folder = json.loads(path.read_bytes()), json.loads(folder_bytes)
@@ -363,8 +375,10 @@ def test_zip_matches_folder_moves_offline_and_excludes_private_files(produced, t
             )
     before = relocated.read_bytes()
     with pytest.raises(StateError, match="existing packages"):
-        export_zip(state, revision_id, "exports/result.zip", allow_partial=partial)
-    assert state.storage.path("exports/result.zip").read_bytes() == before
+        export_zip(
+            state, revision_id, export_ref(state, revision_id, "result.zip"), allow_partial=partial
+        )
+    assert state.storage.path(export_ref(state, revision_id, "result.zip")).read_bytes() == before
 
 
 def test_export_rejects_private_metadata_and_unsafe_entry(produced):
@@ -377,7 +391,7 @@ def test_export_rejects_private_metadata_and_unsafe_entry(produced):
         CreativeUpdate(expected_version=0, description="/Users/example/private/source.png"),
     )
     with pytest.raises(StateError, match="private-looking"):
-        export_zip(state, revision_id, "exports/private.zip")
+        export_zip(state, revision_id, export_ref(state, revision_id, "private.zip"))
     state.update_creative(
         revision_id, creative_id, CreativeUpdate(expected_version=1, description=None)
     )
@@ -386,8 +400,8 @@ def test_export_rejects_private_metadata_and_unsafe_entry(produced):
     damaged["outputs"][0]["file"] = "../../private/response.json"
     state.storage.write(reference, json.dumps(damaged).encode())
     with pytest.raises(StateError, match="unsafe or unexpected"):
-        export_zip(state, revision_id, "exports/unsafe.zip")
-    assert not state.storage.path("exports/unsafe.zip").exists()
+        export_zip(state, revision_id, export_ref(state, revision_id, "unsafe.zip"))
+    assert not state.storage.path(export_ref(state, revision_id, "unsafe.zip")).exists()
 
 
 def test_new_run_inherits_only_same_campaign_and_unchanged_pixels(produced):
@@ -400,7 +414,8 @@ def test_new_run_inherits_only_same_campaign_and_unchanged_pixels(produced):
     second = asyncio.run(runner.execute(new_run))
     assert all(item["description"] for item in values(state, second["revision_id"]).values())
     value["campaign_id"] = "3ebf5c55-37c0-5e04-80d1-8c2054da62bb"
-    other = state.create(make_plan(Brief.model_validate(value), state.storage), 0)
+    other_brief = independent_brief(state, Brief.model_validate(value), value["campaign_id"])
+    other = state.create(make_plan(other_brief, state.storage), 0)
     state.confirm(other, state.plan(other).digest)
     third = asyncio.run(runner.execute(other))
     assert all(item["description"] is None for item in values(state, third["revision_id"]).values())
@@ -414,11 +429,16 @@ def test_existing_database_defaults_without_inventing_descriptions_or_rewriting_
     with state.storage.connect() as db:
         db.execute("DROP TABLE creative_metadata")
         db.execute("PRAGMA user_version=2")
-    reopened = State(state.storage)
-    assert all(item["description"] is None for item in values(reopened, revision_id).values())
+    from campaign_studio.storage import EarlierWorkspace
+
+    with pytest.raises(EarlierWorkspace, match="earlier Motif layout"):
+        State(state.storage)
     assert state.storage.path(reference).read_bytes() == original
-    assert reopened.run(run_id)["current_revision"] == revision_id
-    assert reopened.attempts(run_id) == []
+    with state.storage.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert not db.execute(
+            "SELECT name FROM sqlite_master WHERE name='creative_metadata'"
+        ).fetchone()
 
 
 def test_description_cannot_make_a_corrupt_image_exportable(produced):
@@ -434,8 +454,8 @@ def test_description_cannot_make_a_corrupt_image_exportable(produced):
     )
     assert values(state, revision_id)[output["id"]]["description"] == "Supplied description."
     with pytest.raises(StateError, match="saved output changed"):
-        export_zip(state, revision_id, "exports/corrupt.zip")
-    assert not state.storage.path("exports/corrupt.zip").exists()
+        export_zip(state, revision_id, export_ref(state, revision_id, "corrupt.zip"))
+    assert not state.storage.path(export_ref(state, revision_id, "corrupt.zip")).exists()
 
 
 def test_retired_metadata_is_preserved_in_storage_but_not_editable_or_exported(produced):
@@ -479,11 +499,15 @@ def test_retired_metadata_is_preserved_in_storage_but_not_editable_or_exported(p
             ).fetchone()[0]
         )
     assert all(stored[key] == raw[key] for key in ("marker", "language_review", "marketing_review"))
-    export_package(state, revision_id, "exports/current-description")
+    export_package(state, revision_id, export_ref(state, revision_id, "current-description"))
     public = json.loads(
-        state.storage.path("exports/current-description/manifest.json").read_bytes()
+        state.storage.path(
+            export_ref(state, revision_id, "current-description/manifest.json")
+        ).read_bytes()
     )
-    html = state.storage.path("exports/current-description/index.html").read_text()
+    html = state.storage.path(
+        export_ref(state, revision_id, "current-description/index.html")
+    ).read_text()
     assert "Current description." in html
     assert "human_review" not in json.dumps(public)
     assert "human reviewed" not in html and "Human review:" not in html

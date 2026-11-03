@@ -5,6 +5,7 @@ import shutil
 from html.parser import HTMLParser
 
 import pytest
+from campaign_fixtures import export_ref
 from PIL import Image, ImageDraw
 
 from campaign_studio.brief import Brief
@@ -125,17 +126,26 @@ def test_blocking_edit_preserves_current_and_exports_explicit_partial(tmp_path):
     assert state.run(run_id)["current_revision"] == first["revision_id"]
     assert all(item["file"] is None for item in partial["outputs"] if item["market"] == "en-US")
     with pytest.raises(StateError, match="explicitly"):
-        export_package(state, partial["revision_id"], "exports/not-allowed")
-    index = export_package(state, partial["revision_id"], "exports/partial", allow_partial=True)
+        export_package(
+            state, partial["revision_id"], export_ref(state, partial["revision_id"], "not-allowed")
+        )
+    index = export_package(
+        state,
+        partial["revision_id"],
+        export_ref(state, partial["revision_id"], "partial"),
+        allow_partial=True,
+    )
     assert "Partial" in state.storage.path(index).read_text()
 
 
 def test_moved_complete_package_has_only_local_files_and_escaped_content(tmp_path):
     state, runner, run_id, _ = setup_case(tmp_path)
     result = asyncio.run(runner.execute(run_id))
-    export_package(state, result["revision_id"], "exports/complete")
+    export_package(
+        state, result["revision_id"], export_ref(state, result["revision_id"], "complete")
+    )
     moved = tmp_path / "moved"
-    shutil.copytree(state.storage.path("exports/complete"), moved)
+    shutil.copytree(state.storage.path(export_ref(state, result["revision_id"], "complete")), moved)
 
     class Links(HTMLParser):
         references = []
@@ -182,7 +192,9 @@ def test_exported_pixel_checks_detect_removed_logo_and_wrong_text_color(tmp_path
         "controlled_text_color",
     }
     with pytest.raises(StateError, match="saved output changed"):
-        export_package(state, result["revision_id"], "exports/damaged")
+        export_package(
+            state, result["revision_id"], export_ref(state, result["revision_id"], "damaged")
+        )
 
 
 def test_stale_edit_preview_is_rejected_without_changing_revision(tmp_path):

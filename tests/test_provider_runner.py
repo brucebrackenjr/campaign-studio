@@ -410,7 +410,7 @@ def test_local_composition_failure_recovers_saved_imagery_without_another_call(
     write = state.storage.write
 
     def fail_output(reference, payload):
-        if "/revisions/" in reference and reference.endswith(".png"):
+        if "/Revisions/" in reference and reference.endswith(".png"):
             raise OSError("Synthetic disk failure")
         return write(reference, payload)
 

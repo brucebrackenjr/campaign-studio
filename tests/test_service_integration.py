@@ -392,7 +392,10 @@ def test_partial_zip_intent_ownership_and_unavailable_artifacts(produced, tmp_pa
     assert client.get(package["url"]).status_code == 409
     # An otherwise valid but unregistered artifact is never served by its filename.
     state.storage.write(
-        "exports/80d58cbe-5e57-5544-9b07-a4f018714dde/archives/unregistered.zip", payload
+        workspace.storage.project("80d58cbe-5e57-5544-9b07-a4f018714dde").ref(
+            "Exports/archives/unregistered.zip"
+        ),
+        payload,
     )
     assert (
         client.get(package["url"].replace(package["artifact_id"], "unregistered")).status_code
@@ -486,13 +489,19 @@ def test_folder_export_binds_description_snapshot_and_preserves_prior_packages(
         return result
 
     before = sorted(
-        workspace.storage.path("exports/80d58cbe-5e57-5544-9b07-a4f018714dde").iterdir()
+        workspace.storage.path(
+            workspace.storage.project("80d58cbe-5e57-5544-9b07-a4f018714dde").ref("Exports")
+        ).iterdir()
     )
     monkeypatch.setattr("campaign_studio.handoff.folder_matches", change_after_reuse_check)
     raced = client.post(endpoint, json=body)
     assert raced.status_code == 409 and "changed in another tab" in raced.json()["message"]
     assert (
-        sorted(workspace.storage.path("exports/80d58cbe-5e57-5544-9b07-a4f018714dde").iterdir())
+        sorted(
+            workspace.storage.path(
+                workspace.storage.project("80d58cbe-5e57-5544-9b07-a4f018714dde").ref("Exports")
+            ).iterdir()
+        )
         == before
     )
     assert (location / "manifest.json").read_bytes() == old_manifest
@@ -526,6 +535,17 @@ def test_report_registry_integrity_kind_isolation_and_deletion(produced):
     )
     with pytest.raises(StateError):
         state.register_package(target, record["reference"], record["sha256"], record["snapshot_id"])
+    # A valid revision still cannot register a file owned by another project.
+    from campaign_studio.storage import StorageError
+
+    valid_target = target.model_copy(update={"campaign_id": cid})
+    with pytest.raises(StorageError, match="belonging to this campaign"):
+        state.register_package(
+            valid_target,
+            state.storage.project(foreign).draft,
+            record["sha256"],
+            record["snapshot_id"],
+        )
     root = Path(folder["location"])
     original = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
     for reference in (

@@ -146,7 +146,7 @@ def test_killed_during_composition_recovers_and_reopens_draft_revision_metadata(
         wait_until(lambda: (tmp_path / "checkpoint").exists())
         assert state.attempts(run_id)[0]["state"] == "decoded"
         assert state.run(run_id)["current_revision"] is None
-        revisions = tmp_path / "runtime" / "campaigns" / run_id / "revisions"
+        revisions = next((tmp_path / "runtime" / "Projects").glob(f"*/Runs/{run_id}/Revisions"))
         assert len(list(revisions.rglob("*.png"))) == 1
         assert state.revision_count(run_id) == 0
         child.kill()

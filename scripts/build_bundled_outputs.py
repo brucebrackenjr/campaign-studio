@@ -24,13 +24,24 @@ from campaign_studio.storage import Storage
 
 def build_prepared_outputs(resources, entry, storage):
     original = json.loads((resources / entry["brief"]).read_bytes())
+    from copy import deepcopy
+
+    state = State(storage)
+    value = deepcopy(original)
+    state.register_campaign(value["campaign_id"], value["brand"]["name"])
+    project = storage.project(value["campaign_id"])
+    copied = {}
     for reference, expected in entry["files"].items():
         payload = (resources / entry["slug"] / reference).read_bytes()
         if hashlib.sha256(payload).hexdigest() != expected:
             raise ValueError("An example source does not match the resource manifest.")
-        storage.write(reference, payload)
-    state = State(storage)
-    plan = make_plan(Brief.model_validate(original), storage)
+        target = project.ref("Assets/Prepared/" + reference)
+        project.write(target, payload)
+        copied[reference] = target
+    value["brand"]["logo_path"] = copied[value["brand"]["logo_path"]]
+    for product in value["products"]:
+        product["source"]["path"] = copied[product["source"]["path"]]
+    plan = make_plan(Brief.model_validate(value), storage)
     if plan.blocked or plan.generation_products:
         raise ValueError("Prepared examples must use complete supplied sources and valid copy.")
     run_id = state.create(plan, 0)

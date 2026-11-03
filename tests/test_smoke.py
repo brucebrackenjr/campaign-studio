@@ -30,4 +30,4 @@ def test_smoke_round_trip_is_synthetic_and_never_uses_network(tmp_path, monkeypa
     assert manifest["provider_requests"] == 0
     assert manifest["photographic_evidence"] is False
     assert manifest["image_sha256"] == hashlib.sha256(image_path.read_bytes()).hexdigest()
-    assert list(storage.path("campaigns").iterdir()) == []
+    assert list(storage.path("Projects").iterdir()) == []

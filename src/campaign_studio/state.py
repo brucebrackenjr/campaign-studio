@@ -40,7 +40,9 @@ class State:
         storage.initialize()
         with storage.connect() as db:
             db.executescript("""
-                CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS campaigns (
+                    id TEXT PRIMARY KEY, folder TEXT UNIQUE COLLATE NOCASE NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaigns(id),
                     plan_ref TEXT NOT NULL,
@@ -75,7 +77,11 @@ class State:
                 );
                 CREATE TABLE IF NOT EXISTS file_owners (
                     reference TEXT NOT NULL, campaign_id TEXT NOT NULL REFERENCES campaigns(id),
-                    PRIMARY KEY (reference,campaign_id)
+                    PRIMARY KEY (reference)
+                );
+                CREATE TABLE IF NOT EXISTS uploads (
+                    name TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE
+                    REFERENCES file_owners(reference) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS cleanup_intents (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL,
@@ -92,7 +98,7 @@ class State:
                 CREATE INDEX IF NOT EXISTS uploads_campaign ON file_owners(campaign_id);
                 CREATE INDEX IF NOT EXISTS cleanup_campaign ON cleanup_intents(campaign_id);
             """)
-            db.execute("PRAGMA user_version = 6")
+            db.execute("PRAGMA user_version = 7")
 
     def run(self, run_id: str) -> dict:
         with self.storage.connect() as db:
@@ -229,7 +235,20 @@ class State:
         revision = self.effective_revision(run_id) if current else None
         if revision:
             reference = self.revision(revision)["plan_ref"]
-        return Plan.model_validate_json(self.storage.path(reference).read_bytes())
+        return self.read_plan(run["campaign_id"], reference)
+
+    def read_plan(self, campaign_id, reference):
+        project = self.storage.project(campaign_id)
+        plan = Plan.model_validate_json(self.storage.path(project.require(reference)).read_bytes())
+        if plan.brief.campaign_id != campaign_id:
+            raise StateError("The saved plan belongs to a different campaign.")
+        project.check_brief(
+            plan.brief.model_dump(mode="json"), (a.reference for a in plan.assets.values())
+        )
+        return plan
+
+    def revision_plan(self, revision):
+        return self.read_plan(self.run(revision["run_id"])["campaign_id"], revision["plan_ref"])
 
     def identity_exists(self, table: str, identity: str) -> bool:
         if table not in {"runs", "attempts", "revisions", "package_exports"}:
@@ -240,12 +259,11 @@ class State:
             )
 
     def reserve_revision(self, run_id: str) -> str:
-        return self.storage.reserve_namespaces(
-            (f"campaigns/{run_id}/revisions/{{id}}",),
-            occupied=lambda identity: (
-                self.identity_exists("revisions", identity)
-                or self.storage.path(f"private/runs/{run_id}/revisions/{identity}.json").exists()
-            ),
+        project = self.storage.project(self.run(run_id)["campaign_id"])
+        return self.reserve_owned_namespaces(
+            project.campaign_id,
+            (f"{project.run(run_id)}/Revisions/{{id}}",),
+            occupied=lambda identity: self.identity_exists("revisions", identity),
         )
 
     def reserve_owned_namespaces(self, campaign_id, patterns, *, occupied=None) -> str:
@@ -253,6 +271,9 @@ class State:
         from campaign_studio.cleanup import require_campaign_available
 
         require_campaign_available(self.storage, campaign_id)
+        project = self.storage.project(campaign_id)
+        for pattern in patterns:
+            project.check(pattern.format(id="reserved"))
         identity = self.storage.reserve_namespaces(patterns, occupied=occupied)
         namespaces = tuple(pattern.format(id=identity) for pattern in patterns)
         try:
@@ -272,26 +293,31 @@ class State:
         # campaign deletion can still inventory its exact leaves. Startup never sweeps.
         return identity
 
-    def register_campaign(self, campaign_id: str) -> None:
+    def register_campaign(self, campaign_id: str, label="Campaign") -> None:
         from campaign_studio.cleanup import require_campaign_available
 
         require_campaign_available(self.storage, campaign_id, registered=False)
         with self.storage.connect() as db:
-            db.execute("INSERT OR IGNORE INTO campaigns VALUES (?)", (campaign_id,))
+            from campaign_studio.projects import create_project
+
+            if not db.execute("SELECT 1 FROM campaigns WHERE id=?", (campaign_id,)).fetchone():
+                create_project(self.storage, db, campaign_id, label)
 
     def create(self, plan: Plan, allowance: int) -> str:
         if plan.blocked:
             raise StateError("Correct the campaign details before creating a production plan.")
         if type(allowance) is not int or allowance < len(plan.generation_products):
             raise StateError("The allowance does not cover the displayed initial requests.")
-        sizes = [self.storage.path(a.reference).stat().st_size for a in plan.assets.values()]
+        project = self.storage.project(plan.brief.campaign_id)
+        project.check_brief(plan.brief.model_dump(mode="json"))
+        sizes = [
+            self.storage.path(project.require(a.reference)).stat().st_size
+            for a in plan.assets.values()
+        ]
         self.storage.require_capacity(sum(sizes) + max(sizes, default=0) + DOCUMENT_BYTES)
-        # Direct CLI preparation is also explicit campaign creation. Register
-        # before owning files, so a failed preparation remains safely deletable.
-        self.register_campaign(plan.brief.campaign_id)
         run_id = self.reserve_owned_namespaces(
             plan.brief.campaign_id,
-            ("private/runs/{id}", "campaigns/{id}"),
+            (project.ref("Runs/{id}"),),
             occupied=lambda identity: self.identity_exists("runs", identity),
         )
         brief = plan.brief.model_dump(exclude_unset=True)
@@ -300,8 +326,8 @@ class State:
             data = source.read_bytes()
             if hashlib.sha256(data).hexdigest() != asset.sha256:
                 raise StateError("An input changed after preflight; rebuild the plan.")
-            reference = f"campaigns/{run_id}/inputs/{item}{image_suffix(data)}"
-            self.storage.write(reference, data)
+            reference = f"{project.run(run_id)}/Inputs/{item}{image_suffix(data)}"
+            project.write(reference, data)
             if item == "logo":
                 brief["brand"]["logo_path"] = reference
             elif item.startswith("masters/"):
@@ -315,8 +341,8 @@ class State:
         snapshot = make_plan(Brief.model_validate(brief), self.storage)
         if snapshot.blocked:
             raise StateError("The saved input snapshot failed preflight.")
-        reference = f"private/runs/{run_id}/plan.json"
-        self.storage.write(reference, snapshot.model_dump_json(indent=2).encode())
+        reference = f"{project.run(run_id)}/plan.json"
+        project.write(reference, snapshot.model_dump_json(indent=2).encode())
         with self.storage.connect() as db:
             db.execute(
                 "INSERT INTO runs (id,campaign_id,plan_ref,digest,state,allowance,created_at) "
@@ -335,7 +361,7 @@ class State:
 
     def require_authored_plan(self, run_id: str) -> None:
         run = self.run(run_id)
-        path = self.storage.path(f"private/brief-drafts/{run['campaign_id']}.json")
+        path = self.storage.path(self.storage.project(run["campaign_id"]).draft)
         if not path.is_file():
             return
         document = json.loads(path.read_bytes())
@@ -371,14 +397,15 @@ class State:
         with self.storage.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT plan_ref,state,allowance,current_revision FROM runs WHERE id = ?",
+                "SELECT plan_ref,state,allowance,current_revision,campaign_id FROM runs "
+                "WHERE id = ?",
                 (run_id,),
             ).fetchone()
             if row is None:
                 raise StateError("The displayed plan is stale or unknown.")
             revision = self._effective_revision(db, run_id)
             reference = self.revision(revision)["plan_ref"] if revision else row[0]
-            plan = Plan.model_validate_json(self.storage.path(reference).read_bytes())
+            plan = self.read_plan(row[4], reference)
             if plan.digest != digest:
                 raise StateError("The displayed plan is stale or unknown.")
             if retry_allowance is None:
@@ -599,14 +626,18 @@ class State:
                 raise StateError(
                     "Dispatch is stopped, unconfirmed, or beyond its request allowance."
                 )
+            project = self.storage.project(self.run(run_id)["campaign_id"])
             attempt_id = self.storage.reserve_namespaces(
-                (f"private/runs/{run_id}/attempts/{{id}}",),
+                (f"{project.run(run_id)}/Requests/{{id}}",),
                 occupied=lambda identity: (
                     db.execute("SELECT 1 FROM attempts WHERE id=?", (identity,)).fetchone()
                     is not None
                 ),
             )
-            root = f"private/runs/{run_id}/attempts/{attempt_id}"
+            root = f"{project.run(run_id)}/Requests/{attempt_id}"
+            db.execute("INSERT INTO file_owners VALUES (?,?)", (root, project.campaign_id))
+            for reference in (f"{root}/source.png", f"{root}/response.json"):
+                project.claim(reference, db)
             db.execute(
                 "INSERT INTO attempts "
                 "(id,run_id,product_id,state,response_ref,source_ref,created_at) "
@@ -715,6 +746,12 @@ class State:
         # newly restored input cannot turn a committed Apply into a refusal.
         # The caller's runner lock still excludes another render or export.
         with self.storage.exclusive_draft():
+            project = self.storage.project(self.run(run_id)["campaign_id"])
+            expected = f"{project.run(run_id)}/Revisions/{revision_id}"
+            if plan_ref != f"{expected}/plan.json" or manifest_ref != f"{expected}/manifest.json":
+                raise StateError("The revision files do not belong to this production run.")
+            project.require(plan_ref)
+            project.require(manifest_ref)
             if not self.storage.path(manifest_ref).is_file():
                 raise StateError("A revision cannot be committed before its manifest exists.")
             manifest = json.loads(self.storage.path(manifest_ref).read_bytes())
@@ -983,6 +1020,10 @@ class State:
         with self.storage.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             self._select_revision(db, target.model_copy(update={"mode": "saved_version"}))
+            project = self.storage.project(target.campaign_id)
+            project.require(reference)
+            if not reference.startswith(project.ref("Exports") + "/"):
+                raise StateError("Choose a delivery inside this campaign’s Exports folder.")
             db.execute(
                 "INSERT INTO package_exports VALUES (?,?,?,?,?,?,?)",
                 (

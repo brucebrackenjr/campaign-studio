@@ -72,7 +72,7 @@ def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, mon
     state, _, run, brief = setup_case(tmp_path)
     saved = {
         str(p.relative_to(state.storage.root)): p.read_bytes()
-        for p in state.storage.path(f"campaigns/{run}").rglob("*")
+        for p in state.storage.path(state.storage.project(brief.campaign_id).run(run)).rglob("*")
         if p.is_file()
     }
     calls = 0
@@ -90,7 +90,10 @@ def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, mon
     assert state.run(run)["state"] == "confirmed"
     # A private plan can outlive its output directory. It still protects identity.
     orphan = uuid4().hex
-    state.storage.write(f"private/runs/{run}/revisions/{orphan}.json", b"preserved")
+    state.storage.write(
+        state.storage.project(brief.campaign_id).ref(f"Runs/{run}/Revisions/{orphan}/plan.json"),
+        b"preserved",
+    )
     first = True
 
     def colliding_revision():
@@ -103,16 +106,18 @@ def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, mon
     monkeypatch.setattr("campaign_studio.storage.uuid4", colliding_revision)
     assert state.reserve_revision(run) != orphan
     assert (
-        state.storage.path(f"private/runs/{run}/revisions/{orphan}.json").read_bytes()
+        state.storage.path(
+            state.storage.project(brief.campaign_id).ref(f"Runs/{run}/Revisions/{orphan}/plan.json")
+        ).read_bytes()
         == b"preserved"
     )
     intake = Intake(state.storage)
     payload = state.storage.path(brief.brand.logo_path).read_bytes()
-    upload = intake.upload(payload, "image/png")
+    upload = intake.upload(payload, "image/png", brief.campaign_id)
     token = Path(upload["reference"]).stem
     choices = iter([SimpleNamespace(hex=token), uuid4()])
     monkeypatch.setattr("campaign_studio.intake.uuid4", lambda: next(choices))
-    another = intake.upload(payload, "image/png")
+    another = intake.upload(payload, "image/png", brief.campaign_id)
     assert upload["reference"] != another["reference"]
     assert state.storage.path(upload["reference"]).read_bytes() == payload
 
@@ -121,7 +126,8 @@ def test_new_ids_are_full_and_do_not_overwrite_existing_draft_files(tmp_path, mo
     state, _, _, _ = setup_case(tmp_path)
     intake = Intake(state.storage)
     blocked = uuid4()
-    reference = f"private/brief-drafts/{blocked}.json"
+    state.register_campaign(str(blocked), "Reserved")
+    reference = state.storage.project(str(blocked)).draft
     state.storage.write(reference, b"Existing draft stays exact")
     first = True
 

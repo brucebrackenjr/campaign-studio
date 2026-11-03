@@ -18,7 +18,7 @@ test("deletion inventory describes actual PNGs and campaign settings without his
     sourceFilesToRemove: 2,
     outputPNGs: 6,
     packages: 1,
-    sharedFilesRetained: 0,
+    unmanagedFiles: 0,
   });
   assert.match(view.body, /Campaign brief and settings/);
   assert.match(view.body, /Saved images<\/span><b>6 PNGs/);
@@ -201,9 +201,9 @@ test("typed color-profile cause uses escaped role-specific recovery without chan
     const h = harness();
     h.context.window = h.context;
     h.run(readFileSync("src/campaign_studio/static/motif/storage-components.js", "utf8"));
-    h.context.draft.brand = { logo_path: "private/uploads/logo.png" };
+    h.context.draft.brand = { logo_path: "Projects/Test-12345678/Assets/Products/logo.png" };
     h.context.draft.audience = "Typed audience";
-    h.context.modalProduct = { name: "Typed product", source: { path: "private/uploads/product.jpg" } };
+    h.context.modalProduct = { name: "Typed product", source: { path: "Projects/Test-12345678/Assets/Products/product.jpg" } };
     const before = JSON.stringify([h.context.draft, h.context.modalProduct]);
     h.context.logo = logo;
     h.run("imageInputFailure({input_image:{kind:'color_profile'},message:'UNKNOWN_MESSAGE'}, {name:'folder/<profile>.png',size:20},logo,draft)");

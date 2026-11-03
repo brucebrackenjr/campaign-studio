@@ -24,11 +24,14 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Recorded local evidence
 
+Version 0.2.0 checks campaign-owned project folders. A Chromium import archived the selected UTF-8 JSON byte for byte, including its original whitespace. Local tests cover independent photo copies, cross-campaign attachment refusal, ownership of received provider responses and generated sources under mocked transport, and cleanup after an interrupted import. Folder export checks cover the report, manifest, and every PNG. Deleting the project preserves files added by the producer and ZIP copies saved outside Motif.
+
+
 The v0.1.1 release baseline passed one complete run of **467 Python tests**, plus Ruff lint and formatting checks. Its frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests.
 
 Version 0.1.1 updates Pillow to 13.0.0. Focused checks cover PNG/JPEG decoding, EXIF orientation and malformed metadata refusal, both bundled fonts, opaque and transparent logos, framing, saved-source reuse, and exports. A 54-image comparison preserved output dimensions; newly rendered pixels can differ slightly after the dependency update. All 30 existing campaign PNGs passed inspection and exported byte-for-byte unchanged under the new dependency. Real CLI checks cover both Control-C and SIGTERM shutdown. The browser interface is unchanged.
 
-Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs. Focused checks forbid composition and production execution during setup, verify fresh identities and exact imported PNGs, and exercise missing, changed, and interrupted resources. An actual API journey applied wording, font, framing, and logo changes, then recomposed and exported all 30 images with zero provider attempts. Restart preserved the accepted revision and files. Instrumented fresh setup reached health in 1.28 seconds on the local Mac. The full candidate suite, independent review, and final source-ZIP installation are recorded separately as they complete.
+Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs. Focused checks forbid composition and production execution during setup, verify fresh identities and exact imported PNGs, and exercise missing, changed, and interrupted resources. An actual API journey applied wording, font, framing, and logo changes, then recomposed and exported all 30 images with zero provider attempts. Restart preserved the accepted revision and files. Instrumented fresh setup reached health in 1.28 seconds on the local Mac.
 
 | Area | Recorded checks |
 | --- | --- |

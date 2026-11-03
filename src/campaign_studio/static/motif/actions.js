@@ -397,7 +397,7 @@ function productDraft(productId = null) {
 }
 function retainedProductPhoto(productId) {
   const source = projectBuffers.form_drafts.product_images?.[productId];
-  if (source) return { source: copy(source), url: source.path?.startsWith("private/uploads/")
+  if (source) return { source: copy(source), url: source.path?.includes("/Assets/Products/")
     ? assetURL(source.path) : model.product_images?.[productId]?.url || null };
   return model.product_images?.[productId] || null;
 }
@@ -905,7 +905,7 @@ async function dispatchAction(data) {
             "This file is not valid JSON. Your existing campaign is unchanged.",
           );
         }
-        const result = await api("/api/motif/import", value);
+        const result = await api("/api/motif/import", value, { body: file });
         await refreshCatalog();
         await openCampaign(result.campaign_id, "production");
         if (missingReference()) openModal("missing-reference");

@@ -189,7 +189,7 @@ def test_exact_retry_after_commit_loss_and_conflicting_tab_preserve_current_work
 
     def lose_response(reference, payload):
         write(reference, payload)
-        if reference == f"private/brief-drafts/{cid}.json":
+        if reference == ws.storage.project(cid).draft:
             raise OSError("Controlled response loss after durable publication")
 
     monkeypatch.setattr(ws.storage, "write", lose_response)
@@ -262,7 +262,7 @@ def test_current_run_projection_is_read_only_and_raw_invalid_values_do_not_becom
     assert next(item for item in catalog.json()["campaigns"] if item["id"] == cid)["products"] == 0
     assert client.post(f"/api/motif/campaigns/{cid}/plan", json=saved.json()).status_code == 422
     assert ws.runs() == []
-    stored = json.loads(ws.storage.path(f"private/brief-drafts/{cid}.json").read_bytes())
+    stored = json.loads(ws.storage.path(ws.storage.project(cid).draft).read_bytes())
     assert stored["authored"]["brief"]["brand"]["logo_path"] == "/arbitrary/user/typed/hint.png"
 
 
@@ -461,7 +461,7 @@ def test_authored_concept_plan_and_replan_keep_only_real_attachment_paths(
         assert reopened["authored"]["form_drafts"] == pending
         if with_supplied_scene:
             source = reopened["authored"]["brief"]["products"][1]["source"]
-            assert source["path"].startswith(f"campaigns/{run_id}/inputs/")
+            assert source["path"].startswith(ws.storage.project(cid).run(run_id) + "/Inputs/")
             assert source == model["plan_brief"]["products"][1]["source"]
         repeated = client.post(f"/api/motif/campaigns/{cid}/plan", json=body)
         assert repeated.status_code == 200, repeated.text
@@ -988,11 +988,14 @@ def test_unstarted_plan_keeps_accepted_authored_base_and_rejects_foreign_paths(t
     assert all(
         state.storage.path(name).read_bytes() == payload
         for name, payload in before.items()
-        if name != f"private/brief-drafts/{cid}.json"
+        if name != ws.storage.project(cid).draft
     )
     other = state.plan(run_id).brief.model_dump(mode="json")
     other["campaign_id"] = "b8ca6fb0-e390-5cde-bed0-8f7e28306866"
-    other_run = state.create(make_plan(Brief.model_validate(other), state.storage), 0)
+    from campaign_fixtures import independent_brief
+
+    other_copy = independent_brief(state, Brief.model_validate(other), other["campaign_id"])
+    other_run = state.create(make_plan(other_copy, state.storage), 0)
     read = projects.read(cid)
     request = {k: read[k] for k in ("version", "base", "authored")}
     request["authored"]["brief"]["brand"]["logo_path"] = state.plan(other_run).brief.brand.logo_path
@@ -1027,7 +1030,7 @@ def test_applied_wording_reconciles_matching_raw_controls_and_independent_overri
     )
     if unstarted_authored_base:
         pending_run = state.create(make_plan(state.plan(run_id).brief, state.storage), 0)
-        reference = f"private/brief-drafts/{cid}.json"
+        reference = ws.storage.project(cid).draft
         document = json.loads(state.storage.path(reference).read_bytes())
         document["authored_base"] = {
             "run_id": pending_run,
@@ -1111,7 +1114,7 @@ def test_current_image_edits_survive_new_plan_without_overwriting_pending_work(
         # The reported workspace was saved against its newer unstarted plan.
         # Seed that exact initial boundary, then Apply all four editors before
         # any further project Save. A preparatory Save would mask this defect.
-        reference = f"private/brief-drafts/{cid}.json"
+        reference = ws.storage.project(cid).draft
         document = json.loads(state.storage.path(reference).read_bytes())
         document["authored_base"] = {
             "run_id": pending_run,
@@ -1280,7 +1283,7 @@ def test_explicit_apply_binding_preserves_concurrent_and_failed_work(
     saved = projects.read(cid)
     projects.save(cid, AuthoredSave(**{k: saved[k] for k in ("version", "base", "authored")}))
     pending_run = state.create(make_plan(state.plan(run_id).brief, state.storage), 0)
-    reference = f"private/brief-drafts/{cid}.json"
+    reference = ws.storage.project(cid).draft
     document = json.loads(state.storage.path(reference).read_bytes())
     document["authored_base"] = {
         "run_id": pending_run,
@@ -1333,7 +1336,7 @@ def test_explicit_apply_binding_preserves_concurrent_and_failed_work(
         write = state.storage.write
 
         def fail_output(reference, data):
-            if "/revisions/" in reference and reference.endswith(".png"):
+            if "/Revisions/" in reference and reference.endswith(".png"):
                 raise OSError("Controlled output failure")
             return write(reference, data)
 
@@ -1411,7 +1414,7 @@ def test_retained_snapshot_photo_can_be_replanned_after_concept_plan(project):
     request = action(client, cid)
     product = request["authored"]["brief"]["products"][0]
     source = copy.deepcopy(product["source"])
-    assert source["path"].startswith("campaigns/")
+    assert source["path"].startswith(ws.storage.project(cid).ref("Runs") + "/")
     request["authored"]["form_drafts"]["product_images"] = {product["id"]: source}
     product["source"] = {
         "role": "concept",

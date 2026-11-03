@@ -4,10 +4,8 @@ import hashlib
 import json
 import os
 import re
-import unicodedata
 from datetime import UTC, datetime
 from importlib.resources import files
-from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from jinja2 import Environment, select_autoescape
@@ -15,20 +13,9 @@ from pydantic import ValidationError
 
 from campaign_studio.brief import Copy, PhraseRule
 from campaign_studio.costing import campaign_metric_display, compact_usd, incomplete_reason
-from campaign_studio.planning import Plan, contextualize_findings, copy_findings
+from campaign_studio.planning import contextualize_findings, copy_findings
 from campaign_studio.state import State, StateError, timestamp
-
-
-def delivery_component(value: str, fallback: str) -> str:
-    """A readable, bounded path component safe for macOS, Windows, and ZIP tools."""
-    value = unicodedata.normalize("NFKC", value)
-    value = "".join(c for c in value if not unicodedata.category(c).startswith("C"))
-    value = re.sub(r'[<>:"/\\|?*#%]', "-", value)
-    value = re.sub(r"\s+", " ", value).strip(" .")
-    value = value.encode("utf-8")[:80].decode("utf-8", errors="ignore").rstrip(" .") or fallback
-    if re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", value):
-        value = "_" + value
-    return value
+from campaign_studio.storage import delivery_component
 
 
 def delivery_paths(manifest: dict) -> dict[str, str]:
@@ -79,13 +66,13 @@ def wording_export_issue(state: State, campaign_id: str) -> dict | None:
     if current is None:
         return None
     revision = state.revision(current[1])
-    plan = Plan.model_validate_json(state.storage.path(revision["plan_ref"]).read_bytes())
+    plan = state.revision_plan(revision)
     manifest = json.loads(state.storage.path(revision["manifest_ref"]).read_bytes())
     accepted = {
         market: list(content.phrase_rules or []) for market, content in plan.brief.markets.items()
     }
     pending = []
-    path = state.storage.path(f"private/brief-drafts/{campaign_id}.json")
+    path = state.storage.path(state.storage.project(campaign_id).draft)
     if path.is_file():
         document = json.loads(path.read_bytes())
         authored = document.get("authored") or {"brief": document["value"]}
@@ -160,7 +147,7 @@ def public_manifest(state: State, revision_id: str) -> dict:
     manifest = json.loads(state.storage.path(revision["manifest_ref"]).read_bytes())
     # Lost-response reconciliation belongs to the local editor, not its handoff.
     manifest.pop("edit_receipt", None)
-    plan = Plan.model_validate_json(state.storage.path(revision["plan_ref"]).read_bytes())
+    plan = state.revision_plan(revision)
     # Old exported folders stay immutable; a new report format gets a new package.
     manifest["report_format_version"] = 9
     manifest["campaign_metrics"] = state.campaign_metrics(manifest["campaign_id"])
@@ -203,7 +190,10 @@ def export_package(
     expected_snapshot: str | None = None,
     payloads: dict | None = None,
 ) -> str:
-    target = state.storage.path(destination)
+    project = state.storage.project(state.run(state.revision(revision_id)["run_id"])["campaign_id"])
+    if not destination.startswith(project.ref("Exports") + "/"):
+        raise StateError("Choose an export location inside this campaign’s Exports folder.")
+    target = state.storage.path(project.check(destination))
     if target.exists():
         raise StateError("Choose a new export directory; existing packages are preserved.")
     payloads = (
@@ -218,9 +208,10 @@ def export_package(
     state.storage.require_capacity(
         sum(map(len, payloads.values())) + max(map(len, payloads.values()), default=0) + 1_000_000
     )
+    project.claim(destination)
     target.mkdir(parents=True, mode=0o700)
     for reference, payload in payloads.items():
-        state.storage.write(f"{destination}/{reference}", payload)
+        project.write(f"{destination}/{reference}", payload)
     return f"{destination}/index.html"
 
 
@@ -255,7 +246,7 @@ def package_payloads(
             "Export metadata contains private-looking content; correct its provenance first."
         )
     source_prefix = revision["manifest_ref"].rsplit("/", 1)[0]
-    plan = Plan.model_validate_json(state.storage.path(revision["plan_ref"]).read_bytes())
+    plan = state.revision_plan(revision)
     expected = {
         item.id: f"images/{item.product_id}/{item.ratio.replace(':', 'x')}/{item.market}.png"
         for item in plan.outputs
@@ -286,7 +277,7 @@ def package_payloads(
 def render_report(state, revision, manifest):
     """Render the same safe report for fresh exports and exact snapshot reuse."""
     revision_id = manifest["revision_id"]
-    plan = Plan.model_validate_json(state.storage.path(revision["plan_ref"]).read_bytes())
+    plan = state.revision_plan(revision)
     template = (
         files("campaign_studio").joinpath("templates/offline.html").read_text(encoding="utf-8")
     )
@@ -345,7 +336,10 @@ def export_zip(
     payloads: dict | None = None,
 ) -> str:
     """Publish a new ZIP atomically. No directory traversal or recursive collection."""
-    target = state.storage.path(destination)
+    project = state.storage.project(state.run(state.revision(revision_id)["run_id"])["campaign_id"])
+    if not destination.startswith(project.ref("Exports") + "/"):
+        raise StateError("Choose an export location inside this campaign’s Exports folder.")
+    target = state.storage.path(project.check(destination))
     if target.suffix != ".zip":
         raise StateError("Choose a ZIP filename.")
     if target.exists():
@@ -362,10 +356,13 @@ def export_zip(
     state.storage.require_capacity(
         sum(map(len, payloads.values())) + max(map(len, payloads.values()), default=0) + 1_000_000
     )
+    project.claim(destination)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = state.storage.path(f"{destination}.{uuid4().hex}.tmp")
+    temporary, registered = state.storage.temporary_file(destination)
+    created = False
     try:
         with temporary.open("xb") as stream:
+            created = True
             os.chmod(temporary, 0o600)
             with ZipFile(stream, "w", compression=ZIP_DEFLATED) as archive:
                 for reference, payload in zipped_payloads(payloads).items():
@@ -385,5 +382,7 @@ def export_zip(
         finally:
             os.close(descriptor)
     finally:
-        temporary.unlink(missing_ok=True)
+        if created:
+            temporary.unlink(missing_ok=True)
+        state.storage.finish_temporary(temporary, registered)
     return destination

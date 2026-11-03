@@ -161,7 +161,8 @@ def test_orientation_applied_and_corrupt_profile_rejected(tmp_path):
 
 def test_prepared_boundary_ignores_one_alpha_unit_but_blocks_visible_clipping(sample):
     storage, brief = sample
-    reference = "prepared-edge.png"
+    project = storage.project(brief.campaign_id)
+    reference = project.claim(project.ref("Assets/Samples/prepared-edge.png"))
     with Image.new("RGBA", (100, 100)) as image:
         image.paste((150, 70, 40, 255), (25, 25, 75, 75))
         image.putpixel((0, 50), (150, 70, 40, 1))

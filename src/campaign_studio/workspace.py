@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -349,7 +348,7 @@ class Workspace:
                 "page": "campaign",
             }
             try:
-                path = self.storage.path(f"private/brief-drafts/{identity}.json")
+                path = self.storage.path(self.storage.project(identity).draft)
                 if path.is_file():
                     document = json.loads(path.read_bytes())
                     value = document.get("authored", {}).get("brief", document["value"])
@@ -529,18 +528,12 @@ class Workspace:
             document = Intake(self.storage).current_document(campaign_id, self)
             if document and document["version"] != edit.draft_version:
                 raise ActionError("stale_brief", "The brief changed. Reopen the logo editor.")
-            with self.storage.connect() as db:
-                owned = db.execute(
-                    "SELECT 1 FROM file_owners WHERE reference=? AND campaign_id=?",
-                    (edit.replacement, campaign_id),
-                ).fetchone()
-            if (
-                not re.fullmatch(r"private/uploads/[a-f0-9]{32}\.(png|jpg)", edit.replacement)
-                or not owned
-            ):
+            try:
+                self.storage.project(campaign_id).upload_name(edit.replacement)
+            except ValueError as error:
                 raise ActionError(
                     "logo", "Choose a PNG or JPEG logo using this campaign's file picker.", 422
-                )
+                ) from error
             value["brand"]["logo_path"] = edit.replacement
             value["brand"]["logo_provenance"] = (
                 edit.provenance.model_dump()

@@ -216,9 +216,7 @@ class Runner:
                 revision = self.state.revision(revision_id)
                 if revision["run_id"] != run_id:
                     raise StateError("The requested revision belongs to another run.")
-                plan = Plan.model_validate_json(
-                    self.state.storage.path(revision["plan_ref"]).read_bytes()
-                )
+                plan = self.state.revision_plan(revision)
             self._verify_sources(plan)
             return render_revision(
                 self.state,
@@ -319,14 +317,17 @@ class Runner:
             ):
                 asset = new.assets["logo"]
                 payload = self.state.storage.path(asset.reference).read_bytes()
-                reference = f"campaigns/{run_id}/inputs/logo-{asset.sha256}{image_suffix(payload)}"
+                project = self.state.storage.project(brief.campaign_id)
+                reference = project.ref(
+                    f"Runs/{run_id}/Inputs/logo-{asset.sha256}{image_suffix(payload)}"
+                )
                 self.state.storage.require_capacity(revision_bytes(new) + 2 * len(payload))
                 destination = self.state.storage.path(reference)
                 if destination.exists():
                     if hashlib.sha256(destination.read_bytes()).hexdigest() != asset.sha256:
                         raise StateError("The saved logo snapshot changed. Reopen current work.")
                 else:
-                    self.state.storage.write_new(reference, payload)
+                    self.state.storage.write_new(project.claim(reference), payload)
                 value = new.brief.model_dump()
                 value["brand"]["logo_path"] = reference
                 new = make_local_plan(old, Brief.model_validate(value), self.state.storage)

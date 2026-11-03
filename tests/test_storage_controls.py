@@ -48,23 +48,24 @@ root = Path(sys.argv[1])
 storage = Storage(root / 'runtime')
 State(storage)
 intake = Intake(storage)
+campaign, _ = intake.new()
 payload = (root / 'valid.png').read_bytes()
-accepted = intake.upload(payload, 'image/png')
+accepted = intake.upload(payload, 'image/png', campaign)
 image, kind = load_image(storage.path(accepted['reference']))
 assert kind == 'PNG' and image.size == (3, 2)
 assert image.getpixel((0, 0)) == (18, 52, 86)
 image.close()
 before = {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-          for p in storage.path('private/uploads').glob('*')}
+          for p in storage.path(storage.project(campaign).ref('Assets')).rglob('*.png')}
 try:
-    intake.upload((root / 'repeated.png').read_bytes(), 'image/png')
+    intake.upload((root / 'repeated.png').read_bytes(), 'image/png', campaign)
 except ActionError as error:
     assert error.status == 422 and error.code == 'upload_image'
     assert error.input_image['kind'] == 'decode_failure'
 else:
     raise AssertionError('Malformed repeated EXIF was accepted')
 assert before == {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-                  for p in storage.path('private/uploads').glob('*')}
+                  for p in storage.path(storage.project(campaign).ref('Assets')).rglob('*.png')}
 assert storage.path(accepted['reference']).read_bytes() == payload
 """
     result = subprocess.run(
@@ -173,7 +174,7 @@ def test_commit_receipt_precedes_unlink_and_restart_resumes_only_that_deletion(t
             json={"name": "Disposable campaign", "brand": "Brand", "audience": "Audience"},
         ).json()
         campaign = created["campaign_id"]
-        draft = settings.data_dir / "private/brief-drafts" / f"{campaign}.json"
+        draft = app.state.storage.path(app.state.storage.project(campaign).draft)
         before = draft.read_bytes()
         base = f"/api/campaigns/{campaign}/cleanup"
         preview = client.post(base + "/preview", json={}).json()
@@ -203,7 +204,7 @@ def test_commit_receipt_precedes_unlink_and_restart_resumes_only_that_deletion(t
         assert not draft.exists()
         with client.app.state.workspace.storage.connect() as db:
             assert db.execute("SELECT id FROM campaigns WHERE id=?", (campaign,)).fetchone() is None
-    assert not list((settings.data_dir / "private/brief-drafts").glob("*.json"))
+    assert not list((settings.data_dir / "Projects").glob("*/Brief/draft.json"))
 
 
 def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):
@@ -220,7 +221,7 @@ def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):
         valid = client.post("/api/uploads", content=png, headers=headers).json()
         stored = app.state.workspace.storage.path(valid["reference"])
         draft = app.state.workspace.storage.path(
-            f"private/brief-drafts/{campaign}.json"
+            app.state.storage.project(campaign).draft
         ).read_bytes()
         with io.BytesIO() as buffer:
             Image.new("RGB", (2, 2)).save(buffer, format="GIF")
@@ -258,7 +259,7 @@ def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):
             assert stored.read_bytes() == png
             assert (
                 app.state.workspace.storage.path(
-                    f"private/brief-drafts/{campaign}.json"
+                    app.state.storage.project(campaign).draft
                 ).read_bytes()
                 == draft
             )

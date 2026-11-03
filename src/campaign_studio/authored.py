@@ -12,7 +12,7 @@ from pydantic import Field
 
 from campaign_studio.brief import Contract
 from campaign_studio.intake import Intake
-from campaign_studio.planning import Plan, canonical_hash
+from campaign_studio.planning import canonical_hash
 from campaign_studio.state import timestamp
 from campaign_studio.workspace import ActionError
 
@@ -161,9 +161,7 @@ class AuthoredProjects:
             return
         if base.get("revision_id"):
             record = self.workspace.state.revision(base["revision_id"])
-            before = Plan.model_validate_json(
-                self.storage.path(record["plan_ref"]).read_bytes()
-            ).brief.model_dump(mode="json")
+            before = self.workspace.state.revision_plan(record).brief.model_dump(mode="json")
         else:
             before = self.workspace.state.plan(base["run_id"], current=False).brief.model_dump(
                 mode="json"
@@ -274,23 +272,40 @@ class AuthoredProjects:
                 if photo:
                     allowed.add(photo["path"])
         requested = {r for r in attachment_paths(authored) if isinstance(r, str)}
-        for reference in requested - allowed:
-            if not isinstance(reference, str) or not reference.startswith(
-                ("private/uploads/", "campaigns/", "replays/", "sample/")
-            ):
+        project = self.storage.project(campaign_id)
+        replay = authored["brief"].get("replay")
+        if isinstance(replay, dict) and isinstance(replay.get("sources"), dict):
+            for master in replay["sources"].values():
+                if (
+                    isinstance(master, dict)
+                    and isinstance(master.get("path"), str)
+                    and master["path"].casefold().startswith("projects/")
+                ):
+                    try:
+                        project.require(master["path"])
+                    except ValueError as error:
+                        raise ActionError(
+                            "authored_attachment", "Choose saved imagery from this campaign.", 422
+                        ) from error
+        for reference in requested:
+            if not reference.casefold().startswith("projects/"):
                 continue
-            with self.storage.connect() as db:
-                owned = db.execute(
-                    "SELECT 1 FROM file_owners WHERE reference=? AND campaign_id=?",
-                    (reference, campaign_id),
-                ).fetchone()
-            if not owned or not reference.startswith("private/uploads/"):
+            try:
+                project.require(reference)
+                if reference not in allowed and any(
+                    part in reference for part in ("/Assets/Products/", "/Assets/Brand/")
+                ):
+                    self.intake.uploaded_path(project.upload_name(reference))
+                elif reference not in allowed and not reference.lower().endswith(
+                    (".png", ".jpg", ".jpeg")
+                ):
+                    raise ValueError("Choose an image.")
+            except ValueError as error:
                 raise ActionError(
                     "authored_attachment",
                     "Attach this image with this campaign’s file picker.",
                     422,
-                )
-            self.intake.uploaded_path(reference.removeprefix("private/uploads/"))
+                ) from error
 
     def save(self, campaign_id, action):
         self.check_envelope(action.authored)
@@ -349,8 +364,9 @@ class AuthoredProjects:
                 "request_hash": digest,
                 "request_version": action.version,
             }
-            self.storage.write(
-                f"private/brief-drafts/{campaign_id}.json",
+            project = self.storage.project(campaign_id)
+            project.write(
+                project.draft,
                 json.dumps(result, ensure_ascii=False, allow_nan=False).encode(),
             )
             return acknowledgement

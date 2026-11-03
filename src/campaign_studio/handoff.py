@@ -105,7 +105,9 @@ class Handoff:
                 except OSError, ValueError, TypeError, KeyError, BadZipFile:
                     continue
             for _ in range(100):
-                reference = f"exports/{target.campaign_id}/archives/{uuid4().hex}.zip"
+                reference = self.state.storage.project(target.campaign_id).ref(
+                    f"Exports/archives/{uuid4().hex}.zip"
+                )
                 if not self.state.storage.path(reference).exists():
                     break
             else:
@@ -146,7 +148,7 @@ class Handoff:
             )
             # This identifies the complete sanitized report, not just its pixels.
             name = json.loads(payloads["manifest.json"])["package_name"]
-            base = f"exports/{target.campaign_id}/{name}"
+            base = self.state.storage.project(target.campaign_id).ref(f"Exports/{name}")
             for suffix in range(100):
                 destination = base if suffix == 0 else f"{base}-{suffix}"
                 try:
