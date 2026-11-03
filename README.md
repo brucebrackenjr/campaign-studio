@@ -12,7 +12,7 @@ The central decision is to **generate source imagery only when needed, then comp
 
 The application includes two seasonal campaigns: Autumn Winds provides a completed key-free example; Bridle & Bough provides a deliberate missing-image generation journey. The [example and import guide](examples/README.md) distinguishes these campaigns from engineering fixtures.
 
-The [GitHub repository](https://github.com/brucebrackenjr/campaign-studio) contains the source, and [Download source ZIP](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides a copy to install locally. A walkthrough video will be added when available. Current verification is recorded in [Verification](docs/verification.md).
+[Download the latest version](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) to install Motif locally. You can also [watch the walkthrough](https://motif.brucebracken.com/#walkthrough), [browse the source](https://github.com/brucebrackenjr/campaign-studio), or [read the verification notes](docs/verification.md).
 
 ## Contents
 
