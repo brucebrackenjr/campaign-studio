@@ -48,9 +48,10 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
     replacement = intake.upload(logo, "image/png", brief.campaign_id)
     shared = intake.upload(logo, "image/png", brief.campaign_id)
     other_document = intake.read(other)
-    other_document["value"]["brand"]["logo_path"] = shared["reference"]
-    intake.write(other, other_document["value"], other_document["version"])
     other_owned = intake.upload(logo, "image/png", other)
+    other_document["value"]["brand"]["logo_path"] = other_owned["reference"]
+    intake.write(other, other_document["value"], other_document["version"])
+    project_root = state.storage.path(state.storage.project(brief.campaign_id).draft).parents[1]
     _, archive, folder = make_package(state, run, manifest["revision_id"])
     original = state.storage.path(brief.brand.logo_path).read_bytes()
     external = tmp_path / "user-original-logo.png"
@@ -59,7 +60,7 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
     preview = cleanup.preview_campaign(brief.campaign_id)
     assert preview["output_png_count"] == len([o for o in manifest["outputs"] if o["file"]])
     assert "image_version_count" not in preview
-    assert preview["shared_file_count"] == 1
+    assert preview["unmanaged_file_count"] == 0
     assert preview["removable_bytes"] > 0
     # Preview/Cancel does not commit a cleanup or remove even a canceled attachment.
     assert state.storage.path(canceled["reference"]).is_file()
@@ -69,12 +70,12 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
     assert result["state"] == "complete"
     assert not state.storage.path(canceled["reference"]).exists()
     assert not state.storage.path(replacement["reference"]).exists()
-    assert state.storage.path(shared["reference"]).read_bytes() == logo
+    assert not state.storage.path(shared["reference"]).exists()
     assert state.storage.path(other_owned["reference"]).read_bytes() == logo
     assert not state.storage.path(brief.brand.logo_path).exists()  # App-owned synthetic source.
     assert external.read_bytes() == original
     assert not Path(folder["location"]).exists()
-    assert not state.storage.path(f"private/runs/{run}").exists()
+    assert not project_root.exists()
     with state.storage.connect() as db:
         assert (
             db.execute(
@@ -90,7 +91,7 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
         )
         assert db.execute("SELECT COUNT(*) FROM cleanup_intents").fetchone()[0] == 0
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert intake.read(other)["value"]["brand"]["logo_path"] == shared["reference"]
+    assert intake.read(other)["value"]["brand"]["logo_path"] == other_owned["reference"]
 
 
 @pytest.mark.parametrize(
@@ -160,7 +161,7 @@ def test_ownership_failure_and_foreign_attachment_do_not_create_or_steal_uploads
             BriefDraft(value=second_doc["value"], version=second_doc["version"]),
             Workspace(state),
         )
-    before = set(state.storage.path("private/uploads").iterdir())
+    before = set(state.storage.path("Campaigns").glob("*/Assets/*/*.png"))
     with state.storage.connect() as db:
         db.execute(
             "CREATE TRIGGER deny_owner BEFORE INSERT ON file_owners BEGIN SELECT "
@@ -168,7 +169,7 @@ def test_ownership_failure_and_foreign_attachment_do_not_create_or_steal_uploads
         )
     with pytest.raises(Exception, match="controlled registration failure"):
         intake.upload(payload, "image/png", first)
-    assert set(state.storage.path("private/uploads").iterdir()) == before
+    assert set(state.storage.path("Campaigns").glob("*/Assets/*/*.png")) == before
     assert intake.read(first) == first_doc
 
 
@@ -215,7 +216,9 @@ def test_cleanup_changed_file_stays_pending_and_no_parent_with_shared_file_is_re
     other, document = intake.new()
     source = state.plan(run).assets["products/product-1"].reference
     document["value"]["products"] = [brief.products[0].model_dump(mode="json")]
-    document["value"]["products"][0]["source"]["path"] = source
+    document["value"]["products"][0]["source"]["path"] = intake.upload(
+        state.storage.path(source).read_bytes(), None, other
+    )["reference"]
     intake.write(other, document["value"], document["version"])
     before = state.storage.path(source).read_bytes()
     cleanup = Cleanup(state)
@@ -441,25 +444,28 @@ def test_symlink_and_unreadable_sharing_inventory_refuse_without_intent(tmp_path
     cleanup = Cleanup(state)
     external = tmp_path / "original.png"
     external.write_bytes(b"external original")
-    alias = state.storage.path(f"campaigns/{run}/alias.png")
+    alias = state.storage.path(
+        state.storage.project(brief.campaign_id).ref(f"Runs/{run}/alias.png")
+    )
+    state.storage.project(brief.campaign_id).claim(alias.relative_to(state.storage.root).as_posix())
     alias.symlink_to(external)
     with pytest.raises(StorageError, match="Symbolic links"):
         cleanup.preview_campaign(brief.campaign_id)
     alias.unlink()
     intake = Intake(state.storage)
     intake.new()
-    original = Path.stat
-    protected = state.storage.path("private/brief-drafts")
+    protected = state.storage.path(brief.brand.logo_path)
+    original = Path.read_bytes
 
-    def denied(path, *args, **kwargs):
+    def denied(path):
         if path == protected:
-            raise PermissionError("controlled sharing inventory denial")
-        return original(path, *args, **kwargs)
+            raise PermissionError("controlled file inventory denial")
+        return original(path)
 
-    monkeypatch.setattr(Path, "stat", denied)
+    monkeypatch.setattr(Path, "read_bytes", denied)
     with pytest.raises(PermissionError):
         cleanup.preview_campaign(brief.campaign_id)
-    monkeypatch.setattr(Path, "stat", original)
+    monkeypatch.setattr(Path, "read_bytes", original)
     with state.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM cleanup_intents").fetchone()[0] == 0
     assert external.read_bytes() == b"external original"
@@ -508,11 +514,15 @@ def test_upload_publication_error_never_leaves_a_new_unowned_file(tmp_path, monk
     monkeypatch.setattr(state.storage, "write_new", fail_after_publication)
     with pytest.raises(ActionError):
         intake.upload(payload, "image/png", campaign)
-    assert list(state.storage.path("private/uploads").iterdir()) == []
+    assert (
+        list(state.storage.path(state.storage.project(campaign).ref("Assets")).rglob("*.png")) == []
+    )
     with state.storage.connect() as db:
         assert (
             db.execute(
-                "SELECT COUNT(*) FROM file_owners WHERE campaign_id=?", (campaign,)
+                "SELECT COUNT(*) FROM uploads JOIN file_owners USING(reference) "
+                "WHERE campaign_id=?",
+                (campaign,),
             ).fetchone()[0]
             == 0
         )
@@ -539,31 +549,35 @@ def test_empty_failure_does_not_displace_current_images(tmp_path, monkeypatch):
     assert state.run(run)["current_revision"] == versions[-1]
 
 
-def test_shared_leaf_transfers_to_survivor_then_is_reclaimed_by_its_deletion(tmp_path):
+def test_same_photo_is_copied_into_each_project_and_deleted_independently(tmp_path):
     state, _, run, brief = setup_case(tmp_path, 2, True)
     intake = Intake(state.storage)
     other, document = intake.new()
     shared = state.plan(run).assets["products/product-1"].reference
     original = state.storage.path(shared).read_bytes()
-    document["value"]["products"] = [brief.products[0].model_dump(mode="json")]
-    document["value"]["products"][0]["source"]["path"] = shared
+    product = brief.products[0].model_dump(mode="json")
+    product["source"]["path"] = shared
+    document["value"]["products"] = [product]
+    with pytest.raises(StorageError, match="belonging to this campaign"):
+        intake.write(other, document["value"], document["version"])
+    copied = intake.upload(original, None, other)["reference"]
+    product["source"]["path"] = copied
     intake.write(other, document["value"], document["version"])
     cleanup = Cleanup(state)
-    first = cleanup.preview_campaign(brief.campaign_id)
-    assert first["shared_file_count"] == 1
-    assert cleanup.delete_campaign(brief.campaign_id, first["token"])["state"] == "complete"
-    assert state.storage.path(shared).read_bytes() == original
-    with state.storage.connect() as db:
-        assert db.execute(
-            "SELECT campaign_id FROM file_owners WHERE reference=?", (shared,)
-        ).fetchall() == [(other,)]
-    second = cleanup.preview_campaign(other)
-    assert second["shared_file_count"] == 0
-    assert cleanup.delete_campaign(other, second["token"])["state"] == "complete"
+    assert (
+        cleanup.delete_campaign(
+            brief.campaign_id, cleanup.preview_campaign(brief.campaign_id)["token"]
+        )["state"]
+        == "complete"
+    )
     assert not state.storage.path(shared).exists()
-    with state.storage.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM file_owners").fetchone()[0] == 0
-        assert db.execute("SELECT COUNT(*) FROM cleanup_intents").fetchone()[0] == 0
+    assert state.storage.path(copied).read_bytes() == original
+    assert intake.read(other)["value"]["products"][0]["source"]["path"] == copied
+    assert (
+        cleanup.delete_campaign(other, cleanup.preview_campaign(other)["token"])["state"]
+        == "complete"
+    )
+    assert not state.storage.path(copied).exists()
 
 
 def test_one_pending_failure_does_not_stop_other_cleanup_and_never_widens_scope(
@@ -588,7 +602,7 @@ def test_one_pending_failure_does_not_stop_other_cleanup_and_never_widens_scope(
         )
     victim = intent["files"][0]["reference"]
     state.storage.write(victim, b"changed since confirmation")
-    sentinel = f"private/runs/{run}/not-in-approved-list.txt"
+    sentinel = state.storage.project(brief.campaign_id).ref(f"Runs/{run}/not-in-approved-list.txt")
     state.storage.write(sentinel, b"keep this new file")
     monkeypatch.setattr(cleanup, "_resume", original)
     results = {item["cleanup_id"]: item["state"] for item in cleanup.resume_all()}
@@ -624,11 +638,11 @@ def test_protected_complete_does_not_hide_a_shared_partial_retirement_candidate(
     prefix = state.revision(first["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
     reference = f"{prefix}/{shared['file']}"
     intake = Intake(state.storage)
-    other, document = intake.new()
+    other = brief.campaign_id
     value = brief.model_dump(mode="json")
     value["campaign_id"] = other
     value["products"][0]["source"].update(path=reference, subject_box=None)
-    intake.write(other, value, document["version"])
+    intake.write(other, value, None)
     assert not make_plan(Brief.model_validate(value), state.storage).blocked
     versions = [complete["revision_id"], first["revision_id"]]
     before = {v: image_files(state, v) for v in versions}
@@ -779,7 +793,6 @@ def test_late_authored_input_is_refused_before_commit_then_explicit_logo_retry_s
 
 
 def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_path, monkeypatch):
-    import fcntl
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
@@ -787,6 +800,7 @@ def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_pat
     from test_logo_editing import command, replacement
 
     from campaign_studio.authored import AuthoredProjects
+    from campaign_studio.local_files import file_lock
 
     state, runner, run, brief = setup_case(tmp_path, 2, True)
     first = asyncio.run(runner.execute(run))
@@ -823,8 +837,9 @@ def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_pat
             with (
                 state.storage.path("private/authored.lock").open("ab") as lock,
                 pytest.raises(BlockingIOError),
+                file_lock(lock, wait=False),
             ):
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                pytest.fail("The draft lock was released too early")
             draft["authored"]["brief"]["audience"] = "A late competing tab"
             flights.append(pool.submit(client.post, url, json=draft))
             assert entered.wait(5)
@@ -931,8 +946,8 @@ def test_pending_deletion_closes_cached_preview_and_owned_upload_reads(tmp_path,
     intake = Intake(state.storage)
     payload = state.storage.path(brief.brand.logo_path).read_bytes()
     owned = intake.upload(payload, "image/png", brief.campaign_id)
-    shared = intake.upload(payload, "image/png", brief.campaign_id)
     other, document = intake.new()
+    shared = intake.upload(payload, "image/png", other)
     document["value"]["brand"]["logo_path"] = shared["reference"]
     intake.write(other, document["value"], document["version"])
     edit = TextEdit(
@@ -984,7 +999,7 @@ def test_imported_prose_cannot_inventory_or_delete_another_campaigns_upload(tmp_
     result = cleanup.delete_campaign(campaign, preview["token"])
     assert result["state"] == "complete"
     assert state.storage.path(reference).read_bytes() == payload
-    assert preview["shared_file_count"] == 0 and preview["source_file_count"] == 0
+    assert preview["unmanaged_file_count"] == 0 and preview["source_file_count"] == 0
     with state.storage.connect() as db:
         assert db.execute(
             "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
@@ -1019,7 +1034,8 @@ def test_resume_does_not_unlink_foreign_upload_in_older_confirmed_inventory(tmp_
     target, _ = intake.new(audience=prose)
     cleanup = Cleanup(state)
     inventory = cleanup._campaign_inventory(target)
-    draft_bytes = state.storage.path(f"private/brief-drafts/{target}.json").stat().st_size
+    draft = state.storage.path(state.storage.project(target).draft)
+    draft_bytes = draft.read_bytes()
     # An older deletion list could include a filename copied from a note.
     inventory["files"] = [item for item in inventory["files"] if item["reference"] != prose]
     inventory["files"].append(
@@ -1027,47 +1043,29 @@ def test_resume_does_not_unlink_foreign_upload_in_older_confirmed_inventory(tmp_
     )
     cleanup._commit_and_resume(inventory, defer_cleanup=True)
     result = Cleanup(State(state.storage)).resume_all()[0]
-    assert result["state"] == "complete"
+    assert result["state"] == "pending"
     assert state.storage.path(reference).read_bytes() == payload
-    assert result["removed_bytes"] == draft_bytes
+    assert draft.read_bytes() == draft_bytes
+    assert cleanup.status(target)["pending"]
 
 
-def test_older_pending_owner_deletion_keeps_a_real_surviving_attachment(tmp_path):
+def test_foreign_attachment_alias_is_refused_and_original_bytes_survive(tmp_path):
     state, _, _, brief = setup_case(tmp_path, 2, True)
     intake = Intake(state.storage)
     payload = state.storage.path(brief.brand.logo_path).read_bytes()
     reference = intake.upload(payload, "image/png", brief.campaign_id)["reference"]
-    alias = reference[:-3] + "PNG"
-    selected = alias if state.storage.path(alias).exists() else reference
-    survivor, document = intake.new()
-    document["value"]["brand"]["logo_path"] = selected
-    intake.write(survivor, document["value"], document["version"])
+    other, document = intake.new()
+    for selected in (
+        reference,
+        reference[:-3] + "PNG",
+        reference.replace("Campaigns/", "CAMPAIGNS/"),
+    ):
+        document["value"]["brand"]["logo_path"] = selected
+        with pytest.raises(StorageError):
+            intake.write(other, document["value"], document["version"])
     cleanup = Cleanup(state)
-    inventory = cleanup._campaign_inventory(brief.campaign_id)
-    assert reference in inventory["shared_owners"] and inventory["shared_owners"][reference] == [
-        survivor
-    ]
-    # This older list missed the surviving campaign's attachment.
-    inventory["shared_owners"].pop(reference)
-    inventory["retained"] = [
-        item for item in inventory["retained"] if item["reference"] != reference
-    ]
-    inventory["files"].append(
-        {
-            "reference": reference,
-            "bytes": len(payload),
-            "sha256": hashlib.sha256(payload).hexdigest(),
-        }
-    )
-    cleanup._commit_and_resume(inventory, defer_cleanup=True)
-    assert Cleanup(State(state.storage)).resume_all()[0]["state"] == "complete"
-    assert state.storage.path(selected).read_bytes() == payload
-    with state.storage.connect() as db:
-        assert db.execute(
-            "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
-        ).fetchall() == [(survivor,)]
     assert (
-        cleanup.delete_campaign(survivor, cleanup.preview_campaign(survivor)["token"])["state"]
+        cleanup.delete_campaign(other, cleanup.preview_campaign(other)["token"])["state"]
         == "complete"
     )
-    assert not state.storage.path(reference).exists()
+    assert state.storage.path(reference).read_bytes() == payload

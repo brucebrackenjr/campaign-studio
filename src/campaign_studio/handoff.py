@@ -18,6 +18,7 @@ from campaign_studio.exporting import (
     require_export_wording,
     zipped_payloads,
 )
+from campaign_studio.local_files import display_path
 from campaign_studio.review import CreativeUpdate, RevisionTarget
 from campaign_studio.state import State, StateError
 
@@ -105,7 +106,9 @@ class Handoff:
                 except OSError, ValueError, TypeError, KeyError, BadZipFile:
                     continue
             for _ in range(100):
-                reference = f"exports/{target.campaign_id}/archives/{uuid4().hex}.zip"
+                reference = self.state.storage.project(target.campaign_id).ref(
+                    f"Exports/archives/{uuid4().hex}.zip"
+                )
                 if not self.state.storage.path(reference).exists():
                     break
             else:
@@ -146,7 +149,7 @@ class Handoff:
             )
             # This identifies the complete sanitized report, not just its pixels.
             name = json.loads(payloads["manifest.json"])["package_name"]
-            base = f"exports/{target.campaign_id}/{name}"
+            base = self.state.storage.project(target.campaign_id).ref(f"Exports/{name}")
             for suffix in range(100):
                 destination = base if suffix == 0 else f"{base}-{suffix}"
                 try:
@@ -179,7 +182,7 @@ class Handoff:
                 )
             return {
                 **self.package_summary(target, action, json.loads(payloads["manifest.json"])),
-                "location": str(self.state.storage.path(destination)),
+                "location": display_path(self.state.storage.path(destination)),
                 "url": f"/reports/{report_id}/index.html",
             }
 

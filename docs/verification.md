@@ -24,20 +24,25 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Recorded local evidence
 
+Version 0.2.0 checks campaign-owned project folders. A Chromium import archived the selected UTF-8 JSON byte for byte, including its original whitespace. Local tests cover independent photo copies, cross-campaign attachment refusal, ownership of received provider responses and generated sources under mocked transport, and cleanup after an interrupted import. Folder export checks cover the report, manifest, and every PNG. Deleting the project preserves files added by the producer and ZIP copies saved outside Motif.
+
+
 The v0.1.1 release baseline passed one complete run of **467 Python tests**, plus Ruff lint and formatting checks. Its frontend passed **264 JavaScript tests**. Tests cover versioned saves, edit publication, source recovery, provider failures, prohibited wording, portable export names, and offline-package integrity without paid requests.
 
 Version 0.1.1 updates Pillow to 13.0.0. Focused checks cover PNG/JPEG decoding, EXIF orientation and malformed metadata refusal, both bundled fonts, opaque and transparent logos, framing, saved-source reuse, and exports. A 54-image comparison preserved output dimensions; newly rendered pixels can differ slightly after the dependency update. All 30 existing campaign PNGs passed inspection and exported byte-for-byte unchanged under the new dependency. Real CLI checks cover both Control-C and SIGTERM shutdown. The browser interface is unchanged.
 
-Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs. Focused checks forbid composition and production execution during setup, verify fresh identities and exact imported PNGs, and exercise missing, changed, and interrupted resources. An actual API journey applied wording, font, framing, and logo changes, then recomposed and exported all 30 images with zero provider attempts. Restart preserved the accepted revision and files. Instrumented fresh setup reached health in 1.28 seconds on the local Mac. The full candidate suite, independent review, and final source-ZIP installation are recorded separately as they complete.
+Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs. Focused checks forbid composition and production execution during setup, verify fresh identities and exact imported PNGs, and exercise missing, changed, and interrupted resources. An actual API journey applied wording, font, framing, and logo changes, then recomposed and exported all 30 images with zero provider attempts. Restart preserved the accepted revision and files. Instrumented fresh setup reached health in 1.28 seconds on the local Mac.
 
 | Area | Recorded checks |
 | --- | --- |
 | Studio layout and editing | Actual browser checks measured the same image rectangle across Inspect, Framing, Logo, and Text in all three formats at 1440 × 900 and 1366 × 768 – 24 combinations. Held and failed Applies retained the controls and draft; successful Applies retained the selected tool, adopted the saved image, and supported a subsequent edit and Cancel. Logo replacement and delayed-opening ownership were also checked. |
 | Apply responsiveness | On local 30-output Autumn tests, three-run server medians were 1.09 seconds for Text Apply and 1.05 for Logo Apply. Browser click-to-stable medians were 1.19 seconds for Text, 1.17 for Logo, and 1.25 for Framing, with no redundant preview after acknowledgment. Matching 30-output Bridle server medians were 1.46 seconds for Text and 1.39 for Logo; existing provider-attempt records were unchanged. |
 | Exported files | Actual browser ZIP and folder exports used readable product, language, and format paths. All 30 PNGs matched accepted encoded bytes, decoded pixels, and dimensions; the HTML report loaded all 30 images. Naming tests verified brand-based package roots, collision handling, unchanged repeated-export reuse, and preservation of earlier packages. These checks made zero provider requests. |
-| Clean installation | The pre-release source ZIP passed a fresh locked-uv installation in a path containing spaces. All 188 source files, 106 application-package files, and 52 served static files matched that ZIP. First start prepared both bundled campaigns, with 30 Autumn images, 18 planned Bridle outputs, no key, and zero attempts. Restart preserved the logical database and all 57 non-database files. |
+| Clean installation | An earlier v0.1.x pre-release source ZIP passed a fresh locked-uv installation in a path containing spaces. All 188 source files, 106 application-package files, and 52 served static files matched that ZIP. First start prepared both bundled campaigns, with 30 Autumn images, 18 planned Bridle outputs, no key, and zero attempts. Restart preserved the logical database and all 57 non-database files. |
 
-The conventional Python/pip source-ZIP route was verified on the preceding release baseline. The locked-uv installation above used the pre-release package before the final frontend corrections; those corrections retain identical installation configuration. Dedicated design and independent browser/code reviews exercised the application and its exported files.
+The conventional Python/pip source-ZIP route was also verified for that earlier release. The locked-uv installation above used the pre-release package before the final frontend corrections; those corrections retain identical installation configuration. Dedicated design and independent browser/code reviews exercised the application and its exported files.
+
+To build the portable source ZIP from a Motif Git checkout, run `python scripts/package_source.py ../motif-campaign-studio.zip`. Supply a new destination. The packager includes tracked distribution files under one Motif/ root, outside the installed environment and workspace.
 
 ## Genuine generation and examples
 
@@ -51,7 +56,7 @@ The separate CLI replay fixture retains an October 29, 2026 master with 244 text
 
 ## Platform and CI boundary
 
-[README](../README.md) documents Python 3.14.4, the two installation routes, configuration, example inputs, and recovery behavior. Local installation proof is macOS. Linux is the configured CI target; native Windows is unsupported because local locking uses POSIX `fcntl`.
+[README](../README.md) documents Python 3.14.4, the two installation routes, configuration, example inputs, and recovery behavior. Linux is the configured full-suite CI target. The portable release also provides native Windows tests for locking, encrypted key storage, long local paths, and junction protection.
 
 The [GitHub Actions workflow](../.github/workflows/checks.yml) checks locked installation, style, cold CLI startup, Python/JavaScript behavior, requirements-export consistency, conventional installation, smoke, and samples without provider credentials. Measured results are recorded with each [CI run](https://github.com/brucebrackenjr/campaign-studio/actions).
 

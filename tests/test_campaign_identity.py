@@ -20,7 +20,7 @@ from campaign_studio.cleanup import Cleanup
 from campaign_studio.config import Settings
 from campaign_studio.intake import Intake
 from campaign_studio.review import RevisionTarget
-from campaign_studio.state import State, StateError
+from campaign_studio.state import State
 from campaign_studio.storage import Storage
 
 
@@ -188,7 +188,7 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
         intake.new()
     with state.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
-    assert not list(state.storage.path("private/brief-drafts").glob("*.json"))
+    assert not list(state.storage.path("Campaigns").glob("*/Brief/draft.json"))
     monkeypatch.setattr(state.storage, "write_new", original_write)
     original_connect = state.storage.connect
     candidate = str(uuid4())
@@ -211,29 +211,27 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
     with state.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
     campaign, document = intake.new()
-    path = state.storage.path(f"private/brief-drafts/{campaign}.json")
+    path = state.storage.path(state.storage.project(campaign).draft)
     before = path.read_bytes()
     with pytest.raises(sqlite3.IntegrityError):
         intake.create(campaign, document["value"] | {"name": "Must not replace"})
     assert path.read_bytes() == before
     orphan = str(uuid4())
-    orphan_path = state.storage.path(f"private/brief-drafts/{orphan}.json")
+    folder = f"Untitled campaign-{orphan[:8]}"
+    orphan_path = state.storage.path(f"Campaigns/{folder}/Brief/draft.json")
     state.storage.write(orphan_path.relative_to(state.storage.root).as_posix(), before)
-    with pytest.raises(FileExistsError):
-        intake.create(orphan, document["value"] | {"campaign_id": orphan})
+    intake.create(orphan, document["value"] | {"campaign_id": orphan})
+    assert state.storage.project(orphan).folder != folder
     assert orphan_path.read_bytes() == before
-    with state.storage.connect() as db:
-        assert [row[0] for row in db.execute("SELECT id FROM campaigns")] == [campaign]
-    with pytest.raises(StateError) as error:
-        intake.write(orphan, document["value"] | {"campaign_id": orphan}, None)
-    assert error.value.code == "not_found"
+    assert state.storage.path(state.storage.project(orphan).draft).is_file()
+    assert intake.read(campaign) == document
 
 
 def test_creation_directory_sync_failure_removes_only_its_newly_linked_draft(tmp_path, monkeypatch):
     state = State(Storage(tmp_path / "runtime"))
     intake = Intake(state.storage)
     existing, _ = intake.new()
-    existing_path = state.storage.path(f"private/brief-drafts/{existing}.json")
+    existing_path = state.storage.path(state.storage.project(existing).draft)
     before = existing_path.read_bytes()
     original_sync = os.fsync
     failure = OSError("controlled post-publication directory sync failure")
@@ -264,7 +262,7 @@ def test_registered_damage_does_not_reinitialize_and_pending_deletion_keeps_retr
 ):
     campaign = create(client)
     state = client.app.state.workspace.state
-    path = state.storage.path(f"private/brief-drafts/{campaign}.json")
+    path = state.storage.path(state.storage.project(campaign).draft)
     exact = path.read_bytes()
     path.unlink()
     response = client.get(f"/campaigns/{campaign}/campaign")

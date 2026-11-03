@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from campaign_fixtures import seed_campaign
+from campaign_fixtures import independent_brief, run_folder, seed_campaign
 from fastapi.testclient import TestClient
 
 from campaign_studio.app import create_app
@@ -20,7 +20,7 @@ from campaign_studio.planning import Plan, make_plan
 from campaign_studio.runner import Runner
 from campaign_studio.sample import write_replay, write_sample
 from campaign_studio.state import State
-from campaign_studio.storage import Storage
+from campaign_studio.storage import Storage, StorageError
 from campaign_studio.workspace import Workspace
 
 
@@ -42,15 +42,15 @@ def prepared(root):
 def test_failed_run_insert_keeps_preparation_owned_and_preserves_shared_survivor(tmp_path):
     state, plan = prepared(tmp_path / "runtime")
     old_run = state.create(plan, 0)
-    old_files = hashes(state.storage.path(f"campaigns/{old_run}"))
+    old_files = hashes(state.storage.path(run_folder(state, old_run)))
     survivor = state.create(
         make_plan(
-            plan.brief.model_copy(update={"campaign_id": "3bfc470d-bd98-5680-9d69-4c5197769b07"}),
+            independent_brief(state, plan.brief, "3bfc470d-bd98-5680-9d69-4c5197769b07"),
             state.storage,
         ),
         0,
     )
-    survivor_files = hashes(state.storage.path(f"campaigns/{survivor}"))
+    survivor_files = hashes(state.storage.path(run_folder(state, survivor)))
     # Unregistered pre-existing content is outside any automatic cleanup claim.
     state.storage.write("private/runs/unowned-old/keep.txt", b"unowned original")
     with state.storage.connect() as db:
@@ -60,8 +60,8 @@ def test_failed_run_insert_keeps_preparation_owned_and_preserves_shared_survivor
         )
     with pytest.raises(sqlite3.IntegrityError, match="controlled publication failure"):
         state.create(plan, 0)
-    assert hashes(state.storage.path(f"campaigns/{old_run}")) == old_files
-    assert hashes(state.storage.path(f"campaigns/{survivor}")) == survivor_files
+    assert hashes(state.storage.path(run_folder(state, old_run))) == old_files
+    assert hashes(state.storage.path(run_folder(state, survivor))) == survivor_files
     with state.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
@@ -76,9 +76,11 @@ def test_failed_run_insert_keeps_preparation_owned_and_preserves_shared_survivor
     failed_root = next(
         reference
         for reference in owned
-        if reference.startswith("campaigns/") and reference != f"campaigns/{old_run}"
+        if "/Runs/" in reference
+        and reference.count("/") == 3
+        and reference != run_folder(state, old_run)
     )
-    shared = next(state.storage.path(failed_root + "/inputs/products").iterdir())
+    shared = next(state.storage.path(failed_root + "/Inputs/products").iterdir())
     shared_bytes = shared.read_bytes()
     intake = Intake(state.storage)
     other, document = intake.new()
@@ -86,16 +88,18 @@ def test_failed_run_insert_keeps_preparation_owned_and_preserves_shared_survivor
     document["value"]["products"][0]["source"]["path"] = shared.relative_to(
         state.storage.root
     ).as_posix()
+    copy_ref = intake.upload(shared_bytes, None, other)["reference"]
+    document["value"]["products"][0]["source"]["path"] = copy_ref
     intake.write(other, document["value"], document["version"])
     # Reopening does not sweep failed preparations or make them executable.
     reopened = State(state.storage)
     assert Cleanup(reopened).resume_all() == []
     cleanup = Cleanup(reopened)
     preview = cleanup.preview_campaign(plan.brief.campaign_id)
-    assert preview["shared_file_count"] == 1
+    assert preview["unmanaged_file_count"] == 0
     assert cleanup.delete_campaign(plan.brief.campaign_id, preview["token"])["state"] == "complete"
-    assert shared.read_bytes() == shared_bytes
-    assert hashes(state.storage.path(f"campaigns/{survivor}")) == survivor_files
+    assert not shared.exists() and state.storage.path(copy_ref).read_bytes() == shared_bytes
+    assert hashes(state.storage.path(run_folder(state, survivor))) == survivor_files
     assert (
         state.storage.path("private/runs/unowned-old/keep.txt").read_bytes() == b"unowned original"
     )
@@ -119,14 +123,15 @@ def test_owner_registration_failure_writes_no_preparation_content(tmp_path):
         owners = db.execute("SELECT * FROM file_owners").fetchall()
         db.execute(
             "CREATE TRIGGER fail_owner BEFORE INSERT ON file_owners "
-            "WHEN NEW.reference LIKE 'campaigns/%' "
+            "WHEN NEW.reference LIKE '%/Runs/%' "
             "BEGIN SELECT RAISE(FAIL,'controlled owner failure'); END"
         )
     with pytest.raises(sqlite3.IntegrityError, match="controlled owner failure"):
         state.create(plan, 0)
     assert hashes(state.storage.root) == before
-    assert list(state.storage.path("campaigns").iterdir()) == []
-    assert list(state.storage.path("private/runs").iterdir()) == []
+    assert not list(
+        state.storage.path(state.storage.project(plan.brief.campaign_id).ref("Runs")).glob("*")
+    )
     with state.storage.connect() as db:
         assert db.execute("SELECT * FROM file_owners").fetchall() == owners
         assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
@@ -135,7 +140,10 @@ def test_owner_registration_failure_writes_no_preparation_content(tmp_path):
 @pytest.mark.parametrize("checkpoint", ["temporary-input", "first-input", "durable-plan"])
 def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, checkpoint):
     state, plan = prepared(tmp_path / "runtime")
-    original_inputs = hashes(state.storage.path("samples"))
+    project_folder = state.storage.project(plan.brief.campaign_id).folder
+    original_inputs = hashes(
+        state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples")
+    )
     plan_file = tmp_path / "prepared-plan.json"
     plan_file.write_text(plan.model_dump_json())
     env = os.environ.copy()
@@ -161,13 +169,17 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
         owned = [
             row[0]
             for row in db.execute(
-                "SELECT reference FROM file_owners WHERE reference NOT LIKE 'samples/%'"
+                "SELECT reference FROM file_owners WHERE reference LIKE '%/Runs/%'"
             )
         ]
-    assert len(owned) == 2
-    contents = [p for ref in owned for p in state.storage.path(ref).rglob("*") if p.is_file()]
+    assert owned
+    assert all(ref.startswith(f"Campaigns/{project_folder}/Runs/") for ref in owned)
+    contents = [state.storage.path(ref) for ref in owned if state.storage.path(ref).is_file()]
     assert contents and sum(p.stat().st_size for p in contents) > 0
-    assert hashes(state.storage.path("samples")) == original_inputs
+    assert (
+        hashes(state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples"))
+        == original_inputs
+    )
     if checkpoint == "temporary-input":
         assert any(p.suffix == ".tmp" for p in contents)
     if checkpoint == "durable-plan":
@@ -176,7 +188,9 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
     assert preview["run_count"] == 0
     assert cleanup.delete_campaign(plan.brief.campaign_id, preview["token"])["state"] == "complete"
     assert all(not state.storage.path(ref).exists() for ref in owned)
-    assert not hashes(state.storage.path("samples"))  # These, too, are owned campaign sources.
+    assert not hashes(
+        state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples")
+    )  # These, too, are owned campaign sources.
     with state.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM file_owners").fetchone()[0] == 0
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -217,7 +231,7 @@ def test_home_version_uses_displayed_revision_identity_after_superseded_output_c
         assert state.attempts(run) == state.attempts(second) == []
 
 
-@pytest.mark.parametrize("replay,namespace", [(True, "replays"), (False, "samples")])
+@pytest.mark.parametrize("replay,namespace", [(True, "Replays"), (False, "Samples")])
 def test_repeated_fixture_delete_reclaims_runtime_copies_only(tmp_path, replay, namespace):
     state = State(Storage(tmp_path / "runtime"))
     workspace = Workspace(state)
@@ -234,7 +248,7 @@ def test_repeated_fixture_delete_reclaims_runtime_copies_only(tmp_path, replay, 
                     "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign,)
                 )
             ]
-        assert any(prefix.startswith(namespace + "/") for prefix in prefixes)
+        assert any(f"/Assets/{namespace}/" in prefix for prefix in prefixes)
         preview = cleanup.preview_campaign(campaign)
         assert preview["source_file_count"] == 6  # Three source copies plus three run inputs.
         assert cleanup.delete_campaign(campaign, preview["token"])["state"] == "complete"
@@ -255,23 +269,30 @@ def test_shared_original_replay_copy_survives_until_last_campaign_deletion(tmp_p
     campaign = seed_campaign(workspace, replay=True)
     intake = Intake(state.storage)
     other, document = intake.new()
-    copied = next(state.storage.path("replays").rglob("saved-concept.png"))
+    copied = next(
+        state.storage.path(state.storage.project(campaign).ref("Assets/Replays")).rglob(
+            "saved-concept.png"
+        )
+    )
     payload = copied.read_bytes()
     plan = workspace.plan(campaign)
     document["value"]["products"] = [plan.brief.products[0].model_dump(mode="json")]
     document["value"]["products"][0]["source"]["path"] = copied.relative_to(
         state.storage.root
     ).as_posix()
+    with pytest.raises(StorageError):
+        intake.write(other, document["value"], document["version"])
+    independent = intake.upload(payload, None, other)["reference"]
+    document["value"]["products"][0]["source"]["path"] = independent
     intake.write(other, document["value"], document["version"])
     cleanup = Cleanup(state)
     preview = cleanup.preview_campaign(campaign)
-    assert preview["shared_file_count"] == 1
+    assert preview["unmanaged_file_count"] == 0
     assert cleanup.delete_campaign(campaign, preview["token"])["state"] == "complete"
-    assert copied.read_bytes() == payload
-    assert list(state.storage.path("replays").rglob("*.png")) == [copied]
+    assert not copied.exists() and state.storage.path(independent).read_bytes() == payload
     preview = cleanup.preview_campaign(other)
     assert cleanup.delete_campaign(other, preview["token"])["state"] == "complete"
-    assert not copied.exists()
+    assert not state.storage.path(independent).exists()
 
 
 @pytest.mark.parametrize("copy_sources", [write_replay, write_sample])
@@ -292,21 +313,23 @@ def interrupt_preparation(root, plan_file, checkpoint):
     state = State(Storage(Path(root)))
     plan = Plan.model_validate_json(Path(plan_file).read_bytes())
     original_write = state.storage.write
-    original_replace = os.replace
+    from campaign_studio import storage as storage_module
 
-    def replace(source, destination):
-        if checkpoint == "temporary-input" and "/inputs/" in str(destination):
+    original_publish = storage_module.publish_file
+
+    def publish(source, destination, *, replace):
+        if checkpoint == "temporary-input" and "Inputs" in destination.parts:
             os._exit(73)  # The real write has flushed its temporary bytes; no finally runs.
-        return original_replace(source, destination)
+        return original_publish(source, destination, replace=replace)
 
     def write(reference, data):
         original_write(reference, data)
-        if (checkpoint == "first-input" and "/inputs/" in reference) or (
+        if (checkpoint == "first-input" and "/Inputs/" in reference) or (
             checkpoint == "durable-plan" and reference.endswith("/plan.json")
         ):
             os._exit(73)
 
-    os.replace = replace
+    storage_module.publish_file = publish
     state.storage.write = write
     state.create(plan, 0)
     raise AssertionError("The real process never reached the intended interruption")

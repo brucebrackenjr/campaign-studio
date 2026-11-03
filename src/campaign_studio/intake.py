@@ -5,6 +5,7 @@ import io
 import json
 import re
 import warnings
+from contextlib import suppress
 from datetime import date
 from pathlib import PurePosixPath
 from uuid import uuid4
@@ -55,10 +56,9 @@ class Intake:
         if role not in {None, "logo", "product"}:
             raise ActionError("upload_role", "Choose the logo or product image picker.", 422)
         with self.storage.exclusive_run():
-            if campaign_id is not None:
-                from campaign_studio.cleanup import require_campaign_available
+            from campaign_studio.cleanup import require_campaign_available
 
-                require_campaign_available(self.storage, campaign_id)
+            require_campaign_available(self.storage, campaign_id)
             return self._upload(payload, content_type, campaign_id, role)
 
     def _upload(self, payload, content_type, campaign_id, role=None):
@@ -119,12 +119,19 @@ class Intake:
             self.storage.require_capacity(len(payload) * 2)
             for _ in range(100):
                 token = uuid4().hex
-                reference = f"private/uploads/{token}.{'png' if kind == 'PNG' else 'jpg'}"
+                project = self.storage.project(campaign_id)
+                group = "Brand" if role == "logo" else "Products"
+                name = f"{token}.{'png' if kind == 'PNG' else 'jpg'}"
+                reference = project.ref(f"Assets/{group}/{name}")
                 # Commit ownership first. A crash can leave an owned missing file,
                 # but never a new successfully written anonymous attachment.
-                if campaign_id is not None:
-                    with self.storage.connect() as db:
-                        db.execute("INSERT INTO file_owners VALUES (?,?)", (reference, campaign_id))
+                with self.storage.connect() as db:
+                    if db.execute("SELECT 1 FROM uploads WHERE name=?", (name,)).fetchone():
+                        continue
+                    project.claim(reference, db)
+                    db.execute(
+                        "INSERT INTO uploads(name,reference) VALUES (?,?)", (name, reference)
+                    )
                 try:
                     self.storage.write_new(reference, payload)
                     break
@@ -208,8 +215,11 @@ class Intake:
     def uploaded_path(self, name):
         if not re.fullmatch(r"[a-f0-9]{32}\.(png|jpg)", name):
             raise ActionError("upload", "This uploaded image is unavailable.", 404)
-        reference = f"private/uploads/{name}"
         with self.storage.connect() as db:
+            row = db.execute("SELECT reference FROM uploads WHERE name=?", (name,)).fetchone()
+            if row is None:
+                raise ActionError("upload", "This uploaded image is unavailable.", 404)
+            reference = row[0]
             pending = db.execute(
                 "SELECT 1 FROM cleanup_intents, json_each(value_json, '$.files') AS f "
                 "WHERE json_extract(f.value, '$.reference')=? LIMIT 1",
@@ -225,7 +235,7 @@ class Intake:
         from campaign_studio.cleanup import require_campaign_available
 
         require_campaign_available(self.storage, campaign_id)
-        path = self.storage.path(f"private/brief-drafts/{campaign_id}.json")
+        path = self.storage.path(self.storage.project(campaign_id).draft)
         if not path.is_file():
             return None
         try:
@@ -253,14 +263,10 @@ class Intake:
         elif (
             workspace.state.effective_revision(run["id"]) and document.get("base_run") == run["id"]
         ):
-            from campaign_studio.planning import Plan
-
             base_revision = document.get("base_revision")
             if base_revision:
                 record = workspace.state.revision(base_revision)
-                baseline = Plan.model_validate_json(
-                    self.storage.path(record["plan_ref"]).read_bytes()
-                ).brief.model_dump(mode="json")
+                baseline = workspace.state.revision_plan(record).brief.model_dump(mode="json")
             else:
                 baseline = workspace.state.plan(run["id"], current=False).brief.model_dump(
                     mode="json"
@@ -347,7 +353,7 @@ class Intake:
             current["base_run"] = run["id"]
             current["base_revision"] = workspace.state.effective_revision(run["id"])
             self.storage.write(
-                f"private/brief-drafts/{campaign_id}.json",
+                self.storage.project(campaign_id).draft,
                 json.dumps(current, ensure_ascii=False).encode(),
             )
 
@@ -355,14 +361,13 @@ class Intake:
         with self.storage.exclusive_draft():
             return self._write(campaign_id, value, expected, attachment_hints=attachment_hints)
 
-    def create(self, campaign_id, value, *, attachment_hints=None):
+    def create(self, campaign_id, value, *, attachment_hints=None, imported_bytes=None):
         """Publish one new draft and its database identity, without replacing work."""
         from campaign_studio.cleanup import require_campaign_available
 
         require_campaign_available(self.storage, campaign_id, registered=False)
         if value.get("campaign_id") != campaign_id:
             raise ActionError("campaign_identity", "A campaign’s identity cannot be changed.", 422)
-        reference = f"private/brief-drafts/{campaign_id}.json"
         result = {
             "value": value,
             "version": uuid4().hex,
@@ -370,24 +375,41 @@ class Intake:
         }
         if attachment_hints:
             result["attachment_hints"] = attachment_hints
-        published = False
+        from campaign_studio.projects import create_project
+
         with self.storage.exclusive_draft():
+            label = value.get("brand", {}).get("name") or value.get("name")
+            with self.storage.connect() as db:
+                project = create_project(self.storage, db, campaign_id, label)
+                files = []
+                if imported_bytes is not None:
+                    files.append((project.ref("Brief/Imports/original.json"), imported_bytes))
+                files.append((project.draft, json.dumps(result, ensure_ascii=False).encode()))
+                for reference, _ in files:
+                    project.claim(reference, db)
+            # Ownership is durable before the first byte. Publishing the draft last
+            # keeps a stopped import identifiable and deletable without executing it.
+            published = []
             try:
-                with self.storage.connect() as db:
-                    db.execute("INSERT INTO campaigns VALUES (?)", (campaign_id,))
-                    self.storage.write_new(
-                        reference, json.dumps(result, ensure_ascii=False).encode()
-                    )
-                    published = True
+                for reference, payload in files:
+                    self.storage.write_new(reference, payload)
+                    published.append(reference)
             except BaseException:
-                # Only this call’s newly published file can be rolled back.
-                # Pre-existing drafts are protected by write_new's exclusive link.
-                if published:
-                    self.storage.path(reference).unlink()
+                for reference in published:
+                    self.storage.path(reference).unlink(missing_ok=True)
+                with self.storage.connect() as db:
+                    db.execute("DELETE FROM file_owners WHERE campaign_id=?", (campaign_id,))
+                    db.execute("DELETE FROM campaigns WHERE id=?", (campaign_id,))
+                root = self.storage.path(f"Campaigns/{project.folder}")
+                for relative in ("Brief/Imports", "Brief", ""):
+                    with suppress(OSError):
+                        (root / relative).rmdir()
                 raise
         return result
 
     def _write(self, campaign_id, value, expected, *, attachment_hints=None):
+        project = self.storage.project(campaign_id)
+        project.check_brief(value)
         previous = self.read(campaign_id)
         if previous and previous["version"] != expected:
             raise ActionError(
@@ -410,10 +432,11 @@ class Intake:
         )
         if hints:
             result["attachment_hints"] = hints
+        project.claim(project.draft)
         writer = self.storage.write if previous else self.storage.write_new
         try:
             writer(
-                f"private/brief-drafts/{campaign_id}.json",
+                self.storage.project(campaign_id).draft,
                 json.dumps(result, ensure_ascii=False).encode(),
             )
         except FileExistsError as error:
@@ -427,10 +450,7 @@ class Intake:
             identity = str(uuid4())
             with self.storage.connect() as db:
                 known = db.execute("SELECT 1 FROM campaigns WHERE id=?", (identity,)).fetchone()
-            if (
-                not known
-                and not self.storage.path(f"private/brief-drafts/{identity}.json").exists()
-            ):
+            if not known:
                 return identity
         raise StorageError("A new campaign identity could not be reserved. Try again.")
 
@@ -558,34 +578,20 @@ class Intake:
                 raise ActionError(
                     "image", message, 422, field_errors=[field_issue(path, "image", message)]
                 )
-            if reference and reference not in allowed:
-                if not reference.startswith("private/uploads/"):
-                    message = "Choose missing images using the file pickers."
-                    raise ActionError(
-                        "image", message, 422, field_errors=[field_issue(path, "image", message)]
-                    )
+            if reference:
                 try:
-                    with self.storage.connect() as db:
-                        owners = {
-                            row[0]
-                            for row in db.execute(
-                                "SELECT campaign_id FROM file_owners WHERE reference=?",
-                                (reference,),
-                            )
-                        }
-                    if owners and campaign_id not in owners:
-                        raise ActionError(
-                            "image",
-                            "Attach this image to the selected campaign using its file picker.",
-                            422,
-                        )
-                    self.uploaded_path(reference.removeprefix("private/uploads/"))
-                except ActionError as error:
+                    project = self.storage.project(campaign_id)
+                    project.require(reference)
+                    if reference not in allowed:
+                        self.uploaded_path(project.upload_name(reference))
+                except (ActionError, StorageError) as error:
                     raise ActionError(
-                        error.code,
-                        error.message,
-                        error.status,
-                        field_errors=[field_issue(path, "image", error.message)],
+                        "image",
+                        "Attach this image to the selected campaign using its file picker.",
+                        422,
+                        field_errors=[
+                            field_issue(path, "image", "Choose an image for this campaign.")
+                        ],
                     ) from error
         ids = {p["id"] for p in old["products"]}
         seen = set()
@@ -648,7 +654,7 @@ class Intake:
         result["base_run"] = run["id"] if run else None
         result["base_revision"] = workspace.state.effective_revision(run["id"]) if run else None
         self.storage.write(
-            f"private/brief-drafts/{campaign_id}.json",
+            self.storage.project(campaign_id).draft,
             json.dumps(result, ensure_ascii=False).encode(),
         )
         return result
@@ -897,7 +903,7 @@ class Intake:
                 document["planned_authored_hash"] = canonical_hash(document["authored"]["brief"])
             # Publish matching draft pointers only after preparation succeeds.
             self.storage.write(
-                f"private/brief-drafts/{campaign_id}.json",
+                self.storage.project(campaign_id).draft,
                 json.dumps(document, ensure_ascii=False).encode(),
             )
         return plan
@@ -1072,7 +1078,7 @@ class Intake:
                         # internal reuse receipt, as the existing dispatch guard.
                         result["planned_authored_hash"] = canonical_hash(raw)
                 self.storage.write(
-                    f"private/brief-drafts/{campaign_id}.json",
+                    self.storage.project(campaign_id).draft,
                     json.dumps(result, ensure_ascii=False).encode(),
                 )
             return manifest

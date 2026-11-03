@@ -28,7 +28,7 @@ window.MotifStorage = (() => {
         `<p id="storage-description"><strong>${esc(d.campaignName)}</strong> will be removed from this workspace. This cannot be undone.</p>
         ${d.hasUnsavedEdits ? '<p class="small" style="margin-top:10px"><strong>Unsaved changes in this campaign will also be discarded.</strong></p>' : ""}<div class="data-row" style="align-items:center;margin-top:12px"><span>Estimated space freed</span><b class="mini-number">${esc(mb(d.estimatedReclaimBytes))}</b></div>
         ${row("Campaign brief and settings", "This campaign")}${row("Uploaded and generated source copies", count(d.sourceFilesToRemove, "file") + " to remove")}${row("Saved images", count(d.outputPNGs, "PNG"))}${row("App-created packages", count(d.packages, "package"))}
-        ${d.sharedFilesRetained > 0 ? note(`${count(d.sharedFilesRetained, "shared source file")} will stay.`, "Other campaigns still use these files. They are excluded from the space estimate.", "info") : '<div style="height:18px"></div>'}
+        ${d.unmanagedFiles > 0 ? note(`${count(d.unmanagedFiles, "unmanaged file")} will stay.`, "Motif will leave these files and their containing folders on disk.", "info") : '<div style="height:18px"></div>'}
         <p class="small muted">These app-owned files and records will be deleted from disk. Original source files and downloaded copies outside the application are untouched.</p>`,
         button("Cancel", "cancel") + button("Delete campaign", "confirm-delete", "primary"));
       case "delete-pending": return modal("Deleting this campaign…",

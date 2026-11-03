@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from campaign_studio.brief import valid_campaign_id
+from campaign_studio.local_files import is_link
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import StateError, timestamp
 from campaign_studio.storage import StorageError
@@ -56,10 +57,7 @@ class Cleanup:
         require_campaign_available(self.storage, campaign_id)
         with self.storage.connect() as db:
             runs = db.execute("SELECT id FROM runs WHERE campaign_id=?", (campaign_id,)).fetchall()
-            owned = db.execute(
-                "SELECT 1 FROM file_owners WHERE campaign_id=? LIMIT 1", (campaign_id,)
-            ).fetchone()
-        draft = self.storage.path(f"private/brief-drafts/{campaign_id}.json")
+        draft = self.storage.path(self.storage.project(campaign_id).draft)
         document = draft if draft.is_file() else None
         value = json.loads(document.read_bytes()) if document else {}
         authored = value.get("authored", {}).get("brief")
@@ -70,172 +68,60 @@ class Cleanup:
             name = value.get("value", value).get("name")
             if not name and runs:
                 name = self.state.plan(runs[-1][0]).brief.name
-        return (
-            [row[0] for row in runs],
-            str(name or "Untitled campaign"),
-            bool(runs or document or owned),
-        )
+        return [row[0] for row in runs], str(name or "Untitled campaign")
 
     def _files(self, references):
-        """Inventory exact regular files. Permission errors and aliases are refusals."""
-        found = {}
-
-        def inspect(path):
-            reference = path.relative_to(self.storage.root).as_posix()
-            path = self.storage.path(reference)
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                return
-            if not stat.S_ISREG(info.st_mode):
-                raise StorageError(
-                    "Cleanup found an unsupported file. No new deletion was started."
-                )
-            found[reference] = {
-                "reference": reference,
-                "bytes": info.st_size,
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            }
-
-        def walk_error(error):
-            raise error
-
-        for reference in references:
+        found = []
+        for reference in sorted(set(references)):
             path = self.storage.path(reference)
             try:
                 info = path.lstat()
             except FileNotFoundError:
                 continue
-            if stat.S_ISDIR(info.st_mode):
-                for directory, names, files in os.walk(path, onerror=walk_error):
-                    for name in names:
-                        self.storage.path(
-                            (Path(directory) / name).relative_to(self.storage.root).as_posix()
-                        )
-                    for name in files:
-                        inspect(Path(directory) / name)
-            else:
-                inspect(path)
-        return [found[key] for key in sorted(found)]
-
-    def _references(self, campaign_id, *, live_only=False):
-        """Saved documents establish input dependencies; names never imply reuse."""
-        documents = [f"private/brief-drafts/{campaign_id}.json"]
-        with self.storage.connect() as db:
-            documents += (
-                []
-                if live_only
-                else [
-                    row[0]
-                    for row in db.execute(
-                        "SELECT plan_ref FROM runs WHERE campaign_id=? UNION "
-                        "SELECT r.plan_ref FROM revisions r JOIN runs ON runs.id=r.run_id "
-                        "WHERE runs.campaign_id=?",
-                        (campaign_id, campaign_id),
-                    )
-                ]
+            if not stat.S_ISREG(info.st_mode):
+                raise StorageError("Cleanup found an unsupported file. Review its location.")
+            found.append(
+                {
+                    "reference": reference,
+                    "bytes": info.st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
             )
+        return found
+
+    def _current_inputs(self, campaign_id):
         from campaign_studio.authored import attachment_paths
 
-        result = set()
-        for index, reference in enumerate(documents):
-            try:
-                document = json.loads(self.storage.path(reference).read_bytes())
-            except FileNotFoundError:
-                continue
-            if index == 0:
-                brief = document.get("value", document)
-                authored = document.get("authored", {})
-                paths = list(attachment_paths(authored))
-                if not live_only or not authored:
-                    paths.extend(attachment_paths({"brief": brief}))
-            else:
-                brief = document["brief"]
-                paths = list(attachment_paths({"brief": brief}))
-                paths.extend(asset["reference"] for asset in document["assets"].values())
-            # Read saved replay images from the brief used for production.
-            replay = brief.get("replay") or {}
-            paths.extend(master["path"] for master in replay.get("sources", {}).values())
-            for path in paths:
-                if isinstance(path, str) and path.startswith(
-                    (
-                        "private/uploads/",
-                        "campaigns/",
-                        "private/runs/",
-                        "exports/",
-                        "replays/",
-                        "samples/",
-                    )
-                ):
-                    try:
-                        self.storage.path(path)
-                    except StorageError:
-                        continue  # A draft can contain an unfinished image path.
-                    result.add(path)
-        return result
+        project = self.storage.project(campaign_id)
+        path = self.storage.path(project.draft)
+        if not path.exists():
+            return set()
+        document = json.loads(path.read_bytes())
+        brief = document["value"]
+        inputs = set(
+            ref
+            for ref in attachment_paths(document.get("authored", {"brief": brief}))
+            if isinstance(ref, str)
+        )
+        inputs.update(
+            master["path"] for master in (brief.get("replay") or {}).get("sources", {}).values()
+        )
+        return inputs
 
-    def _file_key(self, reference):
-        # On a case-insensitive volume, two spellings can point to the same file.
-        try:
-            info = self.storage.path(reference).stat()
-        except FileNotFoundError, NotADirectoryError:
-            return None
-        return info.st_dev, info.st_ino
-
-    def _other_owners(self, campaign_id):
+    def _registered(self, campaign_id):
+        project = self.storage.project(campaign_id)
         with self.storage.connect() as db:
-            others = {row[0] for row in db.execute("SELECT DISTINCT campaign_id FROM runs")}
-            owned = db.execute(
-                "SELECT reference,campaign_id FROM file_owners WHERE campaign_id!=?", (campaign_id,)
-            ).fetchall()
-        path = self.storage.path("private/brief-drafts")
-        try:
-            info = path.stat()
-        except FileNotFoundError:
-            pass
-        else:
-            if stat.S_ISDIR(info.st_mode):
-                others.update(p.name.removesuffix(".json") for p in path.iterdir())
-        references = {}
-        for reference, owner in owned:
-            if (key := self._file_key(reference)) is not None:
-                references.setdefault(key, set()).add(owner)
-        for other in others - {campaign_id}:
-            if valid_campaign_id(other):
-                for reference in self._references(other):
-                    if (key := self._file_key(reference)) is not None:
-                        references.setdefault(key, set()).add(other)
-        return references
+            return [
+                project.check(row[0])
+                for row in db.execute(
+                    "SELECT reference FROM file_owners WHERE campaign_id=? ORDER BY reference",
+                    (campaign_id,),
+                )
+            ]
 
-    def _shared_files(self, campaign_id, files):
-        shared = self._other_owners(campaign_id)
-        # Another campaign's attachment protects a file from deletion.
-        return {
-            item["reference"]: sorted(owners)
-            for item in files
-            if (owners := shared.get(self._file_key(item["reference"])))
-        }
-
-    def _directories(self, references):
-        directories = set()
-
-        def failed(error):
-            raise error
-
-        for reference in references:
-            path = self.storage.path(reference)
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISDIR(info.st_mode):
-                continue
-            for directory, names, _ in os.walk(path, onerror=failed):
-                for child in [Path(directory), *(Path(directory) / name for name in names)]:
-                    relative = child.relative_to(self.storage.root).as_posix()
-                    self.storage.path(relative)
-                    directories.add(relative)
-        return sorted(directories)
+    def _revision_files(self, campaign_id, manifest_ref):
+        prefix = manifest_ref.rsplit("/", 1)[0] + "/images/"
+        return self._files(ref for ref in self._registered(campaign_id) if ref.startswith(prefix))
 
     def _record_fingerprint(self, campaign_id):
         with self.storage.connect() as db:
@@ -261,38 +147,47 @@ class Cleanup:
         return canonical_hash(rows)
 
     def _campaign_inventory(self, campaign_id):
-        runs, name, has_content = self._campaign(campaign_id)
-        references = (
-            [
-                f"private/brief-drafts/{campaign_id}.json",
-                f"exports/{campaign_id}",
-            ]
-            if has_content
-            else []
-        )
-        references += [
-            prefix for run in runs for prefix in (f"private/runs/{run}", f"campaigns/{run}")
-        ]
-        with self.storage.connect() as db:
-            references += [
-                row[0]
-                for row in db.execute(
-                    "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign_id,)
+        runs, name = self._campaign(campaign_id)
+        project = self.storage.project(campaign_id)
+        project_root = self.storage.path(f"Campaigns/{project.folder}")
+        references = self._registered(campaign_id)
+        directories = {project_root}
+        leaves = []
+        for ref in references:
+            path = self.storage.path(ref)
+            if path.is_dir():
+                directories.add(path)
+            else:
+                leaves.append(ref)
+            directories.update(
+                parent for parent in path.parents if parent.is_relative_to(project_root)
+            )
+        managed = set(references)
+        remaining = 0
+        if project_root.is_dir():
+
+            def unreadable(error):
+                raise error
+
+            for directory, names, filenames in os.walk(
+                project_root, onerror=unreadable, followlinks=False
+            ):
+                aliases = [name for name in names if is_link((Path(directory) / name).lstat())]
+                names[:] = [name for name in names if name not in aliases]
+                other = [*filenames, *aliases]
+                remaining += sum(
+                    (Path(directory) / name).relative_to(self.storage.root).as_posix()
+                    not in managed
+                    for name in other
                 )
-            ]
-        all_files = self._files(references)
-        shared_owners = self._shared_files(campaign_id, all_files)
-        retained = [item for item in all_files if item["reference"] in shared_owners]
-        files = [item for item in all_files if item["reference"] not in shared_owners]
         return {
             "kind": "campaign",
+            "unmanaged_file_count": remaining,
             "campaign_id": campaign_id,
             "name": name,
             "runs": runs,
-            "files": files,
-            "directories": self._directories(references),
-            "retained": retained,
-            "shared_owners": shared_owners,
+            "files": self._files(leaves),
+            "directories": sorted(p.relative_to(self.storage.root).as_posix() for p in directories),
             "record_fingerprint": self._record_fingerprint(campaign_id),
         }
 
@@ -302,19 +197,21 @@ class Cleanup:
         images = [
             f["reference"]
             for f in files
-            if "/revisions/" in f["reference"] and "/images/" in f["reference"]
+            if "/Revisions/" in f["reference"] and "/images/" in f["reference"]
         ]
         packages = {
-            tuple(f["reference"].split("/")[: 4 if "/archives/" in f["reference"] else 3])
+            f["reference"].split("/Exports/", 1)[1].split("/")[0]
+            if "/archives/" not in f["reference"]
+            else f["reference"]
             for f in files
-            if f["reference"].startswith("exports/")
+            if ("/Exports/" in f["reference"])
         }
         sources = {
             f["reference"]
             for f in files
             if f["reference"].lower().endswith((".png", ".jpg", ".jpeg"))
             and f["reference"] not in images
-            and not f["reference"].startswith("exports/")
+            and "/Exports/" not in f["reference"]
         }
         return {
             "kind": inventory["kind"],
@@ -323,8 +220,7 @@ class Cleanup:
             "token": canonical_hash(inventory),
             "file_count": len(files),
             "removable_bytes": sum(x["bytes"] for x in files),
-            "shared_file_count": len(inventory.get("retained", [])),
-            "shared_bytes": sum(x["bytes"] for x in inventory.get("retained", [])),
+            "unmanaged_file_count": inventory.get("unmanaged_file_count", 0),
             "run_count": len(inventory.get("runs", [])),
             "source_file_count": len(sources),
             "output_png_count": len(images),
@@ -367,8 +263,7 @@ class Cleanup:
                 )
             # A temporary display name identifies an interrupted deletion. It is
             # removed with the intent; no brief or provider body is copied here.
-            stored = {key: value for key, value in inventory.items() if key != "retained"}
-            stored["shared_file_count"] = len(inventory.get("retained", []))
+            stored = inventory
             db.execute(
                 "INSERT INTO cleanup_intents VALUES (?,?,?,?,?)",
                 (
@@ -379,19 +274,11 @@ class Cleanup:
                     timestamp(),
                 ),
             )
-            self._retain_shared(db, inventory.get("shared_owners", {}))
             for revision in inventory.get("retire", []):
                 db.execute("UPDATE revisions SET images_retired=1 WHERE id=?", (revision,))
         if defer_cleanup:
             return {"state": "committed", "cleanup_id": identity}
         return self._resume(identity)
-
-    @staticmethod
-    def _retain_shared(db, shared):
-        db.executemany(
-            "INSERT OR IGNORE INTO file_owners VALUES (?,?)",
-            ((reference, owner) for reference, owners in shared.items() for owner in owners),
-        )
 
     def _resume(self, identity):
         with self.storage.connect() as db:
@@ -402,29 +289,12 @@ class Cleanup:
             return {"state": "complete", "cleanup_id": identity}
         inventory = json.loads(row[0])
         try:
-            if inventory["kind"] == "campaign":
-                # Older deletion lists could include uploads named in notes.
-                # Recheck who owns each upload before removing it.
-                campaign_id = inventory["campaign_id"]
-                with self.storage.connect() as db:
-                    owned = {
-                        row[0]
-                        for row in db.execute(
-                            "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign_id,)
-                        )
-                    }
-                    files = [
-                        item
-                        for item in inventory["files"]
-                        if not item["reference"].startswith("private/uploads/")
-                        or item["reference"] in owned
-                    ]
-                    shared = self._shared_files(campaign_id, files)
-                    self._retain_shared(db, shared)
-                inventory["files"] = [item for item in files if item["reference"] not in shared]
-                inventory["shared_file_count"] += len(shared)
-            else:
-                self._require_unshared(inventory["campaign_id"], inventory["files"])
+            project = self.storage.project(inventory["campaign_id"])
+            registered = set(self._registered(project.campaign_id))
+            if any(item["reference"] not in registered for item in inventory["files"]):
+                raise StorageError("The ownership of a file in this deletion changed.")
+            if inventory["kind"] == "retirement":
+                self._require_unshared(project.campaign_id, inventory["files"])
             for item in inventory["files"]:
                 path = self.storage.path(item["reference"])
                 try:
@@ -435,31 +305,19 @@ class Cleanup:
                     raise StorageError("An approved cleanup file changed.")
                 path.unlink()
             # Only empty parents of the approved files; never recursive removal.
-            parents = {
+            project_root = self.storage.path(f"Campaigns/{project.folder}")
+            parents = {self.storage.path(ref) for ref in inventory.get("directories", [])}
+            parents.update(
                 parent
                 for item in inventory["files"]
                 for parent in self.storage.path(item["reference"]).parents
-                if parent != self.storage.root and parent.is_relative_to(self.storage.root)
-            }
-            protected = {
-                self.storage.path(x)
-                for x in (
-                    "private",
-                    "campaigns",
-                    "exports",
-                    "incoming",
-                    "private/uploads",
-                    "private/brief-drafts",
-                    "private/runs",
-                )
-            }
-            parents.update(
-                self.storage.path(reference) for reference in inventory.get("directories", [])
+                if parent.is_relative_to(project_root)
             )
-            for parent in sorted(parents - protected, key=lambda p: len(p.parts), reverse=True):
-                # A preserved dependency or another owned file may still use it.
+            for parent in sorted(parents, key=lambda p: len(p.parts), reverse=True):
+                if not parent.is_relative_to(project_root):
+                    raise StorageError("The saved cleanup directory is outside its project.")
                 with suppress(OSError):
-                    parent.rmdir()
+                    parent.rmdir()  # Unregistered files remain where the producer put them.
             with self.storage.connect() as db:
                 if inventory["kind"] == "campaign":
                     cid = inventory["campaign_id"]
@@ -479,13 +337,18 @@ class Cleanup:
                             )
                     db.execute("DELETE FROM runs WHERE campaign_id=?", (cid,))
                     db.execute("DELETE FROM file_owners WHERE campaign_id=?", (cid,))
+                if inventory["kind"] == "retirement":
+                    db.executemany(
+                        "DELETE FROM file_owners WHERE reference=? AND campaign_id=?",
+                        ((item["reference"], project.campaign_id) for item in inventory["files"]),
+                    )
                 db.execute("DELETE FROM cleanup_intents WHERE id=?", (identity,))
                 if inventory["kind"] == "campaign":
                     db.execute("DELETE FROM campaigns WHERE id=?", (inventory["campaign_id"],))
             return {
                 "state": "complete",
                 "cleanup_id": identity,
-                "shared_file_count": inventory.get("shared_file_count", 0),
+                "unmanaged_file_count": inventory.get("unmanaged_file_count", 0),
                 "removed_bytes": sum(item["bytes"] for item in inventory["files"]),
             }
         except OSError, ValueError, sqlite3.Error:
@@ -576,10 +439,8 @@ class Cleanup:
     def _require_unshared(self, campaign_id, files):
         if not files:
             return
-        shared = set(self._other_owners(campaign_id))
-        shared.update(self._file_key(ref) for ref in self._references(campaign_id, live_only=True))
-        shared.discard(None)
-        if any(self._file_key(item["reference"]) in shared for item in files):
+        inputs = self._current_inputs(campaign_id)
+        if any(item["reference"] in inputs for item in files):
             raise StateError(
                 "An older output is used as an input by this or another campaign. "
                 "Replace that input before creating new images."
@@ -600,7 +461,7 @@ class Cleanup:
             for row in self._retiring_sets(projected):
                 candidates[row[0]] = row
         result = {
-            identity: self._files([row[1].rsplit("/", 1)[0] + "/images"])
+            identity: self._revision_files(campaign_id, row[1])
             for identity, row in candidates.items()
         }
         self._require_unshared(campaign_id, [item for files in result.values() for item in files])
@@ -626,7 +487,7 @@ class Cleanup:
             files.extend(
                 prepared[row[0]]
                 if prepared is not None and row[0] in prepared
-                else self._files([row[1].rsplit("/", 1)[0] + "/images"])
+                else self._revision_files(campaign_id, row[1])
             )
         # A direct publisher or a changed dependency must never bypass the
         # admission check merely because its image list was already prepared.
@@ -637,8 +498,6 @@ class Cleanup:
                 "campaign_id": campaign_id,
                 "retire": [row[0] for row in retire],
                 "files": files,
-                "directories": self._directories(
-                    [row[1].rsplit("/", 1)[0] + "/images" for row in retire]
-                ),
+                "directories": [row[1].rsplit("/", 1)[0] + "/images" for row in retire],
             }
         )

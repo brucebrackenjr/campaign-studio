@@ -91,7 +91,10 @@ def test_workbench_planned_partial_paused_unknown_and_damaged_are_distinct(tmp_p
             value["campaign_id"] = name
             if missing:
                 value["replay"] = None
-            plan = make_plan(Brief.model_validate(value), ws.storage)
+            from campaign_fixtures import independent_brief
+
+            copied = independent_brief(state, Brief.model_validate(value), name)
+            plan = make_plan(copied, ws.storage)
             run = state.create(plan, len(plan.generation_products))
             state.confirm(run, state.plan(run).digest)
             return run

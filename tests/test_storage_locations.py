@@ -16,6 +16,10 @@ def locations(tmp_path, monkeypatch):
     launch.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.setattr("campaign_studio.config.sys.platform", "darwin")
+    (launch / "src/campaign_studio").mkdir(parents=True)
+    (launch / "src/campaign_studio/cli.py").touch()
+    (launch / "pyproject.toml").write_text('[project]\nname="campaign-studio"\n')
+    monkeypatch.setattr("sys.prefix", str(launch / ".venv"))
     monkeypatch.chdir(launch)
     for name in ("CAMPAIGN_STUDIO_DATA_DIR", "XDG_DATA_HOME"):
         monkeypatch.delenv(name, raising=False)
@@ -24,7 +28,7 @@ def locations(tmp_path, monkeypatch):
 
 def test_default_is_stable_and_other_workspaces_require_explicit_selection(locations, monkeypatch):
     home, launch = locations
-    expected = home / "Library/Application Support/Motif"
+    expected = launch / "Workspace"
     assert Settings.from_environment().data_dir == expected
     another = launch / "another"
     another.mkdir()
@@ -41,23 +45,34 @@ def test_default_is_stable_and_other_workspaces_require_explicit_selection(locat
     assert (explicit / "saved.txt").read_text() == "existing work"
 
 
-def test_linux_xdg_and_cli_summary_do_not_create_or_migrate_data(locations, monkeypatch, capsys):
+def test_portable_workspace_leaves_existing_user_data_untouched(locations, monkeypatch, capsys):
     home, launch = locations
     monkeypatch.setattr("campaign_studio.config.sys.platform", "linux")
-    assert Settings.from_environment().data_dir == home / ".local/share/motif"
-    xdg = home / "data"
-    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
-    assert Settings.from_environment().data_dir == xdg / "motif"
-    explicit = launch / "chosen"
-    assert main(["workspace", "--data-dir", str(explicit)]) == 0
-    summary = json.loads(capsys.readouterr().out)
-    assert summary["location"] == str(explicit)
-    assert summary["used_bytes"] == summary["file_count"] == 0
-    assert summary["free_bytes"] > 0
-    assert not explicit.exists()
-    monkeypatch.setenv("XDG_DATA_HOME", "relative")
-    with pytest.raises(ConfigurationError, match="absolute"):
+    old = home / ".local/share/motif/private/state.sqlite3"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"existing")
+    assert Settings.from_environment().data_dir == launch / "Workspace"
+    explicit = launch / "Workspace"
+    assert main(["workspace"]) == 0
+    assert json.loads(capsys.readouterr().out)["location"] == str(explicit)
+    assert not explicit.exists() and old.read_bytes() == b"existing"
+
+
+def test_unrelated_interpreter_never_guesses_workspace(locations, monkeypatch):
+    _, launch = locations
+    monkeypatch.setattr("sys.prefix", str(launch / "unrelated"))
+    with pytest.raises(ConfigurationError, match="could not identify"):
         Settings.from_environment()
+    assert Settings.from_environment(data_dir=launch / "chosen").data_dir == launch / "chosen"
+
+
+def test_copied_launcher_cannot_open_previous_environment(locations, monkeypatch):
+    _, old = locations
+    moved_launcher = old.parent / "second" / ".venv" / "bin" / "campaign-studio"
+    monkeypatch.setattr("sys.argv", [str(moved_launcher), "serve"])
+    with pytest.raises(ConfigurationError, match="Recreate .venv"):
+        Settings.from_environment()
+    assert not (old / "Workspace").exists()
 
 
 def test_storage_inventory_does_not_follow_symlinks_or_read_content(tmp_path):

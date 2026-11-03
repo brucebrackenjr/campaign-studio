@@ -113,7 +113,7 @@ def test_all_campaign_export_paths_block_while_diagnostic_display_and_artifacts_
         zip_bytes, html = client.get(zip_url).content, client.get(folder_url).content
         files = {
             str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in ws.storage.path("exports").rglob("*")
+            for p in ws.storage.path("Campaigns").glob("*/Exports/**/*")
             if p.is_file()
         }
         old_image = next(o["url"] for o in before["manifest"]["outputs"] if o["file"])
@@ -150,7 +150,7 @@ def test_all_campaign_export_paths_block_while_diagnostic_display_and_artifacts_
         assert client.get(zip_url).status_code == client.get(folder_url).status_code == 409
         assert files == {
             str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in ws.storage.path("exports").rglob("*")
+            for p in ws.storage.path("Campaigns").glob("*/Exports/**/*")
             if p.is_file()
         }
         restored = apply_rules(client, url, [])

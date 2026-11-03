@@ -24,13 +24,24 @@ from campaign_studio.storage import Storage
 
 def build_prepared_outputs(resources, entry, storage):
     original = json.loads((resources / entry["brief"]).read_bytes())
+    from copy import deepcopy
+
+    state = State(storage)
+    value = deepcopy(original)
+    state.register_campaign(value["campaign_id"], value["brand"]["name"])
+    project = storage.project(value["campaign_id"])
+    copied = {}
     for reference, expected in entry["files"].items():
         payload = (resources / entry["slug"] / reference).read_bytes()
         if hashlib.sha256(payload).hexdigest() != expected:
             raise ValueError("An example source does not match the resource manifest.")
-        storage.write(reference, payload)
-    state = State(storage)
-    plan = make_plan(Brief.model_validate(original), storage)
+        target = project.ref("Assets/Prepared/" + reference)
+        project.write(target, payload)
+        copied[reference] = target
+    value["brand"]["logo_path"] = copied[value["brand"]["logo_path"]]
+    for product in value["products"]:
+        product["source"]["path"] = copied[product["source"]["path"]]
+    plan = make_plan(Brief.model_validate(value), storage)
     if plan.blocked or plan.generation_products:
         raise ValueError("Prepared examples must use complete supplied sources and valid copy.")
     run_id = state.create(plan, 0)
@@ -80,9 +91,9 @@ def build_prepared_outputs(resources, entry, storage):
         "outputs": records,
     }
     path = resources / entry["slug"] / "prepared-outputs.json"
-    path.write_text(json.dumps(descriptor, indent=2, ensure_ascii=False) + "\n")
+    path.write_bytes((json.dumps(descriptor, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
     entry["prepared_outputs"] = {
-        "path": str(path.relative_to(resources)),
+        "path": path.relative_to(resources).as_posix(),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
 
@@ -94,7 +105,7 @@ def main():
     autumn = next(e for e in manifest["campaigns"] if e["slug"] == "autumn-winds")
     with tempfile.TemporaryDirectory(prefix="motif-example-build-") as temporary:
         build_prepared_outputs(resources, autumn, Storage(Path(temporary).resolve() / "workspace"))
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_bytes((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
     print("Prepared Autumn Winds outputs and updated the resource manifest. No AI requests.")
 
 

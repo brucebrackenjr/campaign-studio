@@ -22,9 +22,14 @@ def write_sample(
         2: "80d58cbe-5e57-5544-9b07-a4f018714dde",
         3: "10a02c18-9114-53ce-beb7-b41293746c84",
     }[product_count]
-    state.register_campaign(campaign_id)
+    state.register_campaign(campaign_id, "Synthetic sample")
+    project = storage.project(campaign_id)
     storage.require_capacity(product_count * 1920 * 1920 * 4 + 1_000_000)
-    prefix = "samples/" + state.reserve_owned_namespaces(campaign_id, ("samples/{id}",))
+    prefix = (
+        project.ref("Assets/Samples")
+        + "/"
+        + state.reserve_owned_namespaces(campaign_id, (project.ref("Assets/Samples/{id}"),))
+    )
     provenance = {
         "label": "Synthetic geometric fixture",
         "rights": "Locally authored test graphics",
@@ -32,7 +37,7 @@ def write_sample(
     }
     with Image.new("RGBA", (200, 80)) as logo:
         ImageDraw.Draw(logo).rectangle((10, 10, 190, 70), fill="#FFFFFF")
-        save_srgb(logo, storage.path(f"{prefix}/logo.png"))
+        save_srgb(logo, storage.path(project.claim(f"{prefix}/logo.png")))
     products = []
     for index in range(product_count):
         identifier = f"product-{index + 1}"
@@ -40,7 +45,7 @@ def write_sample(
         with Image.new("RGB", (1920, 1920), (25 + 15 * index, 55, 65)) as scene:
             draw = ImageDraw.Draw(scene)
             draw.ellipse((750, 750, 1170, 1170), fill=(180, 100 + 20 * index, 65))
-            save_srgb(scene, storage.path(reference))
+            save_srgb(scene, storage.path(project.claim(reference)))
         products.append(
             {
                 "id": identifier,
@@ -95,7 +100,7 @@ def write_sample(
         }
     )
     reference = f"{prefix}/brief.json"
-    storage.path(reference).write_text(
+    storage.path(project.claim(reference)).write_text(
         brief.model_dump_json(indent=2, exclude_unset=True) + "\n", encoding="utf-8"
     )
     return reference, brief
@@ -122,7 +127,9 @@ def run_sample(storage: Storage, product_count: int = 2, one_market: bool = Fals
         preview = make_plan(edited, storage)
         corrected = len(compare_plans(state.plan(run_id), preview).render_outputs)
         result = runner.revise(run_id, edited, result["revision_id"], preview.digest)
-    index = export_package(state, result["revision_id"], f"exports/{run_id}")
+    index = export_package(
+        state, result["revision_id"], storage.project(brief.campaign_id).ref(f"Exports/{run_id}")
+    )
     return {
         "evidence": "synthetic-key-free-workflow",
         "run_id": run_id,
@@ -158,14 +165,19 @@ def write_replay(storage: Storage) -> Brief:
         for holder in holders
     ]
     storage.require_capacity(sum(sizes) + max(sizes, default=0))
-    state.register_campaign(brief.campaign_id)
-    prefix = "replays/" + state.reserve_owned_namespaces(brief.campaign_id, ("replays/{id}",))
+    state.register_campaign(brief.campaign_id, brief.brand.name)
+    project = storage.project(brief.campaign_id)
+    prefix = (
+        project.ref("Assets/Replays")
+        + "/"
+        + state.reserve_owned_namespaces(brief.campaign_id, (project.ref("Assets/Replays/{id}"),))
+    )
     for holder in holders:
         field = "logo_path" if holder is value["brand"] else "path"
         reference = holder[field]
         target = f"{prefix}/{reference}"
         storage.path(target)  # Validate before resolving the packaged resource.
-        storage.write(target, package.joinpath(reference).read_bytes())
+        project.write(target, package.joinpath(reference).read_bytes())
         holder[field] = target
     return Brief.model_validate(value)
 
@@ -178,7 +190,8 @@ def run_replay(storage: Storage) -> dict:
     from campaign_studio.state import State
 
     state = State(storage)
-    run_id = state.create(make_plan(write_replay(storage), storage), allowance=0)
+    brief = write_replay(storage)
+    run_id = state.create(make_plan(brief, storage), allowance=0)
     state.confirm(run_id, state.plan(run_id).digest)
     runner = Runner(state)
     first = asyncio.run(runner.execute(run_id))
@@ -188,7 +201,9 @@ def run_replay(storage: Storage) -> dict:
     affected = len(compare_plans(state.plan(run_id), edited).render_outputs)
     runner.revise(run_id, edited.brief, first["revision_id"], edited.digest)
     result = Runner(State(storage)).recover_local(run_id)
-    index = export_package(state, result["revision_id"], f"exports/{run_id}")
+    index = export_package(
+        state, result["revision_id"], storage.project(brief.campaign_id).ref(f"Exports/{run_id}")
+    )
     return {
         "evidence": result["evidence"],
         "run_id": run_id,

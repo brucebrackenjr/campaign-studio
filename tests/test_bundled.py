@@ -104,6 +104,11 @@ def test_install_claim_prepared_images_missing_plan_and_deleted_examples_stay_de
         return await first
 
     receipt = asyncio.run(simultaneous_install())
+    for entry in receipt["campaigns"]:
+        original = (bundle / entry["slug"] / "brief.json").read_bytes()
+        imported = workspace.storage.project(entry["id"]).ref("Brief/Imports/original.json")
+        assert workspace.storage.path(imported).read_bytes() == original
+
     identities = [item["id"] for item in receipt["campaigns"]]
     assert len(set(identities)) == 2
     assert all(str(UUID(identity)) == identity for identity in identities)
@@ -149,7 +154,8 @@ def test_official_first_start_uses_workspace_freshness_not_campaign_count(
             create_app(Settings(data_dir=root), seed_examples=True), base_url="http://localhost"
         ) as client:
             assert client.get("/health").status_code == 200
-    assert calls == ([root] if existing in {"absent", "empty"} else [])
+    assert len(calls) == (1 if existing in {"absent", "empty"} else 0)
+    assert all(path.samefile(root) for path in calls)
     if existing == "unrelated-file":
         assert (root / "leave-me.txt").read_text() == "unrelated content"
 
@@ -207,7 +213,7 @@ def test_prepared_import_cannot_authorize_missing_imagery(tmp_path, bundle, monk
     receipt = asyncio.run(install_campaigns(workspace, source=bundle))
     missing = workspace.run_for(receipt["campaigns"][1]["id"])
     _, campaigns = load_campaigns(bundle)
-    _, original, _, prepared = campaigns[0]
+    _, original, _, prepared, _ = campaigns[0]
     with pytest.raises(StorageError, match="complete supplied-image plan"):
         install_prepared_outputs(workspace.state, missing["id"], original, prepared)
     with workspace.storage.connect() as db:
@@ -251,7 +257,9 @@ def test_prepared_install_never_renders_and_rebinds_all_outputs_and_metadata(
             assert item["sha256"] == record["sha256"]
             assert item["pixel_sha256"] == record["pixel_sha256"]
         for asset in plan.assets.values():
-            assert asset.reference.startswith(f"campaigns/{run['id']}/inputs/")
+            assert asset.reference.startswith(
+                workspace.storage.project(run["campaign_id"]).run(run["id"]) + "/Inputs/"
+            )
             assert (
                 hashlib.sha256(workspace.storage.path(asset.reference).read_bytes()).hexdigest()
                 == asset.sha256
@@ -266,7 +274,7 @@ def test_prepared_install_never_renders_and_rebinds_all_outputs_and_metadata(
             assert (
                 db.execute(
                     "SELECT count(*) FROM file_owners WHERE reference=?",
-                    (f"campaigns/{run['id']}",),
+                    (workspace.storage.project(run["campaign_id"]).run(run["id"]),),
                 ).fetchone()[0]
                 == 1
             )
@@ -319,7 +327,7 @@ def test_interrupted_prepared_copy_stays_owned_and_is_not_reseeded(tmp_path, bun
     copied = []
 
     def interrupted(reference, payload):
-        if "/revisions/" in reference and "/images/" in reference:
+        if "/Revisions/" in reference and "/images/" in reference:
             if copied:
                 raise OSError("controlled copy interruption")
             copied.append(reference)

@@ -18,7 +18,7 @@ function harness() {
     C:{products:[{id:'a'}]}, projectBuffers:{form_drafts:{},feedback:{}},
     model:{version:'v1',manifest:{revision_id:'r1'},concept_previews:{},attachment_hints:{}},
     draft:{campaign_id:'292e9e84-eb00-5fdb-87e8-423f5e51fac4', name:'Campaign', audience:'Audience',creative_direction:'Scene',
-      brand:{name:'Brand',text_color:'#FFFFFF',palette:['#FFFFFF'],logo_path:'private/uploads/logo.png',logo_provenance:{}},copy_provenance:{label:'Source',rights:'Rights'},
+      brand:{name:'Brand',text_color:'#FFFFFF',palette:['#FFFFFF'],logo_path:'Campaigns/Test-12345678/Assets/Products/logo.png',logo_provenance:{}},copy_provenance:{label:'Source',rights:'Rights'},
       markets:{'en-US':{copy:{message:'English',cta:null}},'es-MX':{copy:{message:'Español',cta:null}}},
       products:[{id:'a',name:'Alpha',description:'A',source:{role:'concept'},framing:{},copy_overrides:{}}]},
     assetURL:ref=>ref ? '/asset':null,markDirty(){},toast(){},$:()=>({focus(){},content:'csrf'}),
@@ -229,7 +229,7 @@ test('a logo selected before navigation never uploads after its old preview drai
   h.pending[0].resolve({});
   await action;
   assert.equal(h.pending.length,1);
-  assert.equal(h.run('draft.brand.logo_path'),'private/uploads/logo.png');
+  assert.equal(h.run('draft.brand.logo_path'),'Campaigns/Test-12345678/Assets/Products/logo.png');
 });
 
 test('Brand logo rejection uses the existing image dialog and preserves prior artwork and raw fields', async () => {
@@ -252,13 +252,13 @@ test('late logo upload cannot assign to a closed or newer owner; JPEG bytes are 
   const first=h.run("attachBriefLogo(briefHost,{name:'logo.jpg',type:'image/jpeg'})");
   assert.equal(h.pending[0].options.headers['X-Image-Role'],'logo');
   h.run('briefHost.dead=true');
-  h.pending[0].resolve({reference:'private/uploads/new.jpg',provenance:{label:'New'}});
-  await first;assert.equal(h.run('draft.brand.logo_path'),'private/uploads/logo.png');
+  h.pending[0].resolve({reference:'Campaigns/Test-12345678/Assets/Products/new.jpg',provenance:{label:'New'}});
+  await first;assert.equal(h.run('draft.brand.logo_path'),'Campaigns/Test-12345678/Assets/Products/logo.png');
   h.run('briefHost.dead=false');
   const second=h.run("attachBriefLogo(briefHost,{name:'logo.jpg',type:'image/jpeg'})");
-  h.pending[1].resolve({reference:'private/uploads/accepted.jpg',type:'JPEG',width:10,height:20,opaque:true,provenance:{label:'User-supplied logo',rights:'Not provided',synthetic:false}});
+  h.pending[1].resolve({reference:'Campaigns/Test-12345678/Assets/Products/accepted.jpg',type:'JPEG',width:10,height:20,opaque:true,provenance:{label:'User-supplied logo',rights:'Not provided',synthetic:false}});
   await second;
-  assert.equal(h.run('draft.brand.logo_path'),'private/uploads/accepted.jpg');
+  assert.equal(h.run('draft.brand.logo_path'),'Campaigns/Test-12345678/Assets/Products/accepted.jpg');
   assert.equal(h.run('draft.brand.logo_provenance.rights'),'Not provided');
 });
 
@@ -289,7 +289,7 @@ test('missing Campaign images open the existing product editor and attachment hi
   const busy=h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'products'})");
   assert.match(busy,/aria-label="Add image for Alpha" disabled/);
   h.run('operation=null');
-  h.run("draft.products[0].source.path='private/uploads/attached.jpg';refreshBriefFlow()");
+  h.run("draft.products[0].source.path='Campaigns/Test-12345678/Assets/Products/attached.jpg';refreshBriefFlow()");
   const attached=h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'products'})");
   assert.match(attached,/class="bf-product-photo-button" data-bf-action="edit-product:a"/);
   assert.match(attached,/Inspect source/);
@@ -303,7 +303,7 @@ test('missing Campaign images open the existing product editor and attachment hi
   const generated=h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'products'})");
   assert.match(generated,/Image will be generated\./);
   assert.doesNotMatch(generated,/Add image|Inspect source/);
-  h.run("draft.products[0].source={role:'prepared_product',path:'private/uploads/cutout.png'};refreshBriefFlow()");
+  h.run("draft.products[0].source={role:'prepared_product',path:'Campaigns/Test-12345678/Assets/Products/cutout.png'};refreshBriefFlow()");
   const prepared=h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'products'})");
   assert.doesNotMatch(prepared,/Product stays intact|bf-chip|bf-add-image/);
   assert.equal(h.run("'sourceDetail' in briefHost.vm.products[0]"),false);

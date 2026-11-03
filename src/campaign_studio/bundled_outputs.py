@@ -121,7 +121,8 @@ def install_prepared_outputs(state, run_id, original, prepared):
         storage = state.storage
         storage.require_capacity(sum(r["bytes"] for _, r in selected) + 1024 * 1024)
         revision_id = state.reserve_revision(run_id)
-        prefix = f"campaigns/{run_id}/revisions/{revision_id}"
+        project = storage.project(plan.brief.campaign_id)
+        prefix = f"{project.run(run_id)}/Revisions/{revision_id}"
         items = []
         findings = list(plan.findings)
         for output, record in selected:
@@ -129,7 +130,7 @@ def install_prepared_outputs(state, run_id, original, prepared):
             relative = (
                 f"images/{output.product_id}/{output.ratio.replace(':', 'x')}/{output.market}.png"
             )
-            storage.write(f"{prefix}/{relative}", payload)
+            project.write(f"{prefix}/{relative}", payload)
             if (
                 hashlib.sha256(storage.path(f"{prefix}/{relative}").read_bytes()).hexdigest()
                 != record["sha256"]
@@ -204,9 +205,9 @@ def install_prepared_outputs(state, run_id, original, prepared):
                 "pre_rendered_images": len(items),
             },
         }
-        plan_ref = f"private/runs/{run_id}/revisions/{revision_id}.json"
+        plan_ref = f"{prefix}/plan.json"
         manifest_ref = f"{prefix}/manifest.json"
-        storage.write(plan_ref, plan.model_dump_json(indent=2).encode())
-        storage.write(manifest_ref, json.dumps(manifest, ensure_ascii=False, indent=2).encode())
+        project.write(plan_ref, plan.model_dump_json(indent=2).encode())
+        project.write(manifest_ref, json.dumps(manifest, ensure_ascii=False, indent=2).encode())
         state.publish_revision(run_id, revision_id, plan_ref, manifest_ref, True)
         return manifest

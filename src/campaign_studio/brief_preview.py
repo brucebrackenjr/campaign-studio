@@ -3,7 +3,6 @@
 import copy
 import hashlib
 import io
-import re
 
 from PIL import Image
 from pydantic import Field, TypeAdapter, ValidationError
@@ -118,14 +117,14 @@ def representative_preview(state, campaign_id, action):
                     and isinstance(product["source"].get("path"), str)
                 ):
                     references.add(product["source"].get("path"))
-        if reference not in references:
-            with state.storage.connect() as db:
-                owned = db.execute(
-                    "SELECT 1 FROM file_owners WHERE reference=? AND campaign_id=?",
-                    (reference, campaign_id),
-                ).fetchone()
-            if not re.fullmatch(r"private/uploads/[a-f0-9]{32}\.(png|jpg)", reference) or not owned:
-                problem(path, "image", "Attach this image with this campaign’s file picker.")
+        try:
+            project = state.storage.project(campaign_id)
+            project.require(reference)
+            if reference not in references:
+                project.upload_name(reference)
+        except ValueError:
+            problem(path, "image", "Attach this image with this campaign’s file picker.")
+            return None
         try:
             image, kind = load_image(state.storage.path(reference))
             opened.append(image)

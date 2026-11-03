@@ -109,8 +109,8 @@ test('planning advances only unchanged retained and open-dialog references, pres
   h.run('reconcilePreparedSources(before,after)');
   assert.equal(h.context.modalProduct.source.path,'prepared.png');assert.equal(h.context.modalProduct.description,'New description');
   assert.equal(h.context.projectBuffers.form_drafts.product_images.product.path,'prepared.png');
-  h.context.modalProduct.source.path='private/uploads/new.png';h.run('reconcilePreparedSources(before,after)');
-  assert.equal(h.context.modalProduct.source.path,'private/uploads/new.png');
+  h.context.modalProduct.source.path='Campaigns/Test-12345678/Assets/Products/new.png';h.run('reconcilePreparedSources(before,after)');
+  assert.equal(h.context.modalProduct.source.path,'Campaigns/Test-12345678/Assets/Products/new.png');
 });
 
 test('a refused plan releases its own queue hold without starting or accepting a plan',async()=>{

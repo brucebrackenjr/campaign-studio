@@ -8,6 +8,8 @@
 *.key
 
 # Private runtime data and local tooling
+/Workspace/
+*.dpapi
 .campaign-studio/
 .tools/
 .venv/

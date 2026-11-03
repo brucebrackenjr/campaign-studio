@@ -446,7 +446,7 @@ def test_apply_refuses_unaccepted_candidate_and_preserves_current_partial(
         original_write = ws.storage.write
 
         def fail_selected(reference, payload):
-            if "/revisions/" in reference and reference.endswith("/images/product-2/1x1/en-US.png"):
+            if "/Revisions/" in reference and reference.endswith("/images/product-2/1x1/en-US.png"):
                 raise OSError("Controlled output-write failure")
             return original_write(reference, payload)
 
@@ -772,7 +772,7 @@ def test_failed_rule_recheck_does_not_accept_or_retire_the_previous_decision(
 
         def failed_output(reference, payload):
             if (
-                "/revisions/" in reference
+                "/Revisions/" in reference
                 and "/images/" in reference
                 and (fail_all or "/1x1/" in reference)
             ):

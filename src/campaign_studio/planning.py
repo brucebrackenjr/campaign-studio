@@ -243,6 +243,7 @@ def make_plan(brief: Brief, storage: Storage, *, _previous: Plan | None = None) 
     findings = []
     assets = {}
     images = {}
+    project = storage.project(brief.campaign_id)
     references = {"logo": brief.brand.logo_path}
     references.update(
         {
@@ -257,12 +258,14 @@ def make_plan(brief: Brief, storage: Storage, *, _previous: Plan | None = None) 
         )
     for item, reference in references.items():
         retained = _previous.assets.get(item) if _previous else None
-        if retained and retained.reference == reference:
-            assets[item] = retained
-            findings.extend(f.model_copy(deep=True) for f in _previous.findings if f.item == item)
-            continue
         try:
-            path = storage.path(reference)
+            path = storage.path(project.require(reference))
+            if retained and retained.reference == reference:
+                assets[item] = retained
+                findings.extend(
+                    f.model_copy(deep=True) for f in _previous.findings if f.item == item
+                )
+                continue
             image, _ = load_image(path)
             assets[item] = Asset(
                 reference=reference,

@@ -22,7 +22,7 @@ from campaign_studio.costing import estimate_requests
 from campaign_studio.exporting import wording_export_issue
 from campaign_studio.imaging import FontProblem, require_font
 from campaign_studio.intake import BriefDraft, Intake
-from campaign_studio.planning import Plan, canonical_hash
+from campaign_studio.planning import canonical_hash
 from campaign_studio.rendering import blocks_output
 from campaign_studio.review import RevisionTarget
 from campaign_studio.storage import StorageError
@@ -307,9 +307,7 @@ def campaign_data(workspace, campaign_id):
         manifest = workspace.manifest(output_run, current_output[1]) if current_output else None
         if manifest:
             record = workspace.state.revision(current_output[1])
-            output_plan = Plan.model_validate_json(
-                workspace.storage.path(record["plan_ref"]).read_bytes()
-            )
+            output_plan = workspace.state.revision_plan(record)
             output_brief = output_plan.brief.model_dump(mode="json")
             result["source_sizes"] = {}
             attempts = workspace.state.attempts(output_run["id"])
@@ -537,7 +535,7 @@ def routes(templates, settings):
                     thumbnail = image_url(entry["id"], manifest["revision_id"], available)
             if thumbnail is None and first_product:
                 reference = source.get("path", "")
-                if isinstance(reference, str) and reference.startswith("private/uploads/"):
+                if isinstance(reference, str) and "/Assets/Products/" in reference:
                     thumbnail = "/uploads/" + reference.rsplit("/", 1)[-1]
             thumbnail_expected = False
             if first_product:
@@ -615,7 +613,7 @@ def routes(templates, settings):
         )
         ws.state.metadata_snapshot(revision_id, target=target)
         revision = ws.state.revision(revision_id)
-        plan = Plan.model_validate_json(ws.storage.path(revision["plan_ref"]).read_bytes())
+        plan = ws.state.revision_plan(revision)
         product = next((p for p in plan.brief.products if p.id == product_id), None)
         if product is None:
             raise ActionError("source", "This source is unavailable in the selected version.", 404)
@@ -677,7 +675,12 @@ def routes(templates, settings):
         value = intake.import_value(campaign_id, raw)
         policy(value, settings.product_limit)
         with intake.storage.exclusive_run():
-            intake.create(campaign_id, value, attachment_hints=intake.attachment_hints(raw, value))
+            intake.create(
+                campaign_id,
+                value,
+                attachment_hints=intake.attachment_hints(raw, value),
+                imported_bytes=await request.body(),
+            )
         return {"campaign_id": campaign_id}
 
     @router.get("/api/motif/campaigns/{campaign_id}/authored")

@@ -80,7 +80,7 @@ test("Save acknowledgement compares producer edits without an absent automatic r
 });
 
 test("a reviewed uploaded image stays reviewed after an acknowledgement without optional subject bounds", () => {
-  const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',products:[{id:'a',source:{role:'finished_scene',path:'private/uploads/photo.png'}}]};
+  const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',products:[{id:'a',source:{role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/photo.png'}}]};
   const planned=structuredClone(brief); planned.products[0].source.subject_box=null;
   const context=vm.createContext({copy:structuredClone,draft:brief,model:{run:{state:'planned'},project:{},plan_brief:planned,unplanned_draft:false},logoSession:null,dirty:false,refreshCampaignIdentity(){}});
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
@@ -96,7 +96,7 @@ test("a reviewed uploaded image stays reviewed after an acknowledgement without 
 });
 
 test("a newly added product keeps its first reviewed plan through a context-save acknowledgement", () => {
-  const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',products:[{id:'new',source:{role:'finished_scene',path:'private/uploads/new.png'},copy_overrides:{}}]};
+  const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',products:[{id:'new',source:{role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/new.png'},copy_overrides:{}}]};
   const planned=structuredClone(brief);
   planned.products[0].source.subject_box=null;
   planned.products[0].framing={};

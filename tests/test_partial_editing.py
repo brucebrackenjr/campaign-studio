@@ -5,6 +5,7 @@ import json
 
 import httpx
 import pytest
+from campaign_fixtures import export_ref
 from fastapi.testclient import TestClient
 from test_provider_runner import generated_case
 from test_workflow import setup_case
@@ -153,13 +154,18 @@ def test_partial_metadata_copy_framing_reopen_and_selected_export(partial, monke
     # while a new export from retired pixels is a clear unavailable result.
     assert Handoff(reopened).download(saved_target, package["artifact_id"]) == preserved_zip
     with pytest.raises(StateError, match="no longer available"):
-        export_package(reopened, first["revision_id"], "exports/retired-new", allow_partial=True)
+        export_package(
+            reopened,
+            first["revision_id"],
+            export_ref(reopened, first["revision_id"], "retired-new"),
+            allow_partial=True,
+        )
 
     for manifest in (fourth,):
         reference = export_package(
             reopened,
             manifest["revision_id"],
-            f"exports/{manifest['revision_id']}",
+            export_ref(reopened, manifest["revision_id"], manifest["revision_id"]),
             allow_partial=True,
         )
         exported = json.loads(

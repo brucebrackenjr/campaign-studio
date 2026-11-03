@@ -83,7 +83,7 @@ async function api(path, body, options = {}) {
 }
 
 function assetURL(reference, productId = null) {
-  if (reference?.startsWith("private/uploads/"))
+  if (/\/Assets\/(?:Products|Brand)\/[^/]+$/.test(reference || ""))
     return `/uploads/${reference.split("/").pop()}`;
   if (reference && model?.run)
     return productId

@@ -31,7 +31,7 @@
       intro:
         "Motif could not confirm the final local file state. The running key is unchanged.",
       error:
-        "Check the launch-directory .env file using the setup instructions before trying again. No image request was made.",
+        "Check the installation’s .env file using the setup instructions before trying again. No image request was made.",
     },
     unknown: {
       title: "The save response did not arrive.",
@@ -66,7 +66,7 @@
     },
     localfile: {
       title: "Check your local setup.",
-      intro: "The launch-directory .env file has a syntax problem.",
+      intro: "The installation’s .env file has a syntax problem.",
       error:
         "Use the setup instructions to correct the file, then enter the key again. No image request was made.",
     },

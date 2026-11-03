@@ -440,7 +440,9 @@ def test_local_brief_changes_adopt_verified_mocked_master_but_scene_change_does_
 
             ImageDraw.Draw(logo).rectangle((10, 10, 170, 60), fill="white")
             logo.save(buffer, format="PNG")
-            value["brand"]["logo_path"] = intake.upload(buffer.getvalue(), "image/png")["reference"]
+            value["brand"]["logo_path"] = intake.upload(
+                buffer.getvalue(), "image/png", value["campaign_id"]
+            )["reference"]
     elif change == "text_color":
         value["brand"]["text_color"] = "#202A36"
         value["brand"]["palette"].append("#202A36")

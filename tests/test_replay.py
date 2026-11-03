@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from campaign_fixtures import seed_campaign
+from campaign_fixtures import export_ref, independent_brief, seed_campaign
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -63,16 +63,22 @@ def test_genuine_replay_corrects_six_reopens_after_move_and_exports_without_atte
         == 6
     )
     assert state.attempts(run_id) == []
-    shutil.rmtree(storage.path("replays"))  # Snapshotted inputs are sufficient.
+    shutil.rmtree(
+        storage.path(storage.project(brief.campaign_id).ref("Assets/Replays"))
+    )  # Snapshotted inputs are sufficient.
     moved = storage.root.with_name("moved-runtime")
     shutil.move(storage.root, moved)
     reopened = State(Storage(moved))
     third = Runner(reopened).recover_local(run_id)
     assert third["complete"] and len(third["outputs"]) == 12
     assert reopened.attempts(run_id) == []
-    index = export_package(reopened, third["revision_id"], "exports/replay")
+    index = export_package(
+        reopened, third["revision_id"], export_ref(reopened, third["revision_id"], "replay")
+    )
     package = moved.parent / "moved-package"
-    shutil.move(reopened.storage.path("exports/replay"), package)
+    shutil.move(
+        reopened.storage.path(export_ref(reopened, third["revision_id"], "replay")), package
+    )
     html = (package / Path(index).name).read_text()
     assert "Campaign spend estimate" in html
     assert "No generation attempts in this campaign." in html
@@ -209,7 +215,8 @@ def test_loading_curated_example_preserves_an_existing_edited_example(tmp_path):
     old["campaign_id"] = "c0c806f2-bf09-5af8-b694-5807b0a9bf72"
     old["name"] = "My saved example edits"
     old["markets"]["en-US"]["copy"]["message"] = "My existing words"
-    original_run = state.create(make_plan(Brief.model_validate(old), storage), 0)
+    copied = independent_brief(state, Brief.model_validate(old), old["campaign_id"])
+    original_run = state.create(make_plan(copied, storage), 0)
     original_digest = state.plan(original_run).digest
     ws = Workspace(state)
     cid = seed_campaign(ws, replay=True)

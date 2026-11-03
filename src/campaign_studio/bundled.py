@@ -29,7 +29,8 @@ def load_campaigns(source=None, *, product_limit=5):
             raise StorageError("The bundled campaign package has an invalid folder.")
         if entry["brief"] != f"{slug}/brief.json" or "prepared_outputs" not in entry:
             raise StorageError("The bundled campaign package has an invalid brief entry.")
-        raw = json.loads(source.joinpath(entry["brief"]).read_bytes())
+        original_bytes = source.joinpath(entry["brief"]).read_bytes()
+        raw = json.loads(original_bytes)
         brief = Brief.model_validate(raw)
         if len(brief.products) > product_limit:
             raise StorageError("The bundled campaigns exceed the configured product limit.")
@@ -52,7 +53,7 @@ def load_campaigns(source=None, *, product_limit=5):
                 raise StorageError("A bundled campaign attachment does not match its package.")
             assets[reference] = payload
         prepared = load_prepared_outputs(source, entry, raw)
-        campaigns.append((entry, raw, assets, prepared))
+        campaigns.append((entry, raw, assets, prepared, original_bytes))
     return manifest, campaigns
 
 
@@ -71,11 +72,14 @@ async def install_campaigns(workspace, *, source=None, product_limit=5):
         storage.write_new(RECEIPT, json.dumps(receipt).encode())
     started = time.monotonic()
     intake = Intake(storage)
-    for entry, original, assets, prepared in campaigns:
+    for entry, original, assets, prepared, original_bytes in campaigns:
         campaign_id = intake.new_campaign_id()
         value = intake.import_value(campaign_id, original)
         document = intake.create(
-            campaign_id, value, attachment_hints=intake.attachment_hints(original, value)
+            campaign_id,
+            value,
+            attachment_hints=intake.attachment_hints(original, value),
+            imported_bytes=original_bytes,
         )
         receipt["campaigns"].append({"slug": entry["slug"], "id": campaign_id})
         storage.write(RECEIPT, json.dumps(receipt).encode())

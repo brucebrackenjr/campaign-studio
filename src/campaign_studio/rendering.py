@@ -155,7 +155,7 @@ def rule_recheck_files(state: State, run_id: str, revision_id: str, plan: Plan) 
         ).fetchall()
     fallback = []
     for _, plan_ref, manifest_ref in older:
-        prior_plan = Plan.model_validate_json(state.storage.path(plan_ref).read_bytes())
+        prior_plan = state.read_plan(current_plan.brief.campaign_id, plan_ref)
         prior = json.loads(state.storage.path(manifest_ref).read_bytes())
         fallback.append(
             (
@@ -234,7 +234,8 @@ def render_revision(
     storage = state.storage
     storage.require_capacity(revision_bytes(plan))
     revision_id = state.reserve_revision(run_id)
-    prefix = f"campaigns/{run_id}/revisions/{revision_id}"
+    project = storage.project(plan.brief.campaign_id)
+    prefix = f"{project.run(run_id)}/Revisions/{revision_id}"
     previous_files = {}
     previous_missing = {}
     previous_findings = []
@@ -252,7 +253,7 @@ def render_revision(
         accepted_partial = (
             not previous["complete"] and state.run(run_id)["current_revision"] == reuse_revision
         )
-        old_plan = Plan.model_validate_json(storage.path(previous["plan_ref"]).read_bytes())
+        old_plan = state.revision_plan(previous)
         impact = compare_plans(old_plan, plan)
         changed = set(impact.render_outputs)
         old_manifest = json.loads(storage.path(previous["manifest_ref"]).read_bytes())
@@ -384,7 +385,7 @@ def render_revision(
                     if cutout is not None:
                         cutout.close()
             reference = f"{prefix}/{relative}"
-            storage.write(reference, payload)
+            project.write(reference, payload)
             if reused is not None:
                 # The composition contract and encoded bytes are unchanged. Verify
                 # the new copy, then retain the inspection of those exact pixels.
@@ -511,10 +512,10 @@ def render_revision(
         for source in replay["sources"].values():
             source.pop("path")
         manifest["replay"] = replay
-    plan_ref = f"private/runs/{run_id}/revisions/{revision_id}.json"
+    plan_ref = f"{prefix}/plan.json"
     manifest_ref = f"{prefix}/manifest.json"
-    storage.write(plan_ref, plan.model_dump_json(indent=2).encode())
-    storage.write(manifest_ref, json.dumps(manifest, indent=2, ensure_ascii=False).encode())
+    project.write(plan_ref, plan.model_dump_json(indent=2).encode())
+    project.write(manifest_ref, json.dumps(manifest, indent=2, ensure_ascii=False).encode())
     # An explicit edit carries existing omissions without treating them as a
     # new failure. Newly failed writes must keep its base current, including the
     # first useful partial that did not previously need a pinned pointer.

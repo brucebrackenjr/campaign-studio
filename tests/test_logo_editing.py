@@ -83,7 +83,9 @@ def test_identical_replacement_preserves_default_pixels_but_applies_a_real_selec
     )
     ws = Workspace(state)
     rows = len(ws.revisions(run_id))
-    original_files = {p: p.read_bytes() for p in state.storage.path("campaigns").rglob("*.png")}
+    original_files = {
+        p: p.read_bytes() for p in state.storage.path("Campaigns").glob("*/Runs/**/*.png")
+    }
     _, preview, impact = ws.logo(cid, edit, allow_unchanged=True)
     assert not impact["render_outputs"]
     assert preview.brief == old.brief
