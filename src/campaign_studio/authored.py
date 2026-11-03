@@ -279,7 +279,7 @@ class AuthoredProjects:
                 if (
                     isinstance(master, dict)
                     and isinstance(master.get("path"), str)
-                    and master["path"].casefold().startswith("projects/")
+                    and master["path"].casefold().startswith("campaigns/")
                 ):
                     try:
                         project.require(master["path"])
@@ -288,7 +288,7 @@ class AuthoredProjects:
                             "authored_attachment", "Choose saved imagery from this campaign.", 422
                         ) from error
         for reference in requested:
-            if not reference.casefold().startswith("projects/"):
+            if not reference.casefold().startswith("campaigns/"):
                 continue
             try:
                 project.require(reference)

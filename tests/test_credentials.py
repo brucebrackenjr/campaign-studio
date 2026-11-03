@@ -191,6 +191,10 @@ def test_concurrent_save_is_busy_until_durable_activation(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("explicit", [None, "", "dummy-environment"])
 def test_launch_source_is_pinned_and_explicit_environment_wins(tmp_path, monkeypatch, explicit):
+    from test_config import distribution
+
+    distribution(tmp_path)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / ".venv"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(KEY, raising=False)
     target = tmp_path / ".env"
@@ -217,7 +221,8 @@ def test_launch_source_is_pinned_and_explicit_environment_wins(tmp_path, monkeyp
                 sys.executable,
                 "-c",
                 "from campaign_studio.config import Settings; "
-                "import os; s=Settings.from_environment(); "
+                "import sys,os,pathlib; sys.prefix=str(pathlib.Path.cwd()/'.venv'); "
+                "s=Settings.from_environment(data_dir='runtime'); "
                 "assert os.environ['OPENAI_API_KEY']=='dummy-only-new-credential'; "
                 "assert not s._credential_environment; print('reopened')",
             ],

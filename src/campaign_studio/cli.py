@@ -3,6 +3,7 @@
 import argparse
 import errno
 import json
+import os
 import socket
 import sqlite3
 import sys
@@ -24,12 +25,13 @@ def serve(settings: Settings) -> int:
     # Keep the reserved socket through startup. A probe-and-close would race,
     # and application lifespan can resume previously confirmed file cleanup.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        option = socket.SO_EXCLUSIVEADDRUSE if os.name == "nt" else socket.SO_REUSEADDR
+        listener.setsockopt(socket.SOL_SOCKET, option, 1)
         try:
             listener.bind(("127.0.0.1", settings.port))
             listener.listen()
         except OSError as error:
-            if error.errno != errno.EADDRINUSE:
+            if error.errno != errno.EADDRINUSE and getattr(error, "winerror", None) != 10013:
                 raise
             print(
                 f"Port {settings.port} is already in use. Open the running workspace, or "
@@ -37,7 +39,21 @@ def serve(settings: Settings) -> int:
                 file=sys.stderr,
             )
             return 1
-        Storage(settings.data_dir).require_project_layout()
+        try:
+            storage = Storage(settings.data_dir)
+            storage.require_project_layout()
+            if (
+                storage.root.is_dir()
+                and not storage.path("private/state.sqlite3").exists()
+                and any(storage.root.iterdir())
+            ):
+                raise ConfigurationError(
+                    "This folder contains files but no Motif database. Leave it in place and "
+                    "choose an empty folder with --data-dir."
+                )
+            storage.require_writable()
+        except StorageError as error:
+            raise ConfigurationError(str(error)) from error
         config = uvicorn.Config(
             create_app(settings, seed_examples=True),
             host="127.0.0.1",
@@ -109,6 +125,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (StateError, ConfigurationError, FontProblem, EarlierWorkspace) as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except PermissionError:
+        print(
+            "Motif needs a writable local folder. Extract it into your user folder, or choose "
+            "a writable workspace with --data-dir.",
+            file=sys.stderr,
+        )
         return 1
     except (OSError, StorageError, sqlite3.Error) as error:
         # Avoid copying supplied paths or OS diagnostics into shared output.

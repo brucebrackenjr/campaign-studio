@@ -161,7 +161,7 @@ def test_ownership_failure_and_foreign_attachment_do_not_create_or_steal_uploads
             BriefDraft(value=second_doc["value"], version=second_doc["version"]),
             Workspace(state),
         )
-    before = set(state.storage.path("Projects").glob("*/Assets/*/*.png"))
+    before = set(state.storage.path("Campaigns").glob("*/Assets/*/*.png"))
     with state.storage.connect() as db:
         db.execute(
             "CREATE TRIGGER deny_owner BEFORE INSERT ON file_owners BEGIN SELECT "
@@ -169,7 +169,7 @@ def test_ownership_failure_and_foreign_attachment_do_not_create_or_steal_uploads
         )
     with pytest.raises(Exception, match="controlled registration failure"):
         intake.upload(payload, "image/png", first)
-    assert set(state.storage.path("Projects").glob("*/Assets/*/*.png")) == before
+    assert set(state.storage.path("Campaigns").glob("*/Assets/*/*.png")) == before
     assert intake.read(first) == first_doc
 
 
@@ -793,7 +793,6 @@ def test_late_authored_input_is_refused_before_commit_then_explicit_logo_retry_s
 
 
 def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_path, monkeypatch):
-    import fcntl
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
@@ -801,6 +800,7 @@ def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_pat
     from test_logo_editing import command, replacement
 
     from campaign_studio.authored import AuthoredProjects
+    from campaign_studio.local_files import file_lock
 
     state, runner, run, brief = setup_case(tmp_path, 2, True)
     first = asyncio.run(runner.execute(run))
@@ -837,8 +837,9 @@ def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_pat
             with (
                 state.storage.path("private/authored.lock").open("ab") as lock,
                 pytest.raises(BlockingIOError),
+                file_lock(lock, wait=False),
             ):
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                pytest.fail("The draft lock was released too early")
             draft["authored"]["brief"]["audience"] = "A late competing tab"
             flights.append(pool.submit(client.post, url, json=draft))
             assert entered.wait(5)
@@ -1057,7 +1058,7 @@ def test_foreign_attachment_alias_is_refused_and_original_bytes_survive(tmp_path
     for selected in (
         reference,
         reference[:-3] + "PNG",
-        reference.replace("Projects/", "PROJECTS/"),
+        reference.replace("Campaigns/", "CAMPAIGNS/"),
     ):
         document["value"]["brand"]["logo_path"] = selected
         with pytest.raises(StorageError):

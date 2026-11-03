@@ -18,7 +18,7 @@ class ProjectFiles:
     folder: str
 
     def ref(self, relative):
-        reference = f"Projects/{self.folder}/{relative}"
+        reference = f"Campaigns/{self.folder}/{relative}"
         self.storage.path(reference)
         return reference
 
@@ -32,7 +32,7 @@ class ProjectFiles:
         return self.ref(f"Runs/{run_id}")
 
     def check(self, reference):
-        if not isinstance(reference, str) or not reference.startswith(f"Projects/{self.folder}/"):
+        if not isinstance(reference, str) or not reference.startswith(f"Campaigns/{self.folder}/"):
             raise StorageError("Choose a file belonging to this campaign.")
         self.storage.path(reference)
         return reference
@@ -108,7 +108,7 @@ def create_project(storage, db, campaign_id, label):
     suffix = campaign_id.replace("-", "")
     for length in range(8, 33, 4):
         folder = f"{delivery_component(label or 'Campaign', 'Campaign')}-{suffix[:length]}"
-        root = storage.path(f"Projects/{folder}")
+        root = storage.path(f"Campaigns/{folder}")
         if (
             root.exists()
             or db.execute(

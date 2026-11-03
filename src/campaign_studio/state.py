@@ -98,7 +98,7 @@ class State:
                 CREATE INDEX IF NOT EXISTS uploads_campaign ON file_owners(campaign_id);
                 CREATE INDEX IF NOT EXISTS cleanup_campaign ON cleanup_intents(campaign_id);
             """)
-            db.execute("PRAGMA user_version = 7")
+            db.execute("PRAGMA user_version = 8")
 
     def run(self, run_id: str) -> dict:
         with self.storage.connect() as db:

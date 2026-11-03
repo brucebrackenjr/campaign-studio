@@ -19,7 +19,7 @@ function harness() {
       markets:{'en-US':{copy:{message:'Hello'}},'es-MX':{copy:{message:'Hola'}}},
       products:['a','b','c'].map((id,index)=>({id,name:'Product '+id,
         source:index===2?{role:'concept',description:'New idea',provenance:{}}:
-          {role:'finished_scene',path:'Projects/Test-12345678/Assets/Products/'+id+'.jpg',provenance:{}}}))};
+          {role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/'+id+'.jpg',provenance:{}}}))};
     model={version:'v1',concept_preview_version:'v1',concept_previews:{},
       run:{id:'run1',state:'planned'},plan_brief:copy(draft),
       plan:{digest:'exact',generation_products:['c'],generation_requests:{c:{}},findings:[],cost_estimate:{estimated_usd:.1}},
@@ -60,7 +60,7 @@ test('draft add/remove/replacement displays current products and attachments whi
   const h=harness();
   h.run(`model.manifest={outputs:[{id:'old-a',product_id:'a',market:'en-US',ratio:'1:1',url:'/old.png'}]};
     model.output_run_id='run1';model.run.state='complete';
-    draft.products.shift();draft.products[0].source.path='Projects/Test-12345678/Assets/Products/new.jpg';
+    draft.products.shift();draft.products[0].source.path='Campaigns/Test-12345678/Assets/Products/new.jpg';
     draft.products.push({id:'d',name:'New D',source:{role:'concept',provenance:{}}});dirty=true;`);
   const view=h.plain('productionContext()');
   assert.deepEqual(view.products.map(p=>p.id),['b','c','d']);

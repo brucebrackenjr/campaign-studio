@@ -38,7 +38,7 @@ Product-dialog edits are temporary until Add/Update and do not join background c
 
 ## Saved imagery and examples
 
-The official launcher’s two included seasonal campaigns use ordinary briefs and owned attachments. [Autumn Winds](../src/campaign_studio/resources/campaigns/autumn-winds/brief.json) has five finished-scene products and both markets; setup composes its 30 PNGs locally. [Bridle & Bough](../src/campaign_studio/resources/campaigns/bridle-and-bough/brief.json) has two finished scenes and one missing concept, with 18 planned outputs. Its generation plan remains unconfirmed. Both start with zero application attempts; externally prepared imagery is identified in provenance.
+The official launcher’s two included seasonal campaigns use ordinary briefs and owned attachments. [Autumn Winds](../src/campaign_studio/resources/campaigns/autumn-winds/brief.json) has five finished-scene products and both markets; setup copies its 30 prepared PNGs and their editable inputs. [Bridle & Bough](../src/campaign_studio/resources/campaigns/bridle-and-bough/brief.json) has two finished scenes and one missing concept, with 18 planned outputs. Its generation plan remains unconfirmed. Both start with zero application attempts; externally prepared imagery is identified in provenance.
 
 To import those inputs separately, choose the extracted `brief.json` and attach its named logo and image files. There is no ZIP importer. Import allocates a fresh UUID even when another campaign has the same name. The initial bundled installation and a later ordinary import are separate campaign records.
 

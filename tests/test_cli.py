@@ -23,6 +23,7 @@ COLD_STARTUP_TIMEOUT_SECONDS = 60
 def isolated_configuration(tmp_path, monkeypatch):
     # Never read the developer's real project .env in configuration tests.
     monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1] / "src"))
+    monkeypatch.setenv("CAMPAIGN_STUDIO_DATA_DIR", str(tmp_path / "runtime"))
     monkeypatch.chdir(tmp_path)
 
 
@@ -94,6 +95,19 @@ def test_occupied_port_refuses_before_opening_or_resuming_workspace(
         assert cleanup.status(campaign)["campaign_state"] == "pending"
     else:
         assert not root.exists()
+
+
+def test_nonempty_unknown_workspace_refuses_without_writing(tmp_path, capsys, monkeypatch):
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        monkeypatch.setenv("CAMPAIGN_STUDIO_PORT", str(probe.getsockname()[1]))
+    root = tmp_path / "unknown"
+    root.mkdir()
+    keep = root / "producer.txt"
+    keep.write_bytes(b"untouched")
+    assert main(["serve", "--data-dir", str(root)]) == 1
+    assert "choose an empty folder" in capsys.readouterr().err
+    assert list(root.iterdir()) == [keep] and keep.read_bytes() == b"untouched"
 
 
 @pytest.mark.parametrize("stop_signal", [signal.SIGTERM, signal.SIGINT], ids=["sigterm", "sigint"])

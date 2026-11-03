@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from campaign_studio.brief import valid_campaign_id
+from campaign_studio.local_files import is_link
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import StateError, timestamp
 from campaign_studio.storage import StorageError
@@ -148,7 +149,7 @@ class Cleanup:
     def _campaign_inventory(self, campaign_id):
         runs, name = self._campaign(campaign_id)
         project = self.storage.project(campaign_id)
-        project_root = self.storage.path(f"Projects/{project.folder}")
+        project_root = self.storage.path(f"Campaigns/{project.folder}")
         references = self._registered(campaign_id)
         directories = {project_root}
         leaves = []
@@ -171,10 +172,9 @@ class Cleanup:
             for directory, names, filenames in os.walk(
                 project_root, onerror=unreadable, followlinks=False
             ):
-                other = [
-                    *filenames,
-                    *(name for name in names if (Path(directory) / name).is_symlink()),
-                ]
+                aliases = [name for name in names if is_link((Path(directory) / name).lstat())]
+                names[:] = [name for name in names if name not in aliases]
+                other = [*filenames, *aliases]
                 remaining += sum(
                     (Path(directory) / name).relative_to(self.storage.root).as_posix()
                     not in managed
@@ -305,7 +305,7 @@ class Cleanup:
                     raise StorageError("An approved cleanup file changed.")
                 path.unlink()
             # Only empty parents of the approved files; never recursive removal.
-            project_root = self.storage.path(f"Projects/{project.folder}")
+            project_root = self.storage.path(f"Campaigns/{project.folder}")
             parents = {self.storage.path(ref) for ref in inventory.get("directories", [])}
             parents.update(
                 parent

@@ -18,6 +18,7 @@ from campaign_studio.exporting import (
     require_export_wording,
     zipped_payloads,
 )
+from campaign_studio.local_files import display_path
 from campaign_studio.review import CreativeUpdate, RevisionTarget
 from campaign_studio.state import State, StateError
 
@@ -181,7 +182,7 @@ class Handoff:
                 )
             return {
                 **self.package_summary(target, action, json.loads(payloads["manifest.json"])),
-                "location": str(self.state.storage.path(destination)),
+                "location": display_path(self.state.storage.path(destination)),
                 "url": f"/reports/{report_id}/index.html",
             }
 

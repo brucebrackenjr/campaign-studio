@@ -1,6 +1,5 @@
 """One local OpenAI credential source; no network validation or campaign storage."""
 
-import fcntl
 import io
 import os
 import stat
@@ -8,7 +7,10 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
+from dotenv import dotenv_values
 from dotenv.parser import parse_stream
+
+from campaign_studio.local_files import file_lock, has_link, publish_file
 
 KEY = "OPENAI_API_KEY"
 KEY_LIMIT = 4096
@@ -54,6 +56,29 @@ def directory(path):
         yield descriptor
     finally:
         os.close(descriptor)
+
+
+class UnreadableProtectedKey(ValueError):
+    """DPAPI could not decrypt a stored key in the current Windows account."""
+
+
+def read_saved_key(path):
+    if has_link(path):
+        raise OSError("Unsafe credential path")
+    if os.name != "nt":
+        with directory(path.parent) as parent:
+            _, payload = LocalCredentials(path)._read(parent)
+        return dotenv_values(stream=io.StringIO(payload.decode()), interpolate=False).get(KEY)
+    from campaign_studio.windows_key import protect
+
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > ENV_LIMIT:
+        raise OSError("Unsafe credential file")
+    encrypted = path.read_bytes()
+    try:
+        return protect(encrypted, decrypt=True).decode("ascii")
+    except (OSError, UnicodeError) as error:
+        raise UnreadableProtectedKey("Windows could not decrypt this saved key.") from error
 
 
 class LocalCredentials:
@@ -150,7 +175,49 @@ class LocalCredentials:
             with suppress(FileNotFoundError):
                 os.unlink(temporary, dir_fd=parent)
 
+    def _persist_windows(self, value):
+        from campaign_studio.windows_key import protect
+
+        target = self.destination
+        lock = target.with_name("key-save.lock")
+        if has_link(target) or has_link(lock):
+            raise OSError("Unsafe credential path")
+        with lock.open("a+b") as stream:
+            if os.fstat(stream.fileno()).st_nlink != 1:
+                raise OSError("Unsafe credential lock")
+            with file_lock(stream, wait=False):
+                before = target.stat() if target.exists() else None
+                if before and (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
+                    raise OSError("Unsafe credential file")
+                temporary = target.with_name("key-" + uuid4().hex + ".tmp")
+                with temporary.open("xb") as output:
+                    try:
+                        output.write(protect(value.encode("ascii")))
+                        output.flush()
+                        os.fsync(output.fileno())
+                    except BaseException:
+                        output.close()
+                        temporary.unlink(missing_ok=True)
+                        raise
+                try:
+                    if has_link(target) or (target.stat() if target.exists() else None) != before:
+                        raise OSError("Credential file changed")
+                    publish_file(temporary, target, replace=before is not None)
+                    self.environment[KEY] = value
+                finally:
+                    temporary.unlink(missing_ok=True)
+
     def _persist(self, value):
+        if os.name == "nt":
+            try:
+                self._persist_windows(value)
+            except BlockingIOError as error:
+                raise CredentialError(
+                    "credential_busy", "Another key save is in progress. Try again shortly.", 409
+                ) from error
+            return
+        import fcntl
+
         with directory(self.destination.parent) as parent:
             lock = os.open(
                 ".campaign-studio-key.lock",
@@ -222,7 +289,7 @@ class LocalCredentials:
         except OSError, UnicodeError:
             raise CredentialError(
                 "credential_save_failed",
-                "The key could not be saved locally. Check the launch folder's permissions "
+                "The key could not be saved locally. Check the key file's folder permissions "
                 "and free disk space, then try again. The running key is unchanged.",
             ) from None
         return {"saved": True, **self.status()}

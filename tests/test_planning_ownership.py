@@ -142,7 +142,7 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
     state, plan = prepared(tmp_path / "runtime")
     project_folder = state.storage.project(plan.brief.campaign_id).folder
     original_inputs = hashes(
-        state.storage.path("Projects").joinpath(project_folder, "Assets", "Samples")
+        state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples")
     )
     plan_file = tmp_path / "prepared-plan.json"
     plan_file.write_text(plan.model_dump_json())
@@ -173,11 +173,11 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
             )
         ]
     assert owned
-    assert all(ref.startswith(f"Projects/{project_folder}/Runs/") for ref in owned)
+    assert all(ref.startswith(f"Campaigns/{project_folder}/Runs/") for ref in owned)
     contents = [state.storage.path(ref) for ref in owned if state.storage.path(ref).is_file()]
     assert contents and sum(p.stat().st_size for p in contents) > 0
     assert (
-        hashes(state.storage.path("Projects").joinpath(project_folder, "Assets", "Samples"))
+        hashes(state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples"))
         == original_inputs
     )
     if checkpoint == "temporary-input":
@@ -189,7 +189,7 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
     assert cleanup.delete_campaign(plan.brief.campaign_id, preview["token"])["state"] == "complete"
     assert all(not state.storage.path(ref).exists() for ref in owned)
     assert not hashes(
-        state.storage.path("Projects").joinpath(project_folder, "Assets", "Samples")
+        state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples")
     )  # These, too, are owned campaign sources.
     with state.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM file_owners").fetchone()[0] == 0
@@ -313,12 +313,14 @@ def interrupt_preparation(root, plan_file, checkpoint):
     state = State(Storage(Path(root)))
     plan = Plan.model_validate_json(Path(plan_file).read_bytes())
     original_write = state.storage.write
-    original_replace = os.replace
+    from campaign_studio import storage as storage_module
 
-    def replace(source, destination):
-        if checkpoint == "temporary-input" and "/Inputs/" in str(destination):
+    original_publish = storage_module.publish_file
+
+    def publish(source, destination, *, replace):
+        if checkpoint == "temporary-input" and "Inputs" in destination.parts:
             os._exit(73)  # The real write has flushed its temporary bytes; no finally runs.
-        return original_replace(source, destination)
+        return original_publish(source, destination, replace=replace)
 
     def write(reference, data):
         original_write(reference, data)
@@ -327,7 +329,7 @@ def interrupt_preparation(root, plan_file, checkpoint):
         ):
             os._exit(73)
 
-    os.replace = replace
+    storage_module.publish_file = publish
     state.storage.write = write
     state.create(plan, 0)
     raise AssertionError("The real process never reached the intended interruption")

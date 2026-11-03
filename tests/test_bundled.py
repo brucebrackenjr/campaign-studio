@@ -154,7 +154,8 @@ def test_official_first_start_uses_workspace_freshness_not_campaign_count(
             create_app(Settings(data_dir=root), seed_examples=True), base_url="http://localhost"
         ) as client:
             assert client.get("/health").status_code == 200
-    assert calls == ([root] if existing in {"absent", "empty"} else [])
+    assert len(calls) == (1 if existing in {"absent", "empty"} else 0)
+    assert all(path.samefile(root) for path in calls)
     if existing == "unrelated-file":
         assert (root / "leave-me.txt").read_text() == "unrelated content"
 

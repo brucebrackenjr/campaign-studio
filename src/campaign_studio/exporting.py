@@ -6,6 +6,7 @@ import os
 import re
 from datetime import UTC, datetime
 from importlib.resources import files
+from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from jinja2 import Environment, select_autoescape
@@ -13,9 +14,17 @@ from pydantic import ValidationError
 
 from campaign_studio.brief import Copy, PhraseRule
 from campaign_studio.costing import campaign_metric_display, compact_usd, incomplete_reason
+from campaign_studio.local_files import is_link, publish_file
 from campaign_studio.planning import contextualize_findings, copy_findings
 from campaign_studio.state import State, StateError, timestamp
 from campaign_studio.storage import delivery_component
+
+PRIVATE_METADATA = re.compile(
+    r"/Users/|/home/|-----BEGIN .*PRIVATE KEY|\bsk-[A-Za-z0-9_-]{24,}"
+    r"|(?i:\b[A-Z]:[\\/](?:Users|Documents and Settings)[\\/])"
+    r"|\\\\[\w.-]+\\[^\s\\\"]+"
+    r"|(?<![\w:/])//[\w.-]+/[^\s/\"]+"
+)
 
 
 def delivery_paths(manifest: dict) -> dict[str, str]:
@@ -172,7 +181,16 @@ def public_manifest(state: State, revision_id: str) -> dict:
 def folder_matches(state, destination, payloads):
     try:
         root = state.storage.path(destination)
-        actual = {str(path.relative_to(root)) for path in root.rglob("*") if path.is_file()}
+        actual = set()
+
+        def unreadable(error):
+            raise error
+
+        for directory, names, filenames in os.walk(root, onerror=unreadable):
+            base = Path(directory)
+            if any(is_link((base / name).lstat()) for name in (*names, *filenames)):
+                return False
+            actual.update((base / name).relative_to(root).as_posix() for name in filenames)
         return actual == set(payloads) and all(
             state.storage.path(f"{destination}/{name}").read_bytes() == data
             for name, data in payloads.items()
@@ -241,7 +259,7 @@ def package_payloads(
     if not any(item["file"] for item in manifest["outputs"]):
         raise StateError("There are no valid images to export.")
     serialized = json.dumps(manifest, indent=2, ensure_ascii=False)
-    if re.search(r"/Users/|/home/|-----BEGIN .*PRIVATE KEY|\bsk-[A-Za-z0-9_-]{24,}", serialized):
+    if PRIVATE_METADATA.search(serialized.replace("\\\\", "\\")):
         raise StateError(
             "Export metadata contains private-looking content; correct its provenance first."
         )
@@ -369,18 +387,12 @@ def export_zip(
                     archive.writestr(reference, payload)
             stream.flush()
             os.fsync(stream.fileno())
-        # Link is an atomic create-if-absent; concurrent exports never overwrite one another.
         try:
-            os.link(temporary, target)
+            publish_file(temporary, target, replace=False)
         except FileExistsError as error:
             raise StateError(
                 "Choose a new ZIP filename; existing packages are preserved."
             ) from error
-        descriptor = os.open(target.parent, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
     finally:
         if created:
             temporary.unlink(missing_ok=True)

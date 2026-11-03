@@ -22,7 +22,7 @@ test("Brief concept thumbnails require a source in the current plan", () => {
       brand:{name:'Brand',palette:[],logo_provenance:{},logo_path:null},copy_provenance:{},
       markets:{'en-US':{copy:{message:'Exact words'}}},
       products:[{id:'concept',source:{role:'concept',provenance:{}}},
-                {id:'photo',source:{role:'finished_scene',path:'Projects/Test-12345678/Assets/Products/photo.png',provenance:{}}}],
+                {id:'photo',source:{role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/photo.png',provenance:{}}}],
       replay:{sources:{concept:{path:'campaigns/earlier/inputs/master.png'}}}};
     model={run:{id:'new-plan'},concept_previews:{}};viewModel();
   `);
@@ -148,15 +148,15 @@ test("Production product authoring targets current stable IDs while the reviewed
   const h = harness();
   h.run(`
     draft.products=['a','b'].map(id=>({id,name:'Authored '+id,description:'Current description',
-      source:{role:'finished_scene',path:'Projects/Test-12345678/Assets/Products/'+id+'.png',provenance:{label:'Origin',rights:'Rights'}},
+      source:{role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/'+id+'.png',provenance:{label:'Origin',rights:'Rights'}},
       framing:{'en-US':{'1:1':{zoom:1.2}}},copy_overrides:{'es-MX':{cta:'Ver'}}}));
     C.products=[{id:'b',name:'Reviewed b'},{id:'a',name:'Reviewed a'}];
     projectBuffers={form_drafts:{}};openModal=name=>modal=name;markDirty=()=>dirty=true;
     productDraft('a');
   `);
   assert.equal(h.run('modalProduct.name'), 'Authored a');
-  h.run("modalProduct.source.path='Projects/Test-12345678/Assets/Products/replacement.png'");
-  assert.equal(h.run('draft.products[0].source.path'), 'Projects/Test-12345678/Assets/Products/a.png', 'upload stays in the dialog until Update');
+  h.run("modalProduct.source.path='Campaigns/Test-12345678/Assets/Products/replacement.png'");
+  assert.equal(h.run('draft.products[0].source.path'), 'Campaigns/Test-12345678/Assets/Products/a.png', 'upload stays in the dialog until Update');
   for (const [selector, value] of Object.entries({
     '#product-name':'Updated a','#product-description':'Updated description',
     '#product-origin':'Own work','#product-rights':'Owned','input[name="treatment"]:checked':'reuse',
@@ -208,7 +208,7 @@ test("one generated-product description commits to both the card and generation 
 test("Campaign and Production source inspection uses the current stable ID without changing accepted source inspection", async () => {
   const h=harness();
   h.run(`draft.products=[{id:'new',name:'Current attachment',description:'Current',
-    source:{role:'finished_scene',path:'Projects/Test-12345678/Assets/Products/new.png',provenance:{}}}];
+    source:{role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/new.png',provenance:{}}}];
     C.products=[{id:'old',name:'Accepted attachment'}];openModal=name=>modal=name;`);
   await h.run("dispatchAction({action:'productSource:new'})");
   assert.equal(h.run('modalProduct.name'),'Current attachment');
@@ -422,12 +422,12 @@ test("Cancel, close, and Escape abort only pending inventory and never reopen it
 
 test("product JPEG attachment preserves unrelated Brief logo and raw work", async () => {
   const h = navigationHarness();
-  h.run("draft.brand={logo_path:'Projects/Test-12345678/Assets/Products/original.png'};modalProduct={source:{path:'old-product.png'}}");
+  h.run("draft.brand={logo_path:'Campaigns/Test-12345678/Assets/Products/original.png'};modalProduct={source:{path:'old-product.png'}}");
   const product = h.run("upload({type:'image/jpeg',name:'photo.jpg'})");
-  h.pending[0].resolve({reference:'Projects/Test-12345678/Assets/Products/photo.jpg',url:'/uploads/photo.jpg'});
+  h.pending[0].resolve({reference:'Campaigns/Test-12345678/Assets/Products/photo.jpg',url:'/uploads/photo.jpg'});
   await product;
-  assert.equal(h.run("modalProduct.source.path"),"Projects/Test-12345678/Assets/Products/photo.jpg");
-  assert.equal(h.run("draft.brand.logo_path"),"Projects/Test-12345678/Assets/Products/original.png");
+  assert.equal(h.run("modalProduct.source.path"),"Campaigns/Test-12345678/Assets/Products/photo.jpg");
+  assert.equal(h.run("draft.brand.logo_path"),"Campaigns/Test-12345678/Assets/Products/original.png");
   assert.equal(h.run("draft.audience"),"Typed audience");
 });
 
@@ -885,7 +885,7 @@ test('a product upload response cannot attach or toast into a different campaign
     const uploading=h.run("upload({type:'image/png',name:'new.png'})");
     if(replacement==='campaign')h.run("draft={campaign_id:'62220994-1d32-5713-80d2-ac0b6ff0baf3'}");
     else h.run("modalProduct={source:{path:'other.png'}}");
-    h.pending[0].resolve({reference:'Projects/Test-12345678/Assets/Products/new.png',url:'/new.png',width:20,height:20});
+    h.pending[0].resolve({reference:'Campaigns/Test-12345678/Assets/Products/new.png',url:'/new.png',width:20,height:20});
     await uploading;
     assert.equal(target.source.path,'original.png');
     if(replacement==='campaign')assert.equal(h.notices.length,0);

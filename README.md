@@ -73,17 +73,17 @@ Two products and two markets produce 12 PNGs. Five products and two markets prod
 ### Requirements
 
 - **Python 3.14.4**, as pinned in [`.python-version`](.python-version). The package supports the Python 3.14 series.
-- **macOS or Linux.** Current local installation evidence is macOS. Linux is the configured CI platform; native Windows is unsupported because the local lock uses POSIX `fcntl`.
+- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder.
 - A current desktop browser. Connected verification includes Chromium journeys at 1440 × 900 and 1366 × 768; this is not a mobile or universal browser certification.
 - An OpenAI API key only if you choose to generate new imagery. It is unnecessary for local composition, corrections, exports, or the key-free checks below.
 
-Download and extract the source ZIP. In Terminal, from the directory containing the extracted folder, run:
+Download and extract [motif-campaign-studio.zip](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip). In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
 
 ```sh
-cd motif-campaign-studio
+cd Motif
 ```
 
-This folder contains `pyproject.toml`, `uv.lock`, and this README. Run either installation sequence below from this folder.
+This folder contains `pyproject.toml`, `uv.lock`, and this README. If you cloned the repository or used GitHub’s Code → Download ZIP, open the folder containing those files. Run either installation sequence below from that folder.
 
 ### Option A – locked uv environment
 
@@ -100,24 +100,48 @@ For a simple server liveness check, open <http://127.0.0.1:8000/health>. It retu
 
 ### Option B – conventional Python environment
 
+**macOS and Linux**
+
 ```sh
-python3.14 -m venv .venv-evaluator
-.venv-evaluator/bin/python -m pip install --require-hashes -r requirements.txt
-.venv-evaluator/bin/python -m pip install --no-deps --no-build-isolation .
-.venv-evaluator/bin/python -m pip check
-.venv-evaluator/bin/campaign-studio serve
+python3.14 -m venv .venv
+.venv/bin/python -m pip install --require-hashes -r requirements.txt
+.venv/bin/python -m pip install --no-deps --no-build-isolation .
+.venv/bin/python -m pip check
+.venv/bin/campaign-studio serve
 ```
+
+**Windows PowerShell**
+
+Run these commands from the same extracted Motif folder:
+
+```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation .
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\campaign-studio.exe serve
+```
+
+From another directory, run `uv run --project 'C:\path\to\Motif' --locked campaign-studio serve` or `& 'C:\path\to\Motif\.venv\Scripts\campaign-studio.exe' serve`. No activation script is required.
 
 [`requirements.txt`](requirements.txt) is exported from the same lock used by `uv`. It includes the pinned build dependency for the local package installation. There is no JavaScript package installation or frontend compilation step. Node is needed only for the developer JavaScript tests, which were run locally with **Node 26.7.0**.
 
 ### Choose a workspace or port
 
-The ordinary default is separate from the source checkout:
+Motif keeps its code, installed environment, and default data together:
 
-| Platform | Default data directory |
-| --- | --- |
-| macOS | `~/Library/Application Support/Motif` |
-| Linux | `$XDG_DATA_HOME/motif`, or `~/.local/share/motif` when `XDG_DATA_HOME` is unset |
+```text
+Motif/
+  .venv/
+  src/
+  Workspace/
+    Campaigns/
+      Autumn Winds-901f13e2/
+    private/
+      state.sqlite3
+```
+
+Both installation methods find this workspace from the installed environment. On macOS and Linux, to start from another directory, use `uv run --project "/path/to/Motif" --locked campaign-studio serve` or invoke `"/path/to/Motif/.venv/bin/campaign-studio" serve`. If you move Motif, recreate its .venv at the new location using either install sequence. Back up the whole Workspace folder together while the server is stopped. On macOS and Linux, keep the installation’s private .env separately if you want to retain its settings. Deleting the extracted Motif folder removes its local installation and default workspace. Explicit external workspaces and exports you saved elsewhere remain at their chosen locations.
 
 To keep an evaluation separate from other work:
 
@@ -125,15 +149,11 @@ To keep an evaluation separate from other work:
 uv run --locked campaign-studio serve --data-dir ./motif-evaluation-data
 ```
 
-To use a different port:
+To use a different port on any platform, set `CAMPAIGN_STUDIO_PORT=8001` in `Motif/.env` before starting the server.
 
-```sh
-CAMPAIGN_STUDIO_PORT=8001 uv run --locked campaign-studio serve --data-dir ./motif-evaluation-data
-```
+The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in `Motif/.env`. The data directory path must not pass through a symbolic link or Windows junction. Motif leaves earlier workspaces in place. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
 
-The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in the launch directory’s `.env`. The data directory path must not pass through a symbolic link. Motif does not search for, merge, or migrate another workspace. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
-
-Version 0.2.0 uses the project-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, choose an empty directory with `campaign-studio serve --data-dir ./motif-projects`.
+Version 0.2.0 uses the project-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, run `uv run --locked campaign-studio serve --data-dir ./motif-projects` from the installation folder. With Option B, add the same `--data-dir` argument to its installed executable.
 
 ## Try a complete workflow without a key
 
@@ -174,9 +194,9 @@ The geometric examples and saved-source replay are verification fixtures. They a
 
 For a product without an image, select **Generate new image** and describe the subject. Production shows the source requests, output count, request allowance, and estimate before confirmation. The current provider request sends the concept description, audience, and creative direction as text; this path does not upload supplied photographs or the logo.
 
-If a key is missing, use **Add your OpenAI API key**. The masked dialog writes to the `.env` in the directory from which the application was launched and activates the value after it has been saved. The destination is fixed at startup. **Saving a key does not test provider access, confirm a plan, or start generation.** Return to Production and make that separate choice.
+If a key is missing, use **Add your OpenAI API key**. On macOS and Linux, the masked dialog saves the key in the installation’s private `.env`. On Windows it encrypts the key for the current Windows user and writes the ciphertext to `Workspace/private/openai-key.dpapi`. A successful save activates the key. If you move a Windows workspace to another account or computer, its campaigns remain editable. Enter a new key in Production when you need generation. **Saving a key does not test provider access, confirm a plan, or start generation.** Return to Production and make that separate choice.
 
-Alternatively, configure `OPENAI_API_KEY` in the launch environment or an ignored local `.env` before starting. An explicitly supplied environment value wins, including an empty value. In that case, update the launch environment and restart; the dialog explains that the environment manages the key. Manual edits to `.env` also require a restart. The launcher reads that one file, without parent-directory discovery.
+Alternatively, configure `OPENAI_API_KEY` in the process environment before starting. On macOS and Linux you can also configure the installation’s private `.env`. An explicitly supplied environment value wins, including an empty value. In that case, update the launch environment and restart; the dialog explains that the environment manages the key. Manual edits to `.env` also require a restart. The launcher reads that one file, without parent-directory discovery.
 
 No API key ships with the application. Keep credentials out of briefs, screenshots, exports, and source control. [`.env.example`](.env.example) documents the configuration names an evaluator may need. Missing or rejected credentials do not prevent working with intact saved imagery; ordinary validation and export rules still apply.
 
@@ -370,9 +390,9 @@ Motif uses one continuously saved project, not a version-history product. Quiet 
 
 Campaign identity is a canonical hyphenated UUID, separate from its display name. SQLite records the full campaign ID and its permanent project folder before production. Duplicate names are allowed, and renaming leaves the identity and URL unchanged. Draft content stays in JSON; the registry does not duplicate creative content.
 
-The workspace holds uploads, source snapshots, received material, execution records, accepted PNGs, and app-created packages. It is separate from the virtual environment. Removing application code does not remove the data directory. Credentials are also separate from campaign data.
+The workspace holds uploads, source snapshots, received material, execution records, accepted PNGs, and app-created packages. Keep a backup of the complete Workspace folder before replacing or deleting the extracted Motif installation.
 
-Open `Projects/` in the workspace to find a folder for each campaign, such as `Autumn Winds-901f13e2/`. The label comes from the brand or campaign name at creation. The suffix identifies the project. Renaming a campaign keeps its folder and links stable.
+Open `Campaigns/` in the workspace to find a folder for each campaign, such as `Autumn Winds-901f13e2/`. The label comes from the brand or campaign name at creation. The suffix identifies the project. Renaming a campaign keeps its folder and links stable.
 
 | Inside a project | Contents |
 | --- | --- |
@@ -455,7 +475,7 @@ Then run the isolated smoke, synthetic, and saved-replay commands above. JavaScr
 
 Verification includes deterministic tests, controlled provider failures, actual desktop browser journeys, clean installations, and inspection of exported PNGs and offline reports. [Verification notes](docs/verification.md) distinguish what was run on the current package from unchanged evidence carried forward. Saved-source replay is not a new provider call, and test totals are not a quality score.
 
-The [CI workflow](.github/workflows/checks.yml) is configured for Ubuntu and runs locked installation, style checks, Python/JavaScript tests, requirements-export consistency, conventional installation, smoke, and samples without provider credentials. No remote CI result is claimed before the application repository is published and that workflow actually runs.
+The [GitHub Actions workflow](.github/workflows/checks.yml) runs the full application checks on Ubuntu. A Windows job checks native storage, encrypted credentials, the bundled campaigns, and installed sample commands. [Workflow runs](https://github.com/brucebrackenjr/campaign-studio/actions) show results for each commit.
 
 Useful focused test groups include:
 
@@ -477,7 +497,7 @@ Useful focused test groups include:
 | Python or dependency installation fails | Use Python 3.14.4 and the locked commands above. Do not combine independently chosen package versions with the supplied lock. |
 | Port 8000 is occupied | Open the existing instance if it is the intended workspace, or choose another `CAMPAIGN_STUDIO_PORT`. Do not start two instances against the same workspace. |
 | A key was saved, but generation is unavailable | Saving proves local persistence only. Inspect the specific access, billing, rate-limit, or connection message. If the launch environment controls the key, update it and restart. |
-| Saving a key fails | The launch folder and its `.env` must be owned by your user and must not be writable by a group or other users. The path must not pass through a symbolic link, and `.env` must be a regular file with one hard link. Also check free disk space. |
+| Saving a key fails | On macOS and Linux, use an installation folder owned by your account and keep the .env file private. On Windows, sign in with the account that saved the encrypted key. Use a regular local folder without symbolic links or junctions, and check free disk space. |
 | Imported images are missing | Attach the matching product photograph in Campaign or Production, or the logo in Campaign. A JSON path is not permission to read an arbitrary local file. |
 | The image chooser starts in another folder | The browser/operating system chooses the native file dialog’s starting folder. Browse to the intended file; Motif cannot force this ordinary picker into a campaign directory. A previously committed photo remains available when switching back from generation mode. |
 | A logo upload is refused | Use a decodable PNG/JPEG within the size limits and with visible artwork. An unsuccessful replacement should leave the previous usable logo in place. |

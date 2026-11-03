@@ -38,9 +38,11 @@ Version 0.1.2 packages Autumn’s 30 finished images with their editable inputs.
 | Studio layout and editing | Actual browser checks measured the same image rectangle across Inspect, Framing, Logo, and Text in all three formats at 1440 × 900 and 1366 × 768 – 24 combinations. Held and failed Applies retained the controls and draft; successful Applies retained the selected tool, adopted the saved image, and supported a subsequent edit and Cancel. Logo replacement and delayed-opening ownership were also checked. |
 | Apply responsiveness | On local 30-output Autumn tests, three-run server medians were 1.09 seconds for Text Apply and 1.05 for Logo Apply. Browser click-to-stable medians were 1.19 seconds for Text, 1.17 for Logo, and 1.25 for Framing, with no redundant preview after acknowledgment. Matching 30-output Bridle server medians were 1.46 seconds for Text and 1.39 for Logo; existing provider-attempt records were unchanged. |
 | Exported files | Actual browser ZIP and folder exports used readable product, language, and format paths. All 30 PNGs matched accepted encoded bytes, decoded pixels, and dimensions; the HTML report loaded all 30 images. Naming tests verified brand-based package roots, collision handling, unchanged repeated-export reuse, and preservation of earlier packages. These checks made zero provider requests. |
-| Clean installation | The pre-release source ZIP passed a fresh locked-uv installation in a path containing spaces. All 188 source files, 106 application-package files, and 52 served static files matched that ZIP. First start prepared both bundled campaigns, with 30 Autumn images, 18 planned Bridle outputs, no key, and zero attempts. Restart preserved the logical database and all 57 non-database files. |
+| Clean installation | An earlier v0.1.x pre-release source ZIP passed a fresh locked-uv installation in a path containing spaces. All 188 source files, 106 application-package files, and 52 served static files matched that ZIP. First start prepared both bundled campaigns, with 30 Autumn images, 18 planned Bridle outputs, no key, and zero attempts. Restart preserved the logical database and all 57 non-database files. |
 
-The conventional Python/pip source-ZIP route was verified on the preceding release baseline. The locked-uv installation above used the pre-release package before the final frontend corrections; those corrections retain identical installation configuration. Dedicated design and independent browser/code reviews exercised the application and its exported files.
+The conventional Python/pip source-ZIP route was also verified for that earlier release. The locked-uv installation above used the pre-release package before the final frontend corrections; those corrections retain identical installation configuration. Dedicated design and independent browser/code reviews exercised the application and its exported files.
+
+To build the portable source ZIP from a Motif Git checkout, run `python scripts/package_source.py ../motif-campaign-studio.zip`. Supply a new destination. The packager includes tracked distribution files under one Motif/ root, outside the installed environment and workspace.
 
 ## Genuine generation and examples
 
@@ -54,7 +56,7 @@ The separate CLI replay fixture retains an October 29, 2026 master with 244 text
 
 ## Platform and CI boundary
 
-[README](../README.md) documents Python 3.14.4, the two installation routes, configuration, example inputs, and recovery behavior. Local installation proof is macOS. Linux is the configured CI target; native Windows is unsupported because local locking uses POSIX `fcntl`.
+[README](../README.md) documents Python 3.14.4, the two installation routes, configuration, example inputs, and recovery behavior. Linux is the configured full-suite CI target. The portable release also provides native Windows tests for locking, encrypted key storage, long local paths, and junction protection.
 
 The [GitHub Actions workflow](../.github/workflows/checks.yml) checks locked installation, style, cold CLI startup, Python/JavaScript behavior, requirements-export consistency, conventional installation, smoke, and samples without provider credentials. Measured results are recorded with each [CI run](https://github.com/brucebrackenjr/campaign-studio/actions).
 

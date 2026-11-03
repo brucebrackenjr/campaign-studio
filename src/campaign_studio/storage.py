@@ -1,16 +1,26 @@
 """Private local files, atomic publication, and the serial-run boundary."""
 
-import fcntl
+import ntpath
 import os
 import re
 import shutil
 import sqlite3
 import stat
+import tempfile
 import unicodedata
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
+
+from campaign_studio.local_files import (
+    display_path,
+    file_lock,
+    has_link,
+    is_link,
+    local_root,
+    publish_file,
+)
 
 
 class CapacityError(ValueError):
@@ -48,8 +58,10 @@ class EarlierWorkspace(StorageError):
 
 
 def _reject_symlinks(path: Path) -> None:
-    if any(part.is_symlink() for part in (path, *path.parents)):
-        raise StorageError("Symbolic links are not allowed in runtime storage.")
+    if has_link(path):
+        raise StorageError(
+            "Symbolic links, junctions, and other reparse points are not allowed here."
+        )
 
 
 def delivery_component(value: str, fallback: str) -> str:
@@ -59,7 +71,7 @@ def delivery_component(value: str, fallback: str) -> str:
     value = re.sub(r'[<>:"/\\|?*#%]', "-", value)
     value = re.sub(r"\s+", " ", value).strip(" .")
     value = value.encode("utf-8")[:80].decode("utf-8", errors="ignore").rstrip(" .") or fallback
-    if re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", value):
+    if ntpath.isreserved(value):
         value = "_" + value
     return value
 
@@ -73,7 +85,10 @@ class Storage:
         budget_bytes: int = 10_000_000_000,
         reserve_bytes: int = 1_000_000_000,
     ):
-        self.root = root.expanduser().absolute()
+        try:
+            self.root = local_root(root)
+        except ValueError as error:
+            raise StorageError(str(error)) from error
         self.location_notice = location_notice
         self.budget_bytes = budget_bytes
         self.reserve_bytes = reserve_bytes
@@ -105,7 +120,7 @@ class Storage:
                 for name in list(names):
                     try:
                         inspected = (Path(directory) / name).lstat()
-                        if stat.S_ISLNK(inspected.st_mode):
+                        if is_link(inspected):
                             names.remove(name)
                     except FileNotFoundError:
                         names.remove(name)
@@ -114,7 +129,7 @@ class Storage:
                 for name in files:
                     try:
                         inspected = (Path(directory) / name).lstat()
-                        if stat.S_ISREG(inspected.st_mode):
+                        if stat.S_ISREG(inspected.st_mode) and not is_link(inspected):
                             total += inspected.st_size
                             count += 1
                     except FileNotFoundError:
@@ -127,9 +142,11 @@ class Storage:
                 existing.stat()
                 break
             except FileNotFoundError:
+                if existing == existing.parent:
+                    raise StorageError("Choose an available local drive.") from None
                 existing = existing.parent
         return {
-            "location": str(self.root),
+            "location": display_path(self.root),
             "location_notice": self.location_notice,
             "used_bytes": total,
             "budget_bytes": self.budget_bytes,
@@ -181,9 +198,9 @@ class Storage:
             if path.exists():
                 continue
             registered = False
-            if reference.startswith("Projects/"):
+            if reference.startswith("Campaigns/"):
                 with self.connect() as db:
-                    if db.execute("PRAGMA user_version").fetchone()[0] == 7:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == 8:
                         owner = db.execute(
                             "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
                         ).fetchone()
@@ -210,7 +227,6 @@ class Storage:
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary, registered = self.temporary_file(reference)
         created = False
-        linked = False
         try:
             with temporary.open("xb") as output:
                 created = True
@@ -218,23 +234,7 @@ class Storage:
                 output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
-            os.link(temporary, destination)
-            linked = True
-            descriptor = os.open(destination.parent, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        except BaseException:
-            # A failed directory sync must not leave a file whose caller rolls
-            # back its database identity. Only remove this call's own hard link.
-            if linked:
-                try:
-                    if destination.samefile(temporary):
-                        destination.unlink()
-                except OSError:
-                    pass  # Preserve the original publication failure.
-            raise
+            publish_file(temporary, destination, replace=False)
         finally:
             if created:
                 temporary.unlink(missing_ok=True)
@@ -244,24 +244,49 @@ class Storage:
         database = self.path("private/state.sqlite3")
         older = any(
             self.path(name).exists()
-            for name in ("campaigns", "private/brief-drafts", "private/uploads", "exports")
+            for name in ("Projects", "private/brief-drafts", "private/uploads", "exports")
         )
+        campaigns = self.path("Campaigns")
+        if not database.exists() and self.root.is_dir():
+            older |= campaigns.is_dir() and any(campaigns.iterdir())
+            older |= any(item.name == "campaigns" for item in self.root.iterdir())
         if database.exists() and database.stat().st_size:
             from contextlib import closing
 
             with closing(
-                sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)
+                sqlite3.connect(
+                    Path(display_path(database)).as_uri() + "?mode=ro&immutable=1", uri=True
+                )
             ) as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                older = version not in (0, 7) or (older and version == 0)
+                older = version not in (0, 8) or (older and version == 0)
                 columns = {row[1] for row in db.execute("PRAGMA table_info(campaigns)")}
                 older |= bool(columns and "folder" not in columns)
         if older:
             raise EarlierWorkspace(
                 "This workspace uses an earlier Motif layout. Open it with the Motif version "
                 "that created it. To start a fresh workspace, use a new folder:\n"
-                "campaign-studio serve --data-dir ./motif-projects"
+                "uv run --locked campaign-studio serve --data-dir ./motif-projects"
             )
+
+    def require_writable(self):
+        """Check before the HTTP server starts, without marking a fresh workspace as used."""
+        _reject_symlinks(self.root)
+        parent = self.root
+        while not parent.exists():
+            if parent == parent.parent:
+                raise StorageError("Choose an available local drive.")
+            parent = parent.parent
+        if not parent.is_dir():
+            raise StorageError("Choose a writable local directory for this workspace.")
+        for directory in (parent, self.path("private"), self.path("Campaigns")):
+            if directory.is_dir():
+                with tempfile.TemporaryFile(dir=directory):
+                    pass
+        database = self.path("private/state.sqlite3")
+        if database.exists():
+            with database.open("r+b"):
+                pass
 
     def project(self, campaign_id):
         from campaign_studio.projects import ProjectFiles
@@ -280,7 +305,7 @@ class Storage:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if not self.root.is_dir():
             raise StorageError("Runtime storage must be a directory.")
-        for name in ("Projects", "private", "smoke"):
+        for name in ("Campaigns", "private", "smoke"):
             self.path(name).mkdir(exist_ok=True, mode=0o700)
         with self.connect() as connection:
             if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
@@ -295,20 +320,24 @@ class Storage:
         parts = reference.split("/")
         # Delivery names are human-readable; private application references stay
         # deliberately ASCII. Both retain the same traversal and symlink boundary.
-        delivery = parts[0] == "Projects"
+        delivery = parts[0] == "Campaigns"
         valid = (
             all(
                 bool(part)
                 and part == part.strip(" .")
                 and not re.search(r'[<>:"\\|?*#%]', part)
                 and not any(unicodedata.category(c).startswith("C") for c in part)
-                and not re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", part)
                 for part in parts
             )
             if delivery
             else all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", part) for part in parts)
         )
-        if not reference or PurePosixPath(reference).is_absolute() or not valid:
+        if (
+            not reference
+            or PurePosixPath(reference).is_absolute()
+            or not valid
+            or any(ntpath.isreserved(part) for part in parts)
+        ):
             raise StorageError("Use a plain relative storage reference without traversal.")
         candidate = self.root.joinpath(*parts)
         _reject_symlinks(candidate)
@@ -329,12 +358,7 @@ class Storage:
                 output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
-            os.replace(temporary, destination)
-            descriptor = os.open(destination.parent, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            publish_file(temporary, destination, replace=True)
         finally:
             if created:
                 temporary.unlink(missing_ok=True)
@@ -347,27 +371,20 @@ class Storage:
         Code needing both locks takes runner first, then draft. Never hold this
         guard across provider or image-render waits, or acquire it recursively.
         """
-        with self.path("private/authored.lock").open("ab") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+        with self.path("private/authored.lock").open("a+b") as lock, file_lock(lock, wait=True):
+            yield
 
     @contextmanager
     def exclusive_run(self) -> Iterator[None]:
         """One serial operation across processes using this runtime root."""
-        with self.path("private/runner.lock").open("ab") as lock:
+        with self.path("private/runner.lock").open("a+b") as lock, ExitStack() as held:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.enter_context(file_lock(lock, wait=False))
             except BlockingIOError as error:
                 raise StorageError(
                     "Another campaign operation is already active.", code="busy"
                 ) from error
-            try:
-                yield
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+            yield
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

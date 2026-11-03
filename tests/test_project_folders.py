@@ -43,7 +43,7 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
             for name in ("Autumn Winds", "Bridle & Bough")
         )
         a, b = state.storage.project(autumn), state.storage.project(bridle)
-        project_dir, survivor = root / "Projects" / a.folder, root / "Projects" / b.folder
+        project_dir, survivor = root / "Campaigns" / a.folder, root / "Campaigns" / b.folder
         assert a.folder == f"Autumn Winds-{autumn[:8]}"
         before = hashes(survivor)
         run, revision = state.current_output(autumn)
@@ -133,7 +133,7 @@ def test_old_workspace_is_refused_byte_for_byte_before_projects_are_created(tmp_
     with pytest.raises(EarlierWorkspace, match="--data-dir ./motif-projects"):
         State(Storage(root))
     assert hashes(root) == before
-    assert not (root / "Projects").exists()
+    assert {item.name for item in root.iterdir()} == {"campaigns", "private"}
 
 
 def test_foreign_reference_cannot_be_saved_or_used_from_a_modified_snapshot(tmp_path):
@@ -151,7 +151,7 @@ def test_foreign_reference_cannot_be_saved_or_used_from_a_modified_snapshot(tmp_
     other, _ = intake.new(name="Other campaign")
     original = state.storage.path(brief.brand.logo_path).read_bytes()
     foreign = intake.upload(original, "image/png", other)["reference"]
-    for reference in (foreign, foreign.replace("Projects/", "PROJECTS/"), foreign[:-3] + "PNG"):
+    for reference in (foreign, foreign.replace("Campaigns/", "CAMPAIGNS/"), foreign[:-3] + "PNG"):
         value = projects.read(brief.campaign_id)
         value["authored"]["brief"]["brand"]["logo_path"] = reference
         with pytest.raises(ActionError, match="file picker"):
@@ -212,7 +212,7 @@ intake.create(sys.argv[2], brief, imported_bytes=b'{}')
     assert (
         cleaner.delete_campaign(cid, cleaner.preview_campaign(cid)["token"])["state"] == "complete"
     )
-    assert not (root / "Projects" / project.folder).exists()
+    assert not (root / "Campaigns" / project.folder).exists()
 
 
 def test_mock_request_reserves_its_destinations_before_receiving_project_files(tmp_path):

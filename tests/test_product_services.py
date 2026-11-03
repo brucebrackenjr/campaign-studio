@@ -385,16 +385,27 @@ def test_export_rejects_private_metadata_and_unsafe_entry(produced):
     state, _, _, first = produced
     revision_id = first["revision_id"]
     creative_id = first["outputs"][0]["id"]
+    private_paths = [
+        "/Users/example/private/source.png",
+        r"C:\Users\example\source.png",
+        r"\\fileserver\shared\private-photo.png",
+        "//fileserver/shared/photo.png",
+    ]
+    for version, path in enumerate(private_paths):
+        state.update_creative(
+            revision_id, creative_id, CreativeUpdate(expected_version=version, description=path)
+        )
+        with pytest.raises(StateError, match="private-looking"):
+            export_zip(state, revision_id, export_ref(state, revision_id, "private.zip"))
     state.update_creative(
         revision_id,
         creative_id,
-        CreativeUpdate(expected_version=0, description="/Users/example/private/source.png"),
+        CreativeUpdate(
+            expected_version=len(private_paths),
+            description="See https://example.com/collection for photo credits.",
+        ),
     )
-    with pytest.raises(StateError, match="private-looking"):
-        export_zip(state, revision_id, export_ref(state, revision_id, "private.zip"))
-    state.update_creative(
-        revision_id, creative_id, CreativeUpdate(expected_version=1, description=None)
-    )
+    export_zip(state, revision_id, export_ref(state, revision_id, "public-link.zip"))
     reference = state.revision(revision_id)["manifest_ref"]
     damaged = json.loads(state.storage.path(reference).read_bytes())
     damaged["outputs"][0]["file"] = "../../private/response.json"

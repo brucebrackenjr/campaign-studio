@@ -400,7 +400,7 @@ class Intake:
                 with self.storage.connect() as db:
                     db.execute("DELETE FROM file_owners WHERE campaign_id=?", (campaign_id,))
                     db.execute("DELETE FROM campaigns WHERE id=?", (campaign_id,))
-                root = self.storage.path(f"Projects/{project.folder}")
+                root = self.storage.path(f"Campaigns/{project.folder}")
                 for relative in ("Brief/Imports", "Brief", ""):
                     with suppress(OSError):
                         (root / relative).rmdir()

@@ -204,7 +204,7 @@ def test_commit_receipt_precedes_unlink_and_restart_resumes_only_that_deletion(t
         assert not draft.exists()
         with client.app.state.workspace.storage.connect() as db:
             assert db.execute("SELECT id FROM campaigns WHERE id=?", (campaign,)).fetchone() is None
-    assert not list((settings.data_dir / "Projects").glob("*/Brief/draft.json"))
+    assert not list((settings.data_dir / "Campaigns").glob("*/Brief/draft.json"))
 
 
 def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):

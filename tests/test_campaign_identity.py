@@ -188,7 +188,7 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
         intake.new()
     with state.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
-    assert not list(state.storage.path("Projects").glob("*/Brief/draft.json"))
+    assert not list(state.storage.path("Campaigns").glob("*/Brief/draft.json"))
     monkeypatch.setattr(state.storage, "write_new", original_write)
     original_connect = state.storage.connect
     candidate = str(uuid4())
@@ -218,7 +218,7 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
     assert path.read_bytes() == before
     orphan = str(uuid4())
     folder = f"Untitled campaign-{orphan[:8]}"
-    orphan_path = state.storage.path(f"Projects/{folder}/Brief/draft.json")
+    orphan_path = state.storage.path(f"Campaigns/{folder}/Brief/draft.json")
     state.storage.write(orphan_path.relative_to(state.storage.root).as_posix(), before)
     intake.create(orphan, document["value"] | {"campaign_id": orphan})
     assert state.storage.project(orphan).folder != folder
