@@ -11,7 +11,7 @@ from uuid import uuid4
 from pydantic import Field
 
 from campaign_studio.brief import Contract
-from campaign_studio.intake import Intake
+from campaign_studio.intake import Intake, draft_bytes
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import timestamp
 from campaign_studio.workspace import ActionError
@@ -367,6 +367,6 @@ class AuthoredProjects:
             project = self.storage.project(campaign_id)
             project.write(
                 project.draft,
-                json.dumps(result, ensure_ascii=False, allow_nan=False).encode(),
+                draft_bytes(result, allow_nan=False),
             )
             return acknowledgement

@@ -36,6 +36,12 @@ REUSE_HISTORY = (
 )
 
 
+def draft_bytes(document, *, allow_nan=True) -> bytes:
+    """Encode the editable Brief/draft.json file for reading in a text editor."""
+    text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=allow_nan)
+    return (text + "\n").encode("utf-8")
+
+
 class BriefDraft(Contract):
     value: dict
     version: str | None = None
@@ -354,7 +360,7 @@ class Intake:
             current["base_revision"] = workspace.state.effective_revision(run["id"])
             self.storage.write(
                 self.storage.project(campaign_id).draft,
-                json.dumps(current, ensure_ascii=False).encode(),
+                draft_bytes(current),
             )
 
     def write(self, campaign_id, value, expected, *, attachment_hints=None):
@@ -384,7 +390,7 @@ class Intake:
                 files = []
                 if imported_bytes is not None:
                     files.append((project.ref("Brief/Imports/original.json"), imported_bytes))
-                files.append((project.draft, json.dumps(result, ensure_ascii=False).encode()))
+                files.append((project.draft, draft_bytes(result)))
                 for reference, _ in files:
                     project.claim(reference, db)
             # Ownership is durable before the first byte. Publishing the draft last
@@ -437,7 +443,7 @@ class Intake:
         try:
             writer(
                 self.storage.project(campaign_id).draft,
-                json.dumps(result, ensure_ascii=False).encode(),
+                draft_bytes(result),
             )
         except FileExistsError as error:
             raise ActionError(
@@ -655,7 +661,7 @@ class Intake:
         result["base_revision"] = workspace.state.effective_revision(run["id"]) if run else None
         self.storage.write(
             self.storage.project(campaign_id).draft,
-            json.dumps(result, ensure_ascii=False).encode(),
+            draft_bytes(result),
         )
         return result
 
@@ -904,7 +910,7 @@ class Intake:
             # Publish matching draft pointers only after preparation succeeds.
             self.storage.write(
                 self.storage.project(campaign_id).draft,
-                json.dumps(document, ensure_ascii=False).encode(),
+                draft_bytes(document),
             )
         return plan
 
@@ -1079,7 +1085,7 @@ class Intake:
                         result["planned_authored_hash"] = canonical_hash(raw)
                 self.storage.write(
                     self.storage.project(campaign_id).draft,
-                    json.dumps(result, ensure_ascii=False).encode(),
+                    draft_bytes(result),
                 )
             return manifest
 
