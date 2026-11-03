@@ -911,3 +911,22 @@ test('a product upload response cannot attach or toast into a different campaign
     assert.equal(owner.campaign_id,'292e9e84-eb00-5fdb-87e8-423f5e51fac4');
   }
 });
+
+test("a JSON import opens the new campaign without prompting for its named images", async () => {
+  const h = harness(), calls = [], source = {size: 123, text: async () => '{"name":"Imported"}'};
+  h.get("#json-file").files = [source];
+  h.context.calls = calls;
+  h.run(`
+    page = "library"; modal = "import";
+    draft = {products: [{id:"p", source:{role:"finished_scene",path:""}}]};
+    model = {attachment_hints:{p:"photo.png"}};
+    api = async (path,value,options) => {calls.push([path,value.name,options.body]); return {campaign_id:"fresh-id"}};
+    refreshCatalog = async () => calls.push(["refresh"]);
+    openCampaign = async (id,target) => calls.push(["open",id,target]);
+    openModal = name => calls.push(["modal",name]);
+  `);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.deepEqual(calls.map(row => Array.from(row)), [
+    ["/api/motif/import","Imported",source], ["refresh"], ["open","fresh-id","campaign"],
+  ]);
+});
