@@ -16,7 +16,7 @@ from campaign_studio.config import Settings
 from campaign_studio.handoff import Handoff, PackageAction
 from campaign_studio.review import RevisionTarget
 from campaign_studio.state import State
-from campaign_studio.storage import EarlierWorkspace, Storage
+from campaign_studio.storage import WORKSPACE_SCHEMA, EarlierWorkspace, IncompleteWorkspace, Storage
 
 
 def hashes(root):
@@ -134,6 +134,77 @@ def test_old_workspace_is_refused_byte_for_byte_before_projects_are_created(tmp_
         State(Storage(root))
     assert hashes(root) == before
     assert {item.name for item in root.iterdir()} == {"campaigns", "private"}
+
+
+@pytest.mark.parametrize("damage", ["missing", "zero", "sqlite-shell", "empty-schema-shell"])
+def test_incomplete_workspace_never_reindexes_existing_campaign_files(tmp_path, damage):
+    from campaign_studio.intake import Intake
+
+    storage = Storage(tmp_path / "Workspace")
+    state = State(storage)
+    campaign, _ = Intake(storage).new()
+    draft = storage.path(storage.project(campaign).draft)
+    assert draft.is_file() and state.storage.root == storage.root
+    database = storage.path("private/state.sqlite3")
+    original = database.read_bytes()
+    database.unlink()
+    if damage != "missing":
+        database.touch()
+        if damage.endswith("shell"):
+            with closing(sqlite3.connect(database)) as db:
+                if damage == "empty-schema-shell":
+                    db.execute(f"PRAGMA user_version={WORKSPACE_SCHEMA}")
+                db.execute("VACUUM")
+    before = hashes(storage.root)
+    with pytest.raises(IncompleteWorkspace, match="restore the complete Workspace"):
+        State(storage)
+    assert hashes(storage.root) == before
+    database.write_bytes(original)
+    assert State(storage).storage.project(campaign).draft == storage.project(campaign).draft
+
+
+def test_revision_pairs_are_enforced_in_sqlite(tmp_path):
+    state = State(Storage(tmp_path / "Workspace"))
+    with state.storage.connect() as db:
+        db.execute("INSERT INTO campaigns VALUES ('a','Campaign-a')")
+        for run in ("x", "y"):
+            db.execute(
+                "INSERT INTO runs(id,campaign_id,plan_ref,digest,state,allowance,created_at) "
+                "VALUES (?,'a','plan','digest','planned',0,'now')",
+                (run,),
+            )
+        db.execute(
+            "INSERT INTO revisions(id,run_id,plan_ref,manifest_ref,complete,created_at) "
+            "VALUES ('r','x','plan','manifest',1,'now')"
+        )
+        db.execute("UPDATE runs SET current_revision='r' WHERE id='x'")
+        db.execute("INSERT INTO package_exports VALUES ('p','x','r','snap','export','hash','now')")
+    statements = [
+        "UPDATE runs SET current_revision='r' WHERE id='y'",
+        "INSERT INTO runs(id,campaign_id,plan_ref,digest,state,allowance,"
+        "current_revision,created_at) "
+        "VALUES ('z','a','plan','digest','planned',0,'r','now')",
+        "UPDATE package_exports SET run_id='y' WHERE id='p'",
+        "INSERT INTO package_exports VALUES ('q','y','r','snap','export','hash','now')",
+    ]
+    for statement in statements:
+        with (
+            pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"),
+            state.storage.connect() as db,
+        ):
+            db.execute(statement)
+    with state.storage.connect() as db:
+        assert db.execute("SELECT current_revision FROM runs WHERE id='y'").fetchone() == (None,)
+        assert db.execute("SELECT id,run_id,revision_id FROM package_exports").fetchall() == [
+            ("p", "x", "r")
+        ]
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+        db.execute("DELETE FROM package_exports")
+        db.execute("DELETE FROM revisions")
+        db.execute("DELETE FROM runs")
+    with State(state.storage).storage.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone() == (WORKSPACE_SCHEMA,)
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
 def test_foreign_reference_cannot_be_saved_or_used_from_a_modified_snapshot(tmp_path):

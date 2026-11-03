@@ -18,7 +18,13 @@ from campaign_studio.imaging import FontProblem
 from campaign_studio.sample import run_replay, run_sample
 from campaign_studio.smoke import run_smoke
 from campaign_studio.state import StateError
-from campaign_studio.storage import CapacityError, EarlierWorkspace, Storage, StorageError
+from campaign_studio.storage import (
+    CapacityError,
+    EarlierWorkspace,
+    IncompleteWorkspace,
+    Storage,
+    StorageError,
+)
 
 
 def serve(settings: Settings) -> int:
@@ -123,7 +129,13 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    except (StateError, ConfigurationError, FontProblem, EarlierWorkspace) as error:
+    except (
+        StateError,
+        ConfigurationError,
+        FontProblem,
+        EarlierWorkspace,
+        IncompleteWorkspace,
+    ) as error:
         print(str(error), file=sys.stderr)
         return 1
     except PermissionError:

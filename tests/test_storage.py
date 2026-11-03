@@ -74,6 +74,9 @@ def test_sqlite_connections_commit_rollback_and_close(storage):
 
 
 def test_reinitializing_preserves_existing_files(storage):
+    from campaign_studio.state import State
+
+    State(storage)
     source = storage.path("Campaigns/source.txt")
     source.write_text("original")
     storage.initialize()

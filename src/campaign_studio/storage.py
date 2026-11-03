@@ -9,7 +9,7 @@ import stat
 import tempfile
 import unicodedata
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -21,6 +21,8 @@ from campaign_studio.local_files import (
     local_root,
     publish_file,
 )
+
+WORKSPACE_SCHEMA = 9
 
 
 class CapacityError(ValueError):
@@ -55,6 +57,10 @@ class StorageError(ValueError):
 
 class EarlierWorkspace(StorageError):
     """The existing workspace must be opened by its original Motif version."""
+
+
+class IncompleteWorkspace(StorageError):
+    """The available workspace database cannot index the saved campaign files."""
 
 
 def _reject_symlinks(path: Path) -> None:
@@ -200,7 +206,7 @@ class Storage:
             registered = False
             if reference.startswith("Campaigns/"):
                 with self.connect() as db:
-                    if db.execute("PRAGMA user_version").fetchone()[0] == 8:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == WORKSPACE_SCHEMA:
                         owner = db.execute(
                             "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
                         ).fetchone()
@@ -242,31 +248,50 @@ class Storage:
 
     def require_project_layout(self):
         database = self.path("private/state.sqlite3")
-        older = any(
-            self.path(name).exists()
-            for name in ("Projects", "private/brief-drafts", "private/uploads", "exports")
+        names = {p.name for p in self.root.iterdir()} if self.root.is_dir() else set()
+        # The old lowercase campaigns directory also matches Campaigns on a case-insensitive disk.
+        legacy = bool(names & {"Projects", "campaigns", "exports"}) or any(
+            self.path(name).exists() for name in ("private/brief-drafts", "private/uploads")
         )
-        campaigns = self.path("Campaigns")
-        if not database.exists() and self.root.is_dir():
-            older |= campaigns.is_dir() and any(campaigns.iterdir())
-            older |= any(item.name == "campaigns" for item in self.root.iterdir())
-        if database.exists() and database.stat().st_size:
-            from contextlib import closing
-
+        version, tables = 0, set()
+        old_schema = False
+        if database.is_file() and database.stat().st_size:
             with closing(
                 sqlite3.connect(
                     Path(display_path(database)).as_uri() + "?mode=ro&immutable=1", uri=True
                 )
             ) as db:
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                older = version not in (0, 8) or (older and version == 0)
-                columns = {row[1] for row in db.execute("PRAGMA table_info(campaigns)")}
-                older |= bool(columns and "folder" not in columns)
-        if older:
+                tables = {
+                    r[0] for r in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")
+                }
+                columns = {r[1] for r in db.execute("PRAGMA table_info(campaigns)")}
+                old_schema = "campaigns" in tables and "folder" not in columns
+        if old_schema or (legacy and version == 0) or version not in (0, WORKSPACE_SCHEMA):
             raise EarlierWorkspace(
                 "This workspace uses an earlier Motif layout. Open it with the Motif version "
                 "that created it. To start a fresh workspace, use a new folder:\n"
                 "uv run --locked campaign-studio serve --data-dir ./motif-projects"
+            )
+        campaign_files = "Campaigns" in names and any(self.path("Campaigns").iterdir())
+        required = {
+            "campaigns",
+            "runs",
+            "revisions",
+            "attempts",
+            "creative_metadata",
+            "package_exports",
+            "file_owners",
+            "uploads",
+            "cleanup_intents",
+        }
+        if (campaign_files or version or tables) and (
+            version != WORKSPACE_SCHEMA or not required.issubset(tables)
+        ):
+            raise IncompleteWorkspace(
+                "The workspace database is missing or incomplete. Stop Motif and restore the "
+                "complete Workspace folder from backup, including private/state.sqlite3 "
+                "and Campaigns."
             )
 
     def require_writable(self):

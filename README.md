@@ -155,6 +155,8 @@ The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; envi
 
 Version 0.2.0 uses the project-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, run `uv run --locked campaign-studio serve --data-dir ./motif-projects` from the installation folder. With Option B, add the same `--data-dir` argument to its installed executable.
 
+If Motif reports a missing or incomplete workspace database, stop the app and restore the complete Workspace folder from backup. Its private/state.sqlite3 and Campaigns folder belong together.
+
 ## Try a complete workflow without a key
 
 On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. Autumn’s 30 finished PNGs are included in the package and copied with their editable sources, wording, and layouts. First setup does not render those images or make an API request.

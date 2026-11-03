@@ -19,7 +19,7 @@ from campaign_studio.review import (
     initial_metadata,
     public_metadata,
 )
-from campaign_studio.storage import Storage, StorageError
+from campaign_studio.storage import WORKSPACE_SCHEMA, Storage, StorageError
 
 
 class StateError(ValueError):
@@ -40,6 +40,7 @@ class State:
         storage.initialize()
         with storage.connect() as db:
             db.executescript("""
+                BEGIN IMMEDIATE;
                 CREATE TABLE IF NOT EXISTS campaigns (
                     id TEXT PRIMARY KEY, folder TEXT UNIQUE COLLATE NOCASE NOT NULL
                 );
@@ -49,7 +50,9 @@ class State:
                     digest TEXT NOT NULL, state TEXT NOT NULL,
                     allowance INTEGER NOT NULL CHECK(allowance >= 0),
                     stop_requested INTEGER NOT NULL DEFAULT 0, current_revision TEXT,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(id,current_revision) REFERENCES revisions(run_id,id)
+                        DEFERRABLE INITIALLY DEFERRED
                 );
                 CREATE TABLE IF NOT EXISTS attempts (
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
@@ -62,7 +65,7 @@ class State:
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
                     plan_ref TEXT NOT NULL, manifest_ref TEXT NOT NULL, complete INTEGER NOT NULL,
                     images_retired INTEGER NOT NULL DEFAULT 0, image_count INTEGER,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL, UNIQUE(run_id,id)
                 );
                 CREATE TABLE IF NOT EXISTS creative_metadata (
                     revision_id TEXT NOT NULL REFERENCES revisions(id),
@@ -71,9 +74,10 @@ class State:
                 );
                 CREATE TABLE IF NOT EXISTS package_exports (
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
-                    revision_id TEXT NOT NULL REFERENCES revisions(id),
+                    revision_id TEXT NOT NULL,
                     snapshot_id TEXT NOT NULL, reference TEXT NOT NULL,
-                    sha256 TEXT NOT NULL, created_at TEXT NOT NULL
+                    sha256 TEXT NOT NULL, created_at TEXT NOT NULL,
+                    FOREIGN KEY(run_id,revision_id) REFERENCES revisions(run_id,id)
                 );
                 CREATE TABLE IF NOT EXISTS file_owners (
                     reference TEXT NOT NULL, campaign_id TEXT NOT NULL REFERENCES campaigns(id),
@@ -88,17 +92,14 @@ class State:
                     campaign_id TEXT NOT NULL REFERENCES campaigns(id),
                     value_json TEXT NOT NULL, created_at TEXT NOT NULL
                 );
-            """)
-            db.executescript("""
                 CREATE INDEX IF NOT EXISTS runs_campaign ON runs(campaign_id);
                 CREATE INDEX IF NOT EXISTS attempts_run ON attempts(run_id);
-                CREATE INDEX IF NOT EXISTS revisions_run ON revisions(run_id);
                 CREATE INDEX IF NOT EXISTS packages_snapshot
                     ON package_exports(revision_id,snapshot_id);
                 CREATE INDEX IF NOT EXISTS uploads_campaign ON file_owners(campaign_id);
                 CREATE INDEX IF NOT EXISTS cleanup_campaign ON cleanup_intents(campaign_id);
             """)
-            db.execute("PRAGMA user_version = 8")
+            db.execute(f"PRAGMA user_version = {WORKSPACE_SCHEMA}")
 
     def run(self, run_id: str) -> dict:
         with self.storage.connect() as db:
@@ -811,9 +812,11 @@ class State:
                 ).fetchone()
                 parent_revision = prior[0] if prior else None
             previous = {}
+            retained_revision = None
             if parent_revision:
                 parent_campaign = db.execute(
-                    "SELECT runs.campaign_id FROM revisions r JOIN runs ON runs.id=r.run_id "
+                    "SELECT runs.campaign_id,r.run_id FROM revisions r "
+                    "JOIN runs ON runs.id=r.run_id "
                     "WHERE r.id=?",
                     (parent_revision,),
                 ).fetchone()
@@ -822,6 +825,9 @@ class State:
                         "Image descriptions can inherit only within the same campaign."
                     )
                 previous, _ = self._metadata(db, parent_revision)
+                # Descriptions may come from an earlier run. Its revision belongs to that run.
+                if preserve_current and parent_campaign[1] == run_id:
+                    retained_revision = parent_revision
             db.execute(
                 "INSERT INTO revisions (id,run_id,plan_ref,manifest_ref,complete,created_at) "
                 "VALUES (?,?,?,?,?,?)",
@@ -855,7 +861,7 @@ class State:
                 db.execute(
                     "UPDATE runs SET state='partial',current_revision="
                     "COALESCE(current_revision,?) WHERE id=?",
-                    (parent_revision if preserve_current else None, run_id),
+                    (retained_revision, run_id),
                 )
         from campaign_studio.cleanup import Cleanup
 
@@ -896,7 +902,8 @@ class State:
     def _select_revision(self, db, target: RevisionTarget) -> None:
         target = RevisionTarget.model_validate(target)
         row = db.execute(
-            "SELECT runs.campaign_id,r.run_id FROM revisions r JOIN runs ON runs.id=r.run_id "
+            "SELECT runs.campaign_id,r.run_id FROM revisions r "
+            "JOIN runs ON runs.id=r.run_id "
             "WHERE r.id=?",
             (target.revision_id,),
         ).fetchone()
