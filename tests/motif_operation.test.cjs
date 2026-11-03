@@ -420,6 +420,24 @@ test("Cancel, close, and Escape abort only pending inventory and never reopen it
   }
 });
 
+test("Workbench deletion previews and confirms the clicked card even when another campaign is open", async () => {
+  const h = navigationHarness();
+  const target = "62220994-1d32-5713-80d2-ac0b6ff0baf3";
+  const active = h.run("draft.campaign_id");
+  h.run(`page='library'; saved[0].name='Second campaign'; campaignDistinction=()=>''; finishDeletion=async()=>{};`);
+  const preview = h.click(`storage:card-delete:${target}`);
+  assert.equal(h.pending[0].url, `/api/campaigns/${target}/cleanup/preview`);
+  h.pending[0].resolve({ token: "second-only", name: "Second campaign" });
+  await preview;
+  assert.equal(h.run("storageView.state"), "delete-confirm");
+  assert.equal(h.run("draft.campaign_id"), active);
+  const confirmation = h.click("storage:confirm-delete");
+  assert.equal(h.pending[1].url, `/api/campaigns/${target}/cleanup/confirm`);
+  assert.equal(h.pending[1].body.token, "second-only");
+  h.pending[1].resolve({ state: "complete" });
+  await confirmation;
+});
+
 test("product JPEG attachment preserves unrelated Brief logo and raw work", async () => {
   const h = navigationHarness();
   h.run("draft.brand={logo_path:'Campaigns/Test-12345678/Assets/Products/original.png'};modalProduct={source:{path:'old-product.png'}}");
