@@ -6,6 +6,8 @@ body.ws-active #main{max-width:none;padding:0}
 .ws-workspace .mf-output{position:relative;flex:none}
 .ws-workspace .mf-output>img,.ws-workspace .mf-output>canvas{width:100%;height:100%;object-fit:contain}
 .ws-workspace .mf-output>[hidden]{display:none}
+.ws-workspace #frame-pan{position:absolute;touch-action:none;user-select:none;cursor:grab}
+.ws-workspace #frame-pan.is-dragging{cursor:grabbing}
 .ws-workspace #frame-live{inset:0;width:100%;height:100%}
 .ws-workspace .mf-logo-context,.ws-workspace .mf-logo-dirty{display:none}
 .ws-workspace .ws-control-footer>.row{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}

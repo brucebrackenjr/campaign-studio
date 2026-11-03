@@ -84,10 +84,10 @@ function logoPlacement(bounds, target) {
   };
 }
 
-async function logoPreview(body) {
+async function logoPreview(body, signal) {
   const result = await api(
     `/api/campaigns/${body.target.campaignId}/logo/preview`,
-    logoBody(body),
+    logoBody(body), { signal },
   );
   const image = result.images[0];
   if (!image) {
@@ -128,8 +128,8 @@ async function logoPreview(body) {
   };
 }
 
-async function logoContext(data, target) {
-  const result = await logoPreview({ target, mode: "placement" });
+async function logoContext(data, target, signal) {
+  const result = await logoPreview({ target, mode: "placement" }, signal);
   const layer = result.images[0].layers;
   await Promise.all([
     decodedImage(layer.base_url),
@@ -155,6 +155,7 @@ async function logoContext(data, target) {
     asset,
     placement,
     defaultPlacement: result.defaultPlacement,
+    savedDisplay: { compositeUrl: result.compositeUrl, resolvedRect: result.resolvedRect },
     previewUrl: layer.base_url,
     copyOverlayUrl: layer.copy_url,
     copyDescription: "Exact supplied campaign wording, printed above the logo",
@@ -551,7 +552,7 @@ async function applyLogo(body) {
   };
 }
 
-async function openLogo(product, format, { isCurrent = () => true } = {}) {
+async function openLogo(product, format, { isCurrent = () => true, signal } = {}) {
   if (!canEditLogo(product) || !outputFor(product, lang, format)?.url)
     throw new Error("Choose an available current image.");
   const authored = JSON.stringify(model.project?.authored.brief || model.value);
@@ -561,7 +562,7 @@ async function openLogo(product, format, { isCurrent = () => true } = {}) {
     MARKET[lang],
     FMT[format].ratio,
   );
-  let context = await logoContext(model, target);
+  const context = await logoContext(model, target, signal);
   if (!isCurrent()) return;
   if (
     C.id !== target.campaignId ||

@@ -6,6 +6,7 @@ let framingDraft = null,
   framingReady = Promise.resolve(false),
   framingMarking = false,
   framingObserver = null,
+  framingPan = null,
   framingShowSafety = false,
   framingInheritedSubject = null;
 let framingOverlay = null,
@@ -101,7 +102,7 @@ function framingControl(label, id, value, min, max, output, hint = "") {
 function framingParts() {
   beginFraming();
   return editorParts(
-    `<div class="framing-editor mf-editor-grid"><div class="framing-tools mf-editor-tools"><div class="framing-product"><h3>${esc(C.products[currentProduct].name)}</h3><p class="small muted">${LANG[lang]} · ${FMT[currentFormat].name} ${FMT[currentFormat].ratio}</p></div>${framingControl("Zoom", "frame-zoom", Math.round(framingDraft.zoom * 1000) / 10, 100, 200, Math.round(framingDraft.zoom * 1000) / 10 + "%", "100% fills this format. Zoom in to reframe.")}${framingControl("Horizontal position", "frame-focal", framingDraft.focal, 0, 100, "Centered")}${framingControl("Vertical position", "frame-vertical", framingDraft.vertical, 0, 100, "Centered")}<div class="framing-placement"><label for="frame-layout">Copy placement</label><select id="frame-layout" ${framingCustomText ? "disabled hidden" : ""}><option value="top" ${framingDraft.place === "top" ? "selected" : ""}>Top left</option><option value="bottom" ${framingDraft.place === "bottom" ? "selected" : ""}>Bottom left</option></select><p id="frame-custom-text" class="small muted" ${framingCustomText ? "" : "hidden"}>Custom text layout · Adjust text</p></div><section class="framing-protection"><div class="framing-label"><strong>Keep the product visible</strong><span id="frame-subject-state">No area marked</span></div><label class="framing-safety-toggle"><input type="checkbox" id="frame-show-safety" aria-describedby="frame-subject-help" ${framingShowSafety ? "checked" : ""}>Show safety area</label><p id="frame-subject-help">Mark the product on the original image to prevent a crop from cutting it off.</p><div class="row">${btn("Mark product area", "markSubject", "small")}${btn("Clear", "clearSubject", "small quiet", "disabled")}</div></section></div><section class="framing-preview mf-editor-preview"><div class="framing-preview-label"><span class="eyebrow" id="frame-preview-label">LIVE FRAMING PREVIEW</span></div><div class="framing-visual"><img id="frame-image" class="creative-image" hidden alt="Draft framing preview for ${esc(C.products[currentProduct].name)}"><canvas id="frame-live" hidden aria-hidden="true"></canvas><div id="frame-safety-unset" class="framing-empty-safety" role="status" hidden><strong>No safety area set</strong><span>Choose Mark product area to create one.</span></div><div id="frame-safety-overlay" hidden aria-hidden="true"><div id="frame-safety-outline"></div><span id="frame-safety-label">SAFETY AREA</span></div><div id="frame-source" hidden><img alt="Original source; mark the product area here"><div id="frame-crop-window"><span>VISIBLE CROP</span></div><div id="frame-subject-box" tabindex="0" role="group" aria-label="Marked product area. Arrow keys move it. Shift and arrow keys resize it."><span>PRODUCT AREA</span></div></div></div><div id="frame-status" class="framing-status" role="status">Loading saved source…</div></section></div>`,
+    `<div class="framing-editor mf-editor-grid"><div class="framing-tools mf-editor-tools"><div class="framing-product"><h3>${esc(C.products[currentProduct].name)}</h3><p class="small muted">${LANG[lang]} · ${FMT[currentFormat].name} ${FMT[currentFormat].ratio}</p></div>${framingControl("Zoom", "frame-zoom", Math.round(framingDraft.zoom * 1000) / 10, 100, 200, Math.round(framingDraft.zoom * 1000) / 10 + "%", "100% fills this format. Zoom in to reframe.")}${framingControl("Horizontal position", "frame-focal", framingDraft.focal, 0, 100, "Centered")}${framingControl("Vertical position", "frame-vertical", framingDraft.vertical, 0, 100, "Centered")}<div class="framing-placement"><label for="frame-layout">Copy placement</label><select id="frame-layout" ${framingCustomText ? "disabled hidden" : ""}><option value="top" ${framingDraft.place === "top" ? "selected" : ""}>Top left</option><option value="bottom" ${framingDraft.place === "bottom" ? "selected" : ""}>Bottom left</option></select><p id="frame-custom-text" class="small muted" ${framingCustomText ? "" : "hidden"}>Custom text layout · Adjust text</p></div><section class="framing-protection"><div class="framing-label"><strong>Keep the product visible</strong><span id="frame-subject-state">No area marked</span></div><label class="framing-safety-toggle"><input type="checkbox" id="frame-show-safety" aria-describedby="frame-subject-help" ${framingShowSafety ? "checked" : ""}>Show safety area</label><p id="frame-subject-help">Mark the product on the original image to prevent a crop from cutting it off.</p><div class="row">${btn("Mark product area", "markSubject", "small")}${btn("Clear", "clearSubject", "small quiet", "disabled")}</div></section></div><section class="framing-preview mf-editor-preview"><div class="framing-preview-label"><span class="eyebrow" id="frame-preview-label">LIVE FRAMING PREVIEW</span></div><div class="framing-visual"><img id="frame-image" class="creative-image" hidden alt="Draft framing preview for ${esc(C.products[currentProduct].name)}"><canvas id="frame-live" hidden aria-hidden="true"></canvas><div id="frame-pan" hidden tabindex="0" role="group" aria-label="Move photo. Drag or use arrow keys to pan."></div><div id="frame-safety-unset" class="framing-empty-safety" role="status" hidden><strong>No safety area set</strong><span>Choose Mark product area to create one.</span></div><div id="frame-safety-overlay" hidden aria-hidden="true"><div id="frame-safety-outline"></div><span id="frame-safety-label">SAFETY AREA</span></div><div id="frame-source" hidden><img alt="Original source; mark the product area here"><div id="frame-crop-window"><span>VISIBLE CROP</span></div><div id="frame-subject-box" tabindex="0" role="group" aria-label="Marked product area. Arrow keys move it. Shift and arrow keys resize it."><span>PRODUCT AREA</span></div></div></div><div id="frame-status" class="framing-status" role="status">Loading saved source…</div></section></div>`,
     `<div class="row ws-framing-actions">` +
     btn("Reset", "restoreFrame", "quiet", 'aria-label="Reset framing to fit"') +
     btn("Cancel", "close", "", 'aria-label="Cancel framing changes"') +
@@ -536,7 +537,7 @@ function drawFrameSafety() {
     framingMarking ||
     !framingSource ||
     !framingDraft?.subject;
-  if (overlay.hidden) return;
+  const pan = $("#frame-pan");
   const format = FMT[currentFormat],
     outer = $(".framing-visual"),
     rect = image.getBoundingClientRect(),
@@ -544,7 +545,7 @@ function drawFrameSafety() {
   const scale = Math.min(rect.width / format.w, rect.height / format.h),
     width = format.w * scale,
     height = format.h * scale;
-  Object.assign(overlay.style, {
+  const bounds = {
     left:
       rect.left -
       host.left -
@@ -555,7 +556,12 @@ function drawFrameSafety() {
       rect.top - host.top - outer.clientTop + (rect.height - height) / 2 + "px",
     width: width + "px",
     height: height + "px",
-  });
+  };
+  pan.hidden = !framingSource || framingMarking || !framingOverlay ||
+    ($("#frame-focal").disabled && $("#frame-vertical").disabled);
+  if (!pan.hidden) Object.assign(pan.style, bounds);
+  if (overlay.hidden) return;
+  Object.assign(overlay.style, bounds);
   const crop = frameCrop(
       framingSource.width,
       framingSource.height,
@@ -594,6 +600,7 @@ function drawFrameSafety() {
 }
 function markFrameSubject() {
   if (!framingSource || frameSaving) return;
+  framingPan?.cancel();
   framingMarking = !framingMarking;
   if (framingMarking) framingShowSafety = true;
   if (framingMarking && !framingDraft.subject) {
@@ -614,9 +621,33 @@ function markFrameSubject() {
     if (framingMarking) $("#frame-subject-box")?.focus({ preventScroll: true });
   });
 }
+function bindFramePan() {
+  const pan = $("#frame-pan");
+  const crop = () => frameCrop(framingSource.width, framingSource.height, FMT[currentFormat], framingDraft);
+  return MotifManipulation.bind({
+    element: pan, canvas: pan,
+    outputSize: () => ({ width: FMT[currentFormat].w, height: FMT[currentFormat].h }),
+    enabled: () => !pan.hidden && !framingMarking && !frameSaving && !framingRecovery,
+    read: () => ({ focal: framingDraft.focal, vertical: framingDraft.vertical }),
+    move: (start, dx, dy) => {
+      const c = crop(), format = FMT[currentFormat];
+      // Moving the photo right moves the crop window left across the source.
+      return {
+        focal: c.rangeX > 0.5 ? frameClamp(start.focal - dx * c.sw * 100 / (format.w * c.rangeX), 0, 100) : 50,
+        vertical: c.rangeY > 0.5 ? frameClamp(start.vertical - dy * c.sh * 100 / (format.h * c.rangeY), 0, 100) : 50,
+      };
+    },
+    write: position => {
+      if (position.focal === framingDraft.focal && position.vertical === framingDraft.vertical) return;
+      Object.assign(framingDraft, position);
+      requestFramePreview(true);
+    },
+  });
+}
 function bindFraming() {
   const stage = $("#frame-source");
   if (!stage) return;
+  framingPan = bindFramePan();
   let start = null;
   for (const control of $$(".framing-control input,#frame-layout"))
     control.addEventListener("input", (event) => {
@@ -637,7 +668,7 @@ function bindFraming() {
     };
   };
   stage.addEventListener("pointerdown", (e) => {
-    if (frameSaving || !framingMarking || e.button !== 0) return;
+    if (frameSaving || !framingMarking || start || e.button !== 0 || e.isPrimary === false) return;
     e.preventDefault();
     framingShowSafety = true;
     syncFrameSafetyControl();
@@ -647,23 +678,24 @@ function bindFraming() {
       pointerId: e.pointerId,
       subject: framingDraft.subject && { ...framingDraft.subject },
     };
+    $("#frame-subject-box").focus({ preventScroll: true });
     stage.setPointerCapture(e.pointerId);
   });
-  (studioWorkspace?.root || $("#overlay .modal")).addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !start) return;
-    // Cancel the active drawing gesture before the outer dialog's dismissal.
-    const gesture = start;
+  const finishMark = (pointerId, cancelled) => {
+    if (!start || start.pointerId !== pointerId) return;
+    if (cancelled) framingDraft.subject = start.subject;
     start = null;
-    if (gesture.subject === undefined) delete framingDraft.subject;
-    else framingDraft.subject = gesture.subject;
-    if (stage.hasPointerCapture(gesture.pointerId))
-      stage.releasePointerCapture(gesture.pointerId);
+    if (stage.hasPointerCapture(pointerId)) stage.releasePointerCapture(pointerId);
+    requestFramePreview();
+  };
+  stage.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !start) return;
     e.preventDefault();
     e.stopPropagation();
-    requestFramePreview();
+    finishMark(start.pointerId, true);
   });
   stage.addEventListener("pointermove", (e) => {
-    if (!start) return;
+    if (!start || e.pointerId !== start.pointerId) return;
     const end = point(e);
     framingDraft.subject = {
       x: Math.min(start.x, end.x, 0.99),
@@ -681,15 +713,9 @@ function bindFraming() {
     );
     drawFrameSource();
   });
-  const end = (e) => {
-    if (!start) return;
-    start = null;
-    if (stage.hasPointerCapture(e.pointerId))
-      stage.releasePointerCapture(e.pointerId);
-    requestFramePreview();
-  };
-  stage.addEventListener("pointerup", end);
-  stage.addEventListener("pointercancel", end);
+  stage.addEventListener("pointerup", e => finishMark(e.pointerId, false));
+  stage.addEventListener("pointercancel", e => finishMark(e.pointerId, true));
+  stage.addEventListener("lostpointercapture", e => finishMark(e.pointerId, true));
   $("#frame-subject-box").addEventListener("keydown", (e) => {
     if (
       frameSaving ||
@@ -719,6 +745,8 @@ function bindFraming() {
   requestFramePreview();
 }
 function endFraming() {
+  framingPan?.destroy();
+  framingPan = null;
   cancelFrameWork();
   framingSequence++;
   framingSession++;
@@ -818,6 +846,7 @@ async function checkFramingApply() {
   return false;
 }
 async function saveFraming() {
+  if (framingPan?.active()) return false;
   if (!framePreview || framePreview.result.blocked || framingMarking || framingRecovery ||
       $("[data-action=saveFrame]").disabled || JSON.stringify(frameBody()) !== framePreview.signature)
     throw new Error("Wait for the current safe framing preview before applying.");

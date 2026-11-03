@@ -113,3 +113,35 @@ test('retired Studio owner cannot adopt a late accepted-image decode',async()=>{
  const task=f.run("studioApplied({manifest:{outputs:[{product_id:'product',market:'en-US',ratio:'1:1',url:'/saved.png'}]}},accept)");
  f.run("studioWorkspace={campaign:'other',mode:'inspect'}");decode({});assert.equal(await task,false);assert.equal(adopted,0);
 });
+
+test('Logo shows each saved format immediately and only the latest opening may install controls',async()=>{
+  const waits=[], views=[], images=[], errors=[];
+  const controls={ querySelector:()=>({set textContent(value){errors.push(value)}}), append(){} };
+  const root={ classList:{remove(){}} };
+  const c=vm.createContext({AbortController,modal:'',textEditor:null,frameSaving:false,logoEditor:null,
+    C:{products:[{id:'bag',name:'Bag'}]},currentProduct:0,formats:[0],currentFormat:0,lang:'en',LANG:{en:'English'},
+    FMT:[{name:'Square'},{name:'Story'},{name:'Landscape'}],document:{createElement:()=>({addEventListener(){}})},
+    MotifStudioShell:{setMode:(_,view)=>views.push(view)},outputFor:(_,lang,format)=>({url:'/saved/'+format}),
+    $:selector=>selector.includes('surface')?{replaceChildren:image=>images.push(image.src)}:controls,
+    openLogo:(_,format,{isCurrent,signal})=>new Promise((resolve,reject)=>waits.push({format,isCurrent,signal,resolve,reject})),
+  });
+  const run=code=>vm.runInContext(code,c);
+  run(fs.readFileSync('src/campaign_studio/static/motif/studio-workspace.js','utf8'));
+  c.root=root;
+  run("studioWorkspace={root,sequence:0,mode:'inspect'};refreshStudioTargets=()=>{}");
+  const first=run("mountStudioTool('logo')");
+  assert.deepEqual(images,['/saved/0']); assert.equal(run('studioBusy()'),false);
+  const second=run('switchStudioTarget({format:1})');await new Promise(setImmediate);
+  const third=run('switchStudioTarget({format:2})');await new Promise(setImmediate);
+  assert.deepEqual(images,['/saved/0','/saved/1','/saved/2']);
+  assert.deepEqual(views.map(v=>v.target),['English · Square','English · Story','English · Landscape']);
+  assert.deepEqual(waits.map(w=>w.isCurrent()),[false,false,true]);
+  assert.deepEqual(waits.map(w=>w.signal.aborted),[true,true,false]);
+  waits[1].reject(Error('stale failure'));waits[0].resolve();await Promise.all([first,second]);
+  assert.deepEqual(errors,[]);assert.equal(run('studioWorkspace.logoLoad.signal.aborted'),false);
+  waits[2].resolve();await third;assert.equal(run('studioWorkspace.logoLoad'),null);
+  c.logoEditor={dirty:()=>true};c.modal='logo';c.chooseEditorFormat=async()=> 'keep';
+  await run('switchStudioTarget({format:0})');
+  assert.equal(c.currentFormat,2);assert.equal(waits.length,3);
+  c.logoEditor.busy=true;assert.equal(run('studioBusy()'),true);
+});

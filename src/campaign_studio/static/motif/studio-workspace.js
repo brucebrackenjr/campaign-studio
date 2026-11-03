@@ -9,7 +9,7 @@ function studioTextAvailable() {
   return canEditProduct(currentProduct) && !!(output?.url || model.rule_withheld_outputs?.includes(output?.id));
 }
 function studioBusy() {
-  return !!(studioWorkspace?.loading || textEditor?.saving || frameSaving || logoEditor?.busy || logoEditor?.uploading || logoEditor?.reviewing);
+  return !!(textEditor?.saving || frameSaving || logoEditor?.busy || logoEditor?.uploading || logoEditor?.reviewing);
 }
 function studioDirty() {
   if (!studioWorkspace) return false;
@@ -47,6 +47,8 @@ function teardownStudioTool() {
   const owner = studioWorkspace;
   if (!owner) return;
   owner.tearingDown = true;
+  owner.logoLoad?.abort();
+  owner.logoLoad = null;
   owner.observer?.disconnect();
   if (modal === "text") endText();
   if (modal === "frame") endFraming();
@@ -77,7 +79,7 @@ async function openStudioWorkspace(mode = "text") {
 }
 function mountStudioVisit(mode = "inspect") {
   if (!outputFor(currentProduct, lang, currentFormat)?.url && studioTextAvailable()) mode = "text";
-  const owner = studioWorkspace = { campaign: C.id, product: C.products[currentProduct].id, mode, sequence: 0, loading: false };
+  const owner = studioWorkspace = { campaign: C.id, product: C.products[currentProduct].id, mode, sequence: 0 };
   document.body.classList.add("ws-active");
   owner.root = $(".ws-workspace");
   owner.root.classList.add("mf-editor", "is-direct");
@@ -166,10 +168,30 @@ async function mountStudioTool(mode) {
     return;
   }
   if (mode === "logo") {
-    owner.loading = true;
-    $('[data-ws-slot="status"]', owner.root)?.replaceChildren("Preparing logo preview…");
-    try { await openLogo(currentProduct, currentFormat, { isCurrent: current }); }
-    finally { if (current()) owner.loading = false; }
+    const load = owner.logoLoad = new AbortController();
+    MotifStudioShell.setMode(owner.root, { mode, title: "Logo", target: `${LANG[lang]} · ${FMT[currentFormat].name}`,
+      controlsHtml: '<p role="status">Preparing logo controls…</p>', inspect: true });
+    const image = document.createElement("img");
+    image.className = "creative-image";
+    image.alt = `${C.products[currentProduct].name} · ${FMT[currentFormat].name}`;
+    image.src = output.url;
+    $('[data-ws-slot="surface"]', owner.root).replaceChildren(image);
+    refreshStudioTargets();
+    try {
+      await openLogo(currentProduct, currentFormat, { isCurrent: current, signal: load.signal });
+    } catch (error) {
+      if (!current() || load.signal.aborted) return;
+      const controls = $('[data-ws-slot="controls"]', owner.root);
+      controls.querySelector('[role="status"]').textContent = error.message;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn";
+      retry.textContent = "Retry logo controls";
+      retry.addEventListener("click", () => mountStudioTool("logo"), { once: true });
+      controls.append(retry);
+    } finally {
+      if (owner.logoLoad === load) owner.logoLoad = null;
+    }
     return;
   }
   if (mode === "text") {

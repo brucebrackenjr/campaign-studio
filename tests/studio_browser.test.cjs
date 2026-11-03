@@ -67,7 +67,7 @@ function framingHarness() {
   const context = vm.createContext({
     $: get, studioWorkspace: null, imageEditorRoot: () => get("#overlay"),
     $$: () => controls,
-    clearTimeout,
+    AbortController, structuredClone, clearTimeout,
     setTimeout,
     cancelAnimationFrame() {},
     requestAnimationFrame: () => 1,
@@ -102,6 +102,7 @@ function framingHarness() {
     render() {},
     toast() {},
   });
+  vm.runInContext(readFileSync("src/campaign_studio/static/motif/direct-manipulation.js", "utf8"), context);
   vm.runInContext(readFileSync("src/campaign_studio/static/motif/editor-controls.js", "utf8"), context);
   vm.runInContext(
     readFileSync("src/campaign_studio/static/motif/framing.js", "utf8"),
@@ -659,4 +660,42 @@ test("range input and change events coalesce paced nudges to the final exact pre
   await advance(200);
   assert.equal(h.requests.length, 0, "closing cancels the queued request");
   assert.equal(h.run("framePreview"), null);
+});
+
+test("dragging the framed photo tracks source pixels, clamps travel, and cancels independently of safety marking", async () => {
+  const h = framingHarness();
+  const handlers = {}, pan = h.get("#frame-pan");
+  Object.assign(pan, {
+    addEventListener: (type, listener) => { handlers[type] = listener; },
+    getBoundingClientRect: () => ({ width: 500, height: 500 }),
+    closest: () => null, setPointerCapture(id) { this.capture = id; },
+    hasPointerCapture(id) { return this.capture === id; }, releasePointerCapture() { this.capture = null; },
+  });
+  let paint;
+  h.context.requestAnimationFrame = next => { paint = next; return 1; };
+  h.context.requestFramePreview = () => {};
+  h.run("framingSource.width=1500;framingDraft.zoom=2;framingPan=bindFramePan()");
+  function fire(type, x, y, extra={}) {
+    handlers[type]({ target:pan, button:0, pointerId:1, clientX:x, clientY:y,
+      preventDefault() {}, stopPropagation() {}, ...extra });
+  }
+  const position = () => Array.from(h.run("[framingDraft.focal,framingDraft.vertical]"), value => Number(value.toFixed(8)));
+  fire("pointerdown", 0, 0); fire("pointermove", 100, 100); paint();
+  assert.equal(await h.run("saveFraming()"), false, "an active drag cannot publish mid-gesture");
+  assert.deepEqual(position(), [40,30]); // 100 displayed pixels = 100 source pixels on both axes.
+  fire("pointermove", -5000, 5000); paint(); assert.deepEqual(position(), [100,0]);
+  fire("pointercancel", -5000, 5000); assert.deepEqual(position(), [50,50]);
+  fire("pointerdown", 0, 0); fire("pointermove", 100, 100); paint();
+  fire("lostpointercapture", 100, 100); assert.deepEqual(position(), [50,50]);
+  h.run("framingDraft.zoom=1");
+  fire("pointerdown", 0, 0); fire("pointermove", 50, 100); paint(); fire("pointerup", 50, 100);
+  assert.deepEqual(position(), [30,50]); // At fit, only horizontal travel exists.
+  fire("pointerdown", 0, 0); fire("pointermove", 50, 0); paint();
+  fire("keydown",0,0,{key:"Escape"}); assert.deepEqual(position(),[30,50]);
+  for (const state of ["framingMarking=true", "framingMarking=false;frameSaving=true",
+    "frameSaving=false;framingRecovery='uncertain'"]) {
+    h.run(state);fire("pointerdown",0,0);assert.equal(pan.capture,null);
+  }
+  h.run("framingRecovery=null");pan.hidden=true;fire("pointerdown",0,0);
+  assert.equal(pan.capture,null,"hidden pan surface cannot capture");
 });
