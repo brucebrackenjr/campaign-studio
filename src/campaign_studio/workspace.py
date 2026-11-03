@@ -263,7 +263,6 @@ class Workspace:
     def __init__(self, state: State):
         self.state = state
         self.storage = state.storage
-        self.storage.path("incoming").mkdir(exist_ok=True, mode=0o700)
 
     def runs(self, campaign_id: str | None = None) -> list[dict]:
         import sqlite3

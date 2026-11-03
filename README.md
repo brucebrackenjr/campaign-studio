@@ -68,12 +68,14 @@ The complete output count is:
 
 Two products and two markets produce 12 PNGs. Five products and two markets produce 30. Three products with English (United States) only produce nine. These are output counts, not paid-request counts: a campaign made entirely from supplied or verified saved sources needs no new image-generation request.
 
+The trash button on each Workbench card shows the files Motif will remove and asks you to confirm the campaign.
+
 ## Run locally
 
 ### Requirements
 
 - **Python 3.14.4**, as pinned in [`.python-version`](.python-version). The package supports the Python 3.14 series.
-- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder.
+- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder. On a Mac that syncs Documents with iCloud, extract Motif to a local folder outside iCloud Drive when using uv.
 - A current desktop browser. Connected verification includes Chromium journeys at 1440 × 900 and 1366 × 768; this is not a mobile or universal browser certification.
 - An OpenAI API key only if you choose to generate new imagery. It is unnecessary for local composition, corrections, exports, or the key-free checks below.
 
@@ -153,7 +155,7 @@ To use a different port on any platform, set `CAMPAIGN_STUDIO_PORT=8001` in `Mot
 
 The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in `Motif/.env`. The data directory path must not pass through a symbolic link or Windows junction. Motif leaves earlier workspaces in place. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
 
-Version 0.2.0 uses the project-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, run `uv run --locked campaign-studio serve --data-dir ./motif-projects` from the installation folder. With Option B, add the same `--data-dir` argument to its installed executable.
+Versions 0.2.x use the campaign-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, run `uv run --locked campaign-studio serve --data-dir ./motif-projects` from the installation folder. With Option B, add the same `--data-dir` argument to its installed executable.
 
 If Motif reports a missing or incomplete workspace database, stop the app and restore the complete Workspace folder from backup. Its private/state.sqlite3 and Campaigns folder belong together.
 
@@ -208,7 +210,7 @@ The four campaign pages are **Campaign → Production → Studio → Handoff**. 
 
 ### 1. Campaign – establish the campaign
 
-Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, logo, and brand palette. JSON briefs define the included markets; both bundled campaigns include English and Spanish. The subtabs are Brief, Products, Brand, and Copy & Rules. Campaign previews provide feedback while editing; they are not a claim that production has already happened. Add products in the Products subtab, or continue to Production while the campaign is still incomplete.
+Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, logo, and brand palette. JSON briefs define the included markets; both bundled campaigns include English and Spanish. The subtabs are Brief, Products, Brand, and Copy & Rules. Campaign previews provide feedback while editing; they are not a claim that production has already happened. An imported brief opens here. In Products, attach each named photo when you have it. You can return to the Workbench and pick up the campaign later.
 
 Ordinary campaign fields autosave through the shared project queue, including unfinished values. Routine Save/Saved indicators are omitted; real save failures and conflicts still identify the problem and recovery action. Product-dialog changes commit through Add/Update, and image-editor changes through Apply. Saving authored work does not render new images or spend an API request.
 
@@ -229,7 +231,7 @@ Studio displays the rendered PNGs. Open a product to keep its image in one works
 | Control | Scope and behavior |
 | --- | --- |
 | Inspect | Save an accessible description and inspect factual source provenance. These are not approval markers or a review-status workflow. |
-| Framing | Adjust zoom and horizontal/vertical framing for the selected output. Optional important-area bounds constrain crops; the guide is not drawn into exported pixels. |
+| Framing | Zoom in and drag the photo to reframe it, or use the horizontal and vertical position sliders. Optional important-area bounds constrain crops; the guide is not drawn into exported pixels. |
 | Logo | Move or proportionally resize the logo for the selected output. Replacement is a separate campaign-wide action with an explicit affected scope. |
 | Text | Select **Headline** or **Call to action** to edit its wording, font, palette color, position, and size together. Wording changes affect the selected product and market across three formats; each field’s **All products** checkbox extends only that wording to other products in the market. Font, color, and geometry remain specific to the selected product, market, and format. Choose Noto Sans Regular or Barlow Condensed Semibold; drag the text to move it, and pull a corner or use the keyboard to resize it. |
 

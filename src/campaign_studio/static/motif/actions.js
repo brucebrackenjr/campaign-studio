@@ -265,10 +265,9 @@ modalView = function () {
   if (modal === "import")
     return dialog(
       "Bring your brief.",
-      `<p class="muted" style="margin-bottom:18px">Import a documented JSON brief into the same editable fields. You’ll attach its images next.</p><div class="upload"><strong>Choose a JSON brief</strong><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></div><div id="import-error" role="alert"></div>`,
+      `<p class="muted" style="margin-bottom:18px">Import a documented JSON brief into the same editable fields. You can attach images later.</p><div class="upload"><strong>Choose a JSON brief</strong><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></div><div id="import-error" role="alert"></div>`,
       `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import into a new draft", "doImport", "primary")}`,
     );
-  if (modal === "missing-reference") return missingReferenceModal();
   if (modal === "invalid-import")
     return dialog(
       "This brief needs a small repair.",
@@ -565,40 +564,6 @@ function picker(logo = false) {
       });
   };
   element.click();
-}
-function missingReference() {
-  const index = draft?.products.findIndex(
-    (product) =>
-      product.source.role !== "concept" &&
-      !product.source.path &&
-      model?.attachment_hints?.[product.id],
-  );
-  return index >= 0
-    ? {
-        index,
-        product: draft.products[index],
-        filename: model.attachment_hints[draft.products[index].id],
-      }
-    : null;
-}
-function missingReferenceModal() {
-  const missing = missingReference();
-  if (!missing)
-    return dialog(
-      "The requested image is attached.",
-      "<p>Your product remains in the brief.</p>",
-      btn("Continue", "close"),
-    );
-  return dialog(
-    "Attach the named product image.",
-    `${notice(`${missing.product.name} needs ${missing.filename}.`, "The brief and your attached files are preserved. No image request has been made.", "block")}<p class="muted">Choose that image, or a suitable replacement, using the file picker. A referenced filename is a reminder; the application never opens a path from the imported brief.</p>`,
-    btn("Keep my work", "close") +
-      btn(
-        `Attach ${missing.filename}`,
-        `attachMissing:${missing.product.id}`,
-        "primary",
-      ),
-  );
 }
 async function buildPlan() {
   if (page !== "production") await navigate("production");
@@ -907,8 +872,7 @@ async function dispatchAction(data) {
         }
         const result = await api("/api/motif/import", value, { body: file });
         await refreshCatalog();
-        await openCampaign(result.campaign_id, "production");
-        if (missingReference()) openModal("missing-reference");
+        await openCampaign(result.campaign_id, "campaign");
         break;
       }
       case "saveDraft":

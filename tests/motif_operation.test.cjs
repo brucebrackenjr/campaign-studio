@@ -420,6 +420,24 @@ test("Cancel, close, and Escape abort only pending inventory and never reopen it
   }
 });
 
+test("Workbench deletion previews and confirms the clicked card even when another campaign is open", async () => {
+  const h = navigationHarness();
+  const target = "62220994-1d32-5713-80d2-ac0b6ff0baf3";
+  const active = h.run("draft.campaign_id");
+  h.run(`page='library'; saved[0].name='Second campaign'; campaignDistinction=()=>''; finishDeletion=async()=>{};`);
+  const preview = h.click(`storage:card-delete:${target}`);
+  assert.equal(h.pending[0].url, `/api/campaigns/${target}/cleanup/preview`);
+  h.pending[0].resolve({ token: "second-only", name: "Second campaign" });
+  await preview;
+  assert.equal(h.run("storageView.state"), "delete-confirm");
+  assert.equal(h.run("draft.campaign_id"), active);
+  const confirmation = h.click("storage:confirm-delete");
+  assert.equal(h.pending[1].url, `/api/campaigns/${target}/cleanup/confirm`);
+  assert.equal(h.pending[1].body.token, "second-only");
+  h.pending[1].resolve({ state: "complete" });
+  await confirmation;
+});
+
 test("product JPEG attachment preserves unrelated Brief logo and raw work", async () => {
   const h = navigationHarness();
   h.run("draft.brand={logo_path:'Campaigns/Test-12345678/Assets/Products/original.png'};modalProduct={source:{path:'old-product.png'}}");
@@ -892,4 +910,23 @@ test('a product upload response cannot attach or toast into a different campaign
     else assert.equal(h.run('modalProduct.source.path'),'other.png');
     assert.equal(owner.campaign_id,'292e9e84-eb00-5fdb-87e8-423f5e51fac4');
   }
+});
+
+test("a JSON import opens the new campaign without prompting for its named images", async () => {
+  const h = harness(), calls = [], source = {size: 123, text: async () => '{"name":"Imported"}'};
+  h.get("#json-file").files = [source];
+  h.context.calls = calls;
+  h.run(`
+    page = "library"; modal = "import";
+    draft = {products: [{id:"p", source:{role:"finished_scene",path:""}}]};
+    model = {attachment_hints:{p:"photo.png"}};
+    api = async (path,value,options) => {calls.push([path,value.name,options.body]); return {campaign_id:"fresh-id"}};
+    refreshCatalog = async () => calls.push(["refresh"]);
+    openCampaign = async (id,target) => calls.push(["open",id,target]);
+    openModal = name => calls.push(["modal",name]);
+  `);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.deepEqual(calls.map(row => Array.from(row)), [
+    ["/api/motif/import","Imported",source], ["refresh"], ["open","fresh-id","campaign"],
+  ]);
 });

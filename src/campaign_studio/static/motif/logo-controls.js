@@ -42,12 +42,13 @@
     constructor(options) {
       this.o=options;this.root=options.root;this.target=clone(options.target);this.asset=options.asset?clone(options.asset):null;
       this.savedAsset=this.asset?clone(this.asset):null;this.p=clone(options.placement||options.defaultPlacement||{x:.78,y:.89,width:.15});
-      this.initial=clone(this.p);this.default=clone(options.defaultPlacement||this.p);this.pendingAsset=false;this.replacementFit=null;this.valid=null;this.reviewRequired=false;this.reviewing=false;this.reviewMessage='';this.busy=false;this.uploading=false;this.uploadSeq=0;this.open=true;this.seq=0;this.raf=0;this.returnFocus=document.activeElement;
+      this.initial=clone(this.p);this.default=clone(options.defaultPlacement||this.p);this.pendingAsset=false;this.replacementFit=null;this.valid=options.savedDisplay;this.reviewRequired=false;this.reviewing=false;this.reviewMessage='';this.busy=false;this.uploading=false;this.uploadSeq=0;this.open=true;this.seq=0;this.raf=0;this.returnFocus=document.activeElement;
       this.message=this.asset?'':'Attach a PNG or JPEG to begin.';
       if(this.o.onMount)this.o.onMount(this.markup());else this.root.innerHTML=this.markup();this.bind();this.fit();this.paint();
       this.observer=new ResizeObserver(()=>this.fit());this.observer.observe(this.root.querySelector('.mf-logo-stage'));
-      queueMicrotask(()=>this.asset?this.root.querySelector('[data-lg-box]').focus():this.root.querySelector('[data-lg="replace"]').focus());
-      this.validate();
+      if (!this.returnFocus?.matches('[data-ws-target]')) queueMicrotask(() => {
+        if (this.open) this.root.querySelector(this.asset ? '[data-lg-box]' : '[data-lg="replace"]').focus();
+      });
     }
     dirty() { return this.pendingAsset||JSON.stringify(this.p)!==JSON.stringify(this.initial); }
     signature() { return JSON.stringify({target:this.target,placement:this.p,replacementFit:this.replacementFit,asset:this.asset?.reference,mode:this.pendingAsset?'replacement':'placement'}); }

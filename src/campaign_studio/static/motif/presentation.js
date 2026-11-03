@@ -84,19 +84,44 @@ ${latest
 </section>`;
 }
 
+function workbenchCard(c) {
+  const id = esc(c.id);
+  const identity = [c.name, campaignDistinction(c)].filter(Boolean).join(" · ");
+  const art = !c.products
+    ? '<span class="awaiting-art"><i class="mark" aria-hidden="true"></i><span>Awaiting<br>products</span></span>'
+    : c.thumbnail
+      ? `<img data-workbench-thumbnail src="${esc(c.thumbnail)}" alt="${esc(c.thumbnail_label || `${c.brand} campaign artwork`)}">`
+      : `<span class="awaiting-art">${workbenchEmptyImage(c)}</span>`;
+  const state = c.damaged_images || c.outcome_unknown ? "warning" : c.status === "complete" ? "" : "neutral";
+  return `<div class="workbench-item">
+    <button class="campaign-card" data-action="openCampaign" data-campaign-id="${id}" title="${esc(identity)}">
+      <span class="campaign-image">${art}${campaignDistinctionTag(c)}</span>
+      <span class="info">
+        <span class="eyebrow">${esc(c.brand || "New brand")}</span>
+        <strong class="workbench-title">${esc(c.name)}</strong>
+        <span class="small muted">${c.products} ${c.products === 1 ? "product" : "products"} · ${c.markets} ${c.markets === 1 ? "market" : "markets"} · ${workbenchCounts(c)}</span>
+        <span class="workbench-footer"><span class="small muted">${esc(activityLabel(c.updated))}</span>${badge(workbenchStatus(c), state)}</span>
+      </span>
+    </button>
+    <button type="button" class="workbench-delete" data-action="storage:card-delete:${id}" aria-label="${esc(`Delete campaign: ${identity}`)}" title="${esc(`Delete campaign: ${identity}`)}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg>
+    </button>
+  </div>`;
+}
+
 function library() {
   let cards = workbenchCampaigns();
-  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0">${cards.map((c) => `<button class="campaign-card" data-action="openCampaign" data-campaign-id="${esc(c.id)}" title="${esc([c.name, campaignDistinction(c)].filter(Boolean).join(" · "))}"><div class="campaign-image">${c.products ? (c.thumbnail ? `<img data-workbench-thumbnail src="${esc(c.thumbnail)}" alt="${esc(c.thumbnail_label || `${c.brand} campaign artwork`)}">` : `<span class="awaiting-art">${workbenchEmptyImage(c)}</span>`) : '<span class="awaiting-art"><i class="mark" aria-hidden="true"></i><span>Awaiting<br>products</span></span>'}${campaignDistinctionTag(c)}</div><div class="info"><div class="row between"><span class="eyebrow">${esc(c.brand || "New brand")}</span>${badge(workbenchStatus(c), c.damaged_images || c.outcome_unknown ? "warning" : c.status === "complete" ? "" : "neutral")}</div><h3>${esc(c.name)}</h3><div class="small muted">${c.products} ${c.products === 1 ? "product" : "products"} · ${c.markets} ${c.markets === 1 ? "market" : "markets"} · ${workbenchCounts(c)}</div><div class="activity-date small muted">${esc(activityLabel(c.updated))}</div></div></button>`).join("")}<button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:transparent;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px">Bring your products, your words,<br>and your point of view.</p></button></div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
+  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0">${cards.map(workbenchCard).join("")}<button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:transparent;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px">Bring your products, your words,<br>and your point of view.</p></button></div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
 }
 function brief() {
   return '<div id="brief-root"></div>';
 }
-function dialog(title, body, foot = "", wide = false) {
+function dialog(title, body, foot = "", wide = false, eyebrow = null) {
   return `<div class="overlay">
 <section class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
 <header class="modal-head">
 <div>
-<span class="eyebrow">${esc(modal === "new" ? "New campaign" : C.name || "MOTIF / CAMPAIGN STUDIO")}</span>
+<span class="eyebrow">${esc(eyebrow ?? (modal === "new" ? "New campaign" : C.name || "MOTIF / CAMPAIGN STUDIO"))}</span>
 <h2 id="dialog-title" style="margin-top:8px">${title}</h2>
 </div>
 <button class="close" data-action="close" aria-label="Close dialog">×</button>

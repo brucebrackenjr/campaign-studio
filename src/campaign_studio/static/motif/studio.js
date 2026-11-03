@@ -100,7 +100,7 @@ function bindWorkbench() {
   if (!track) return;
   track.addEventListener("scroll", syncWorkbench, { passive: true });
   track.addEventListener("focusin", (event) => {
-    const card = event.target.closest(".campaign-card");
+    const card = event.target.closest(".workbench-item, .campaign-card[data-action=new]");
     if (!card || !track.contains(card)) return;
     const viewport = track.getBoundingClientRect();
     const bounds = card.getBoundingClientRect();

@@ -91,6 +91,20 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
         assert not survivor.exists()
 
 
+def test_startup_leaves_incoming_folder_alone(tmp_path):
+    root = tmp_path / "Workspace"
+    app = create_app(Settings(data_dir=root), key_available=lambda: False)
+    incoming = root / "incoming"
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        assert client.get("/health").status_code == 200 and not incoming.exists()
+    incoming.mkdir()
+    note = incoming / "producer notes.txt"
+    note.write_bytes(b"Keep this file.")
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        assert client.get("/health").status_code == 200
+        assert list(incoming.iterdir()) == [note] and note.read_bytes() == b"Keep this file."
+
+
 def test_import_keeps_original_request_bytes_and_stable_folder_on_rename(tmp_path):
     root = tmp_path / "Motif"
     app = create_app(Settings(data_dir=root), key_available=lambda: False)
@@ -107,8 +121,20 @@ def test_import_keeps_original_request_bytes_and_stable_folder_on_rename(tmp_pat
         project = app.state.storage.project(cid)
         original = project.ref("Brief/Imports/original.json")
         assert app.state.storage.path(project.require(original)).read_bytes() == data
+        draft_path = app.state.storage.path(project.draft)
+        first_bytes = draft_path.read_bytes()
+        first_draft = json.loads(first_bytes)
+        assert first_draft["value"]["name"] == "Été – café"
+        expected = json.dumps(first_draft, ensure_ascii=False, indent=2).encode() + b"\n"
+        assert first_bytes == expected
         url = f"/api/motif/campaigns/{cid}/authored"
+    # A compact draft from an earlier installation still opens with its existing save token.
+    compact = json.dumps(first_draft, ensure_ascii=False).encode()
+    draft_path.write_bytes(compact)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        client.headers["X-Campaign-Token"] = app.state.csrf
         model = client.get(url).json()
+        assert model["version"] == first_draft["version"] and draft_path.read_bytes() == compact
         model["authored"]["brief"]["name"] = "New title"
         assert (
             client.post(
@@ -116,6 +142,10 @@ def test_import_keeps_original_request_bytes_and_stable_folder_on_rename(tmp_pat
             ).status_code
             == 200
         )
+        saved_bytes = draft_path.read_bytes()
+        saved = json.loads(saved_bytes)
+        assert saved["authored"]["brief"]["name"] == "New title"
+        assert saved_bytes == json.dumps(saved, ensure_ascii=False, indent=2).encode() + b"\n"
         assert app.state.storage.project(cid).folder == project.folder
         assert app.state.storage.path(original).read_bytes() == data
 

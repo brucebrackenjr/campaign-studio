@@ -37,7 +37,7 @@ function storageDialog() {
       return `data-action="openCampaign" data-campaign-id="${esc(campaign.id)}"`;
     });
   }
-  let html = dialog(view.title, body, view.footer, view.wide)
+  let html = dialog(view.title, body, view.footer, view.wide, storageView.state.startsWith("delete-") ? deletion?.label || deletion?.name : null)
     .replaceAll('data-sc="', 'data-action="storage:')
     .replace(
       'id="dialog-title"',
@@ -131,7 +131,7 @@ function deletionData(inventory) {
 }
 async function previewDeletion() {
   const campaign = deletion?.campaign || draft?.campaign_id;
-  deletion = { campaign, name: deletion?.name || draft?.name };
+  deletion = { campaign, name: deletion?.name || draft?.name, label: deletion?.label };
   const request = ++storageRequest;
   const controller = new AbortController();
   deletionInventory = controller;
@@ -362,6 +362,13 @@ async function dispatchStorage(action, identity) {
     case "keep-product":
       returnFromStorage();
       return;
+    case "card-delete": {
+      const card = saved.find((item) => item.id === identity);
+      if (!card || page !== "library") throw new Error("Refresh the workbench to find this campaign.");
+      deletion = { campaign: card.id, name: card.name, label: [card.name, campaignDistinction(card)].filter(Boolean).join(" · ") };
+      await previewDeletion();
+      return;
+    }
     case "preview-delete":
       if (storageView?.state === "campaign-context") deletion = null;
       await previewDeletion();
@@ -396,7 +403,8 @@ async function dispatchStorage(action, identity) {
       await navigate("library");
       return;
     case "back-to-campaign":
-      await navigate("production");
+      if (deletion?.campaign && deletion.campaign !== draft?.campaign_id) await openCampaign(deletion.campaign, "production");
+      else await navigate("production");
       return;
     case "rename":
       if (hasStoredProductDraft() && guardNavigation({ action: "rename" }))

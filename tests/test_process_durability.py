@@ -98,7 +98,7 @@ def start(client, state, run_id):
 def settle(client):
     def done():
         response = client.get("/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/status")
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         value = response.json()
         return value if not value["active"] else None
 

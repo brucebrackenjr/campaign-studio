@@ -318,7 +318,7 @@ def test_registry_only_failed_preparation_can_be_deleted_without_claiming_other_
     state = client.app.state.workspace.state
     campaign = str(uuid4())
     state.register_campaign(campaign)
-    # No owned namespace was reserved. A same-named unrelated folder is not evidence of ownership.
+    # An old incoming folder with this ID contains unregistered files.
     reference = f"incoming/{campaign}/unowned.txt"
     state.storage.write(reference, b"Unrelated content stays exact")
     preview = client.post(f"/api/campaigns/{campaign}/cleanup/preview", json={})
