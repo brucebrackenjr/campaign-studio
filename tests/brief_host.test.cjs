@@ -3,9 +3,13 @@ const assert = require('node:assert/strict');
 const {test} = require('node:test');
 const {readFileSync} = require('node:fs');
 const vm = require('node:vm');
-const flush = () => new Promise(resolve => setImmediate(resolve));
+const {EventEmitter, once} = require('node:events');
 function harness() {
   const pending = [], timers = new Map(); let next = 1;
+  const requests = new EventEmitter();
+  async function waitForRequests(count) {
+    while (pending.length < count) await once(requests, 'submitted');
+  }
   const c = vm.createContext({
     structuredClone, TextEncoder, crypto:require('node:crypto').webcrypto,
     setTimeout(fn) { const id=next++; timers.set(id,fn); return id; }, clearTimeout(id) { timers.delete(id); },
@@ -18,7 +22,10 @@ function harness() {
       markets:{'en-US':{copy:{message:'English',cta:null}},'es-MX':{copy:{message:'Español',cta:null}}},
       products:[{id:'a',name:'Alpha',description:'A',source:{role:'concept'},framing:{},copy_overrides:{}}]},
     assetURL:ref=>ref ? '/asset':null,markDirty(){},toast(){},$:()=>({focus(){},content:'csrf'}),
-    api:(url,body,options)=>new Promise((resolve,reject)=>pending.push({url,body,options,resolve,reject})),
+    api:(url,body,options)=>new Promise((resolve,reject)=>{
+      pending.push({url,body,options,resolve,reject});
+      requests.emit('submitted');
+    }),
     wordingCheckPhase:null, paintWordingAvailability(){},
     showCapacity(){},dispatchAction:async()=>{},updateURL(){},render(){},
   });
@@ -30,7 +37,7 @@ function harness() {
   run(`briefFacts.campaign='292e9e84-eb00-5fdb-87e8-423f5e51fac4';briefFacts.logos.set(draft.brand.logo_path,{width:200,height:80,type:'PNG'});
     briefHost={owner:'292e9e84-eb00-5fdb-87e8-423f5e51fac4',productId:'a',ratio:'1:1',generation:0,upload:0,dead:false,view:{render(){},preview(request){return requestBriefPreview(briefHost,request)}}};
     refreshBriefFlow();`);
-  return {c,run,pending,timers,plain:code=>JSON.parse(run('JSON.stringify('+code+')'))};
+  return {c,run,pending,timers,waitForRequests,plain:code=>JSON.parse(run('JSON.stringify('+code+')'))};
 }
 test('raw default is preserved without silently expanding palette; explicit use normalizes and deduplicates',async()=>{
   const h=harness();
@@ -141,13 +148,13 @@ test('acknowledged source refresh updates Production in place without resetting 
 test('preview queue coalesces rapid typing and rejects stale request identity',async()=>{
   const h=harness();
   h.run('flushBriefPreview(briefHost)');
-  for(let i=0;i<5;i++) await flush();
+  await h.waitForRequests(1);
   assert.equal(h.pending.length,1);
   for(const word of ['First','Second','Latest']) h.run(`changeBriefField(briefHost,'message',${JSON.stringify(word)},{commit:false});flushBriefPreview(briefHost)`);
   assert.equal(h.pending.length,1);
   h.pending[0].resolve({}); // Superseded before target/digest consumption.
   await assert.rejects(h.run('briefHost.flight'));
-  for(let i=0;i<5;i++) await flush();
+  await h.waitForRequests(2);
   assert.equal(h.pending.length,2);
   assert.equal(h.pending[1].body.brief.markets['en-US'].copy.message,'Latest');
   const request=h.pending[1];
@@ -159,14 +166,14 @@ test('preview queue coalesces rapid typing and rejects stale request identity',a
 test('producer action drains the owned preview and overtakes queued background work', async () => {
   const h = harness();
   h.run('flushBriefPreview(briefHost)');
-  for (let i=0;i<5;i++) await flush();
+  await h.waitForRequests(1);
   assert.equal(h.pending.length,1);
   h.run("changeBriefField(briefHost,'message','Latest',{commit:false});flushBriefPreview(briefHost)");
   const action = h.run("withBriefPreviewPaused(()=>api('/plan',{}))");
   h.run("changeBriefField(briefHost,'message','Still typing',{commit:false});flushBriefPreview(briefHost)");
   assert.equal(h.pending.length,1,'no producer request until the owned render settles');
   h.pending[0].resolve({});
-  for (let i=0;i<5;i++) await flush();
+  await h.waitForRequests(2);
   assert.deepEqual(h.pending.map(p=>p.url),['/api/motif/campaigns/292e9e84-eb00-5fdb-87e8-423f5e51fac4/brief-preview','/plan']);
   assert.equal(h.run('briefPreviewPaused()'),true);
   h.run('refreshBriefFlow();flushBriefPreview(briefHost)');
@@ -182,7 +189,7 @@ test('a held campaign action does not suppress another campaign preview or relea
   const a=h.run("withBriefPreviewPaused(()=>api('/plan-A',{}))");
   assert.equal(h.run('briefPreviewPaused()'),true);
   h.run("draft.campaign_id='62220994-1d32-5713-80d2-ac0b6ff0baf3';briefHost.owner=draft.campaign_id;refreshBriefFlow();flushBriefPreview(briefHost)");
-  for(let i=0;i<5;i++)await flush();
+  await h.waitForRequests(2);
   assert.equal(h.run('briefPreviewPaused()'),false);
   const preview=h.pending[1];assert.match(preview.url,/62220994-1d32-5713-80d2-ac0b6ff0baf3\/brief-preview$/);
   const digest=await h.run('briefRequestDigest('+JSON.stringify(preview.body)+')');
@@ -203,10 +210,10 @@ test('a held campaign action does not suppress another campaign preview or relea
 test('preview failure does not retry the action or hide genuine concurrent-operation refusal', async () => {
   const h = harness();
   h.run('flushBriefPreview(briefHost)');
-  for (let i=0;i<5;i++) await flush();
+  await h.waitForRequests(1);
   const action = h.run("withBriefPreviewPaused(()=>api('/plan',{}))");
   h.pending[0].reject(new Error('Controlled preview failure'));
-  for (let i=0;i<5;i++) await flush();
+  await h.waitForRequests(2);
   h.pending[1].reject(Object.assign(new Error('Other operation is active'),{status:409,code:'busy'}));
   await assert.rejects(action,/Other operation is active/);
   assert.equal(h.pending.length,2);
@@ -216,7 +223,7 @@ test('preview failure does not retry the action or hide genuine concurrent-opera
 test('a logo selected before navigation never uploads after its old preview drains', async () => {
   const h = harness();
   h.run('flushBriefPreview(briefHost)');
-  for (let i=0;i<5;i++) await flush();
+  await h.waitForRequests(1);
   const action = h.run("attachBriefLogo(briefHost,{name:'logo.jpg',type:'image/jpeg'})");
   h.run("briefHost.dead=true;draft.campaign_id='62220994-1d32-5713-80d2-ac0b6ff0baf3'");
   h.pending[0].resolve({});
