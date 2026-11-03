@@ -125,9 +125,12 @@ def routes() -> APIRouter:
 
     def status(request, campaign_id):
         workspace = services(request)
-        run = ensure_run(request, campaign_id)
+        # Recovery can retire the selected PNGs between reading the manifest and
+        # checking its files. The publisher holds this same lock.
+        with workspace.storage.exclusive_draft():
+            run = ensure_run(request, campaign_id)
+            manifest = manifest_with_links(workspace, run)
         attempts = workspace.state.attempts(run["id"])
-        manifest = manifest_with_links(workspace, run)
         notice = provider_notice(attempts)
         operation_error = request.app.state.operation_errors.get(run["id"])
         active = (

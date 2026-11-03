@@ -369,3 +369,60 @@ def test_provider_failures_have_safe_distinct_messages_and_do_not_retry(tmp_path
         )
         assert len(calls) == 1
         assert "Saved" in status["notice"]
+
+
+def test_status_reads_current_images_before_recovery_retires_them(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from test_workflow import setup_case
+
+    from campaign_studio.local_files import file_lock
+
+    state, runner, run_id, brief = setup_case(tmp_path, 2, True)
+    first = asyncio.run(runner.execute(run_id))
+    app = create_app(Settings(data_dir=state.storage.root))
+    selected, resume_reader, publishing = Event(), Event(), Event()
+    url = f"/api/campaigns/{brief.campaign_id}/status"
+    with TestClient(app, base_url="http://127.0.0.1") as client, ThreadPoolExecutor(2) as pool:
+        reader_state = app.state.workspace.state
+        select = reader_state.effective_revision
+        publish = state.publish_revision
+
+        def pause_once(run):
+            revision = select(run)
+            if not selected.is_set():
+                selected.set()
+                assert resume_reader.wait(30)
+            return revision
+
+        def announce(*args, **kwargs):
+            publishing.set()
+            return publish(*args, **kwargs)
+
+        monkeypatch.setattr(reader_state, "effective_revision", pause_once)
+        monkeypatch.setattr(state, "publish_revision", announce)
+        reading = pool.submit(client.get, url)
+        try:
+            assert selected.wait(30)
+            # The same cross-process guard protects the selected files until this read finishes.
+            with (
+                state.storage.path("private/authored.lock").open("a+b") as lock,
+                pytest.raises(BlockingIOError),
+                file_lock(lock, wait=False),
+            ):
+                pass
+            recovering = pool.submit(runner.recover_local, run_id)
+            assert publishing.wait(30)
+        finally:
+            resume_reader.set()
+        response = reading.result(30)
+        assert response.status_code == 200, response.text
+        assert response.json()["revision_id"] == first["revision_id"]
+        assert response.json()["completed"] == 6
+        new_revision = recovering.result(30)["revision_id"]
+        assert state.revision(first["revision_id"])["images_retired"]
+        latest = client.get(url)
+        assert latest.status_code == 200, latest.text
+        assert latest.json()["revision_id"] == new_revision and latest.json()["completed"] == 6
+        assert not state.attempts(run_id)

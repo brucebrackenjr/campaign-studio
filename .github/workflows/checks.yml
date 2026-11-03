@@ -95,7 +95,11 @@ jobs:
       - name: Install from the lock
         run: uv sync --locked
       - name: Native filesystem, key, campaign, and bundled-image checks
-        run: uv run --locked pytest -q --basetemp=.pytest-tmp tests/test_windows_runtime.py tests/test_project_folders.py tests/test_bundled.py
+        run: >-
+          uv run --locked pytest -q --basetemp=.pytest-tmp
+          tests/test_windows_runtime.py tests/test_project_folders.py tests/test_bundled.py
+          tests/test_web_workflow.py::test_status_reads_current_images_before_recovery_retires_them
+          "tests/test_process_durability.py::test_killed_after_response_recovers_before_first_revision[True]"
       - name: Check installed smoke command
         run: .\.venv\Scripts\campaign-studio.exe smoke --data-dir .checks/smoke
       - name: Check installed synthetic images and export
