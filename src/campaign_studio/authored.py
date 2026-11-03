@@ -25,6 +25,23 @@ PENDING_FIELDS = (
 )
 
 
+def attachment_paths(value):
+    # Cleanup once deleted another campaign's upload when its path appeared
+    # in the audience description of the campaign being deleted.
+    brief = value.get("brief", {})
+    brand = brief.get("brand")
+    if isinstance(brand, dict):
+        yield brand.get("logo_path")
+    products = brief.get("products")
+    for product in products if isinstance(products, list) else []:
+        if isinstance(product, dict) and isinstance(product.get("source"), dict):
+            yield product["source"].get("path")
+    photos = value.get("form_drafts", {}).get("product_images", {})
+    for photo in photos.values() if isinstance(photos, dict) else []:
+        if isinstance(photo, dict):
+            yield photo.get("path")
+
+
 class AuthoredBase(Contract):
     run_id: str | None = None
     revision_id: str | None = None
@@ -244,33 +261,19 @@ class AuthoredProjects:
             raise ActionError("authored_size", "This project state is too large to save.", 413)
 
     def check_attachments(self, campaign_id, authored, previous, reconciled):
-        def references(value):
-            # Only attachment fields have file authority. A filename hint, note,
-            # or invalid typed path elsewhere is opaque authored text.
-            brief = value.get("brief", {})
-            brand = brief.get("brand")
-            if isinstance(brand, dict):
-                yield brand.get("logo_path")
-            products = brief.get("products")
-            for product in products if isinstance(products, list) else []:
-                if isinstance(product, dict) and isinstance(product.get("source"), dict):
-                    yield product["source"].get("path")
-            photos = value.get("form_drafts", {}).get("product_images", {})
-            for photo in photos.values() if isinstance(photos, dict) else []:
-                if isinstance(photo, dict):
-                    yield photo.get("path")
-
-        allowed = {r for r in references({"brief": previous["value"]}) if isinstance(r, str)}
-        allowed.update(r for r in references(previous.get("authored", {})) if isinstance(r, str))
+        allowed = {r for r in attachment_paths({"brief": previous["value"]}) if isinstance(r, str)}
+        allowed.update(
+            r for r in attachment_paths(previous.get("authored", {})) if isinstance(r, str)
+        )
         # read() already exposes these server-reconciled saved references. A prior
         # interrupted plan must not make the application's own response unsaveable.
-        allowed.update(r for r in references(reconciled) if isinstance(r, str))
+        allowed.update(r for r in attachment_paths(reconciled) if isinstance(r, str))
         for product in authored.get("brief", {}).get("products", []):
             if isinstance(product, dict) and isinstance(product.get("id"), str):
                 photo = self.workspace.retained_product_source(campaign_id, product["id"])
                 if photo:
                     allowed.add(photo["path"])
-        requested = {r for r in references(authored) if isinstance(r, str)}
+        requested = {r for r in attachment_paths(authored) if isinstance(r, str)}
         for reference in requested - allowed:
             if not isinstance(reference, str) or not reference.startswith(
                 ("private/uploads/", "campaigns/", "replays/", "sample/")

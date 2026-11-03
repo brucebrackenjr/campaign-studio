@@ -967,3 +967,107 @@ def test_pending_deletion_closes_cached_preview_and_owned_upload_reads(tmp_path,
         assert client.get(url).status_code == 404
         assert client.get(owned["url"]).status_code == 404
         assert client.get(shared["url"]).content == payload
+
+
+@pytest.mark.parametrize("case_alias", [False, True], ids=["exact", "case-alias"])
+def test_imported_prose_cannot_inventory_or_delete_another_campaigns_upload(tmp_path, case_alias):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    intake = Intake(state.storage)
+    payload = state.storage.path(brief.brand.logo_path).read_bytes()
+    reference = intake.upload(payload, "image/png", brief.campaign_id)["reference"]
+    prose = reference[:-3] + "PNG" if case_alias else reference
+    campaign = intake.new_campaign_id()
+    imported = intake.import_value(campaign, brief.model_dump(mode="json") | {"audience": prose})
+    intake.create(campaign, imported)
+    cleanup = Cleanup(state)
+    preview = cleanup.preview_campaign(campaign)
+    result = cleanup.delete_campaign(campaign, preview["token"])
+    assert result["state"] == "complete"
+    assert state.storage.path(reference).read_bytes() == payload
+    assert preview["shared_file_count"] == 0 and preview["source_file_count"] == 0
+    with state.storage.connect() as db:
+        assert db.execute(
+            "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+        ).fetchall() == [(brief.campaign_id,)]
+
+
+def test_surviving_prose_does_not_take_ownership_of_deleted_campaigns_upload(tmp_path):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    intake = Intake(state.storage)
+    reference = intake.upload(
+        state.storage.path(brief.brand.logo_path).read_bytes(), "image/png", brief.campaign_id
+    )["reference"]
+    survivor, _ = intake.new(audience=reference)
+    cleanup = Cleanup(state)
+    preview = cleanup.preview_campaign(brief.campaign_id)
+    assert cleanup.delete_campaign(brief.campaign_id, preview["token"])["state"] == "complete"
+    assert not state.storage.path(reference).exists()
+    assert intake.read(survivor)["value"]["audience"] == reference
+    with state.storage.connect() as db:
+        assert (
+            db.execute("SELECT 1 FROM file_owners WHERE reference=?", (reference,)).fetchall() == []
+        )
+
+
+@pytest.mark.parametrize("case_alias", [False, True], ids=["exact", "case-alias"])
+def test_resume_does_not_unlink_foreign_upload_in_older_confirmed_inventory(tmp_path, case_alias):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    intake = Intake(state.storage)
+    payload = state.storage.path(brief.brand.logo_path).read_bytes()
+    reference = intake.upload(payload, "image/png", brief.campaign_id)["reference"]
+    prose = reference[:-3] + "PNG" if case_alias else reference
+    target, _ = intake.new(audience=prose)
+    cleanup = Cleanup(state)
+    inventory = cleanup._campaign_inventory(target)
+    draft_bytes = state.storage.path(f"private/brief-drafts/{target}.json").stat().st_size
+    # An older deletion list could include a filename copied from a note.
+    inventory["files"] = [item for item in inventory["files"] if item["reference"] != prose]
+    inventory["files"].append(
+        {"reference": prose, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+    )
+    cleanup._commit_and_resume(inventory, defer_cleanup=True)
+    result = Cleanup(State(state.storage)).resume_all()[0]
+    assert result["state"] == "complete"
+    assert state.storage.path(reference).read_bytes() == payload
+    assert result["removed_bytes"] == draft_bytes
+
+
+def test_older_pending_owner_deletion_keeps_a_real_surviving_attachment(tmp_path):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    intake = Intake(state.storage)
+    payload = state.storage.path(brief.brand.logo_path).read_bytes()
+    reference = intake.upload(payload, "image/png", brief.campaign_id)["reference"]
+    alias = reference[:-3] + "PNG"
+    selected = alias if state.storage.path(alias).exists() else reference
+    survivor, document = intake.new()
+    document["value"]["brand"]["logo_path"] = selected
+    intake.write(survivor, document["value"], document["version"])
+    cleanup = Cleanup(state)
+    inventory = cleanup._campaign_inventory(brief.campaign_id)
+    assert reference in inventory["shared_owners"] and inventory["shared_owners"][reference] == [
+        survivor
+    ]
+    # This older list missed the surviving campaign's attachment.
+    inventory["shared_owners"].pop(reference)
+    inventory["retained"] = [
+        item for item in inventory["retained"] if item["reference"] != reference
+    ]
+    inventory["files"].append(
+        {
+            "reference": reference,
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    )
+    cleanup._commit_and_resume(inventory, defer_cleanup=True)
+    assert Cleanup(State(state.storage)).resume_all()[0]["state"] == "complete"
+    assert state.storage.path(selected).read_bytes() == payload
+    with state.storage.connect() as db:
+        assert db.execute(
+            "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+        ).fetchall() == [(survivor,)]
+    assert (
+        cleanup.delete_campaign(survivor, cleanup.preview_campaign(survivor)["token"])["state"]
+        == "complete"
+    )
+    assert not state.storage.path(reference).exists()

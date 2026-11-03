@@ -135,41 +135,52 @@ class Cleanup:
                     )
                 ]
             )
+        from campaign_studio.authored import attachment_paths
+
         result = set()
-
-        def visit(value):
-            if isinstance(value, dict):
-                for item in value.values():
-                    visit(item)
-            elif isinstance(value, list):
-                for item in value:
-                    visit(item)
-            elif isinstance(value, str) and value.startswith(
-                (
-                    "private/uploads/",
-                    "campaigns/",
-                    "private/runs/",
-                    "exports/",
-                    "replays/",
-                    "samples/",
-                )
-            ):
-                try:
-                    self.storage.path(value)
-                    result.add(value)
-                except StorageError:
-                    pass  # A prose field is not an asset reference.
-
-        for reference in documents:
-            path = self.storage.path(reference)
+        for index, reference in enumerate(documents):
             try:
-                value = json.loads(path.read_bytes())
-                if live_only:
-                    value = value.get("authored", value.get("value", value))
-                visit(value)
+                document = json.loads(self.storage.path(reference).read_bytes())
             except FileNotFoundError:
                 continue
+            if index == 0:
+                brief = document.get("value", document)
+                authored = document.get("authored", {})
+                paths = list(attachment_paths(authored))
+                if not live_only or not authored:
+                    paths.extend(attachment_paths({"brief": brief}))
+            else:
+                brief = document["brief"]
+                paths = list(attachment_paths({"brief": brief}))
+                paths.extend(asset["reference"] for asset in document["assets"].values())
+            # Read saved replay images from the brief used for production.
+            replay = brief.get("replay") or {}
+            paths.extend(master["path"] for master in replay.get("sources", {}).values())
+            for path in paths:
+                if isinstance(path, str) and path.startswith(
+                    (
+                        "private/uploads/",
+                        "campaigns/",
+                        "private/runs/",
+                        "exports/",
+                        "replays/",
+                        "samples/",
+                    )
+                ):
+                    try:
+                        self.storage.path(path)
+                    except StorageError:
+                        continue  # A draft can contain an unfinished image path.
+                    result.add(path)
         return result
+
+    def _file_key(self, reference):
+        # On a case-insensitive volume, two spellings can point to the same file.
+        try:
+            info = self.storage.path(reference).stat()
+        except FileNotFoundError, NotADirectoryError:
+            return None
+        return info.st_dev, info.st_ino
 
     def _other_owners(self, campaign_id):
         with self.storage.connect() as db:
@@ -187,15 +198,23 @@ class Cleanup:
                 others.update(p.name.removesuffix(".json") for p in path.iterdir())
         references = {}
         for reference, owner in owned:
-            references.setdefault(reference, set()).add(owner)
+            if (key := self._file_key(reference)) is not None:
+                references.setdefault(key, set()).add(owner)
         for other in others - {campaign_id}:
             if valid_campaign_id(other):
                 for reference in self._references(other):
-                    references.setdefault(reference, set()).add(other)
+                    if (key := self._file_key(reference)) is not None:
+                        references.setdefault(key, set()).add(other)
         return references
 
-    def _other_references(self, campaign_id):
-        return set(self._other_owners(campaign_id))
+    def _shared_files(self, campaign_id, files):
+        shared = self._other_owners(campaign_id)
+        # Another campaign's attachment protects a file from deletion.
+        return {
+            item["reference"]: sorted(owners)
+            for item in files
+            if (owners := shared.get(self._file_key(item["reference"])))
+        }
 
     def _directories(self, references):
         directories = set()
@@ -261,11 +280,10 @@ class Cleanup:
                     "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign_id,)
                 )
             ]
-        references += [r for r in self._references(campaign_id) if r.startswith("private/uploads/")]
         all_files = self._files(references)
-        shared = self._other_owners(campaign_id)
-        retained = [item for item in all_files if item["reference"] in shared]
-        files = [item for item in all_files if item["reference"] not in shared]
+        shared_owners = self._shared_files(campaign_id, all_files)
+        retained = [item for item in all_files if item["reference"] in shared_owners]
+        files = [item for item in all_files if item["reference"] not in shared_owners]
         return {
             "kind": "campaign",
             "campaign_id": campaign_id,
@@ -274,9 +292,7 @@ class Cleanup:
             "files": files,
             "directories": self._directories(references),
             "retained": retained,
-            "shared_owners": {
-                item["reference"]: sorted(shared[item["reference"]]) for item in retained
-            },
+            "shared_owners": shared_owners,
             "record_fingerprint": self._record_fingerprint(campaign_id),
         }
 
@@ -363,16 +379,19 @@ class Cleanup:
                     timestamp(),
                 ),
             )
-            for reference, owners in inventory.get("shared_owners", {}).items():
-                db.executemany(
-                    "INSERT OR IGNORE INTO file_owners VALUES (?,?)",
-                    [(reference, owner) for owner in owners],
-                )
+            self._retain_shared(db, inventory.get("shared_owners", {}))
             for revision in inventory.get("retire", []):
                 db.execute("UPDATE revisions SET images_retired=1 WHERE id=?", (revision,))
         if defer_cleanup:
             return {"state": "committed", "cleanup_id": identity}
         return self._resume(identity)
+
+    @staticmethod
+    def _retain_shared(db, shared):
+        db.executemany(
+            "INSERT OR IGNORE INTO file_owners VALUES (?,?)",
+            ((reference, owner) for reference, owners in shared.items() for owner in owners),
+        )
 
     def _resume(self, identity):
         with self.storage.connect() as db:
@@ -383,6 +402,29 @@ class Cleanup:
             return {"state": "complete", "cleanup_id": identity}
         inventory = json.loads(row[0])
         try:
+            if inventory["kind"] == "campaign":
+                # Older deletion lists could include uploads named in notes.
+                # Recheck who owns each upload before removing it.
+                campaign_id = inventory["campaign_id"]
+                with self.storage.connect() as db:
+                    owned = {
+                        row[0]
+                        for row in db.execute(
+                            "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign_id,)
+                        )
+                    }
+                    files = [
+                        item
+                        for item in inventory["files"]
+                        if not item["reference"].startswith("private/uploads/")
+                        or item["reference"] in owned
+                    ]
+                    shared = self._shared_files(campaign_id, files)
+                    self._retain_shared(db, shared)
+                inventory["files"] = [item for item in files if item["reference"] not in shared]
+                inventory["shared_file_count"] += len(shared)
+            else:
+                self._require_unshared(inventory["campaign_id"], inventory["files"])
             for item in inventory["files"]:
                 path = self.storage.path(item["reference"])
                 try:
@@ -455,7 +497,11 @@ class Cleanup:
             }
 
     def retry(self, campaign_id, identity):
-        with self.storage.exclusive_run(), self.storage.connect() as db:
+        with (
+            self.storage.exclusive_run(),
+            self.storage.exclusive_draft(),
+            self.storage.connect() as db,
+        ):
             row = db.execute(
                 "SELECT campaign_id FROM cleanup_intents WHERE id=?", (identity,)
             ).fetchone()
@@ -465,7 +511,7 @@ class Cleanup:
 
     def resume_all(self):
         try:
-            with self.storage.exclusive_run():
+            with self.storage.exclusive_run(), self.storage.exclusive_draft():
                 with self.storage.connect() as db:
                     identities = [
                         row[0]
@@ -528,9 +574,12 @@ class Cleanup:
         return [row for row in rows if row[0] not in keep]
 
     def _require_unshared(self, campaign_id, files):
-        shared = self._other_references(campaign_id)
-        shared.update(self._references(campaign_id, live_only=True))
-        if any(item["reference"] in shared for item in files):
+        if not files:
+            return
+        shared = set(self._other_owners(campaign_id))
+        shared.update(self._file_key(ref) for ref in self._references(campaign_id, live_only=True))
+        shared.discard(None)
+        if any(self._file_key(item["reference"]) in shared for item in files):
             raise StateError(
                 "An older output is used as an input by this or another campaign. "
                 "Replace that input before creating new images."
