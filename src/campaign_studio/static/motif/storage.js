@@ -109,11 +109,11 @@ function showCampaignChooser() {
   }
   showStorage("campaign-context", {
     campaignName: draft.name,
-    campaignSummary: `${campaignContext({id: draft.campaign_id, name: draft.name, brand: draft.brand.name}) ? campaignContext({id: draft.campaign_id, name: draft.name, brand: draft.brand.name}) + " · " : ""}${draft.products.length} ${draft.products.length === 1 ? "product" : "products"} · ${Object.keys(draft.markets).length} ${Object.keys(draft.markets).length === 1 ? "language" : "languages"}`,
+    campaignSummary: `${draft.brand.name ? draft.brand.name + " · " : ""}${draft.products.length} ${draft.products.length === 1 ? "product" : "products"} · ${Object.keys(draft.markets).length} ${Object.keys(draft.markets).length === 1 ? "language" : "languages"}`,
     otherCampaigns: saved.filter((c) => c.id !== draft.campaign_id).map((c) => ({
       id: c.id,
       name: c.name,
-      summary: `${campaignContext(c) ? campaignContext(c) + " · " : ""}${c.products} ${c.products === 1 ? "product" : "products"} · ${workbenchCounts(c)} · ${activityLabel(c.updated)}`,
+      summary: `${c.brand ? c.brand + " · " : ""}${c.products} ${c.products === 1 ? "product" : "products"} · ${workbenchCounts(c)} · ${activityLabel(c.updated)}`,
     })),
   });
 }
@@ -135,7 +135,7 @@ async function previewDeletion() {
   const request = ++storageRequest;
   const controller = new AbortController();
   deletionInventory = controller;
-  showStorage("delete-loading", { campaignName: deletion.name });
+  showStorage("delete-loading", { campaignName: deletion.name, hasUnsavedEdits: campaign === draft?.campaign_id && hasPendingNavigationWork() });
   try {
     const inventory = await api(
       `/api/campaigns/${campaign}/cleanup/preview`,
@@ -144,7 +144,11 @@ async function previewDeletion() {
     );
     if (request !== storageRequest || modal !== "storage") return;
     deletion = { ...deletion, inventory };
-    showStorage("delete-confirm", deletionData(inventory));
+    storageView = { state: "delete-confirm", data: deletionData(inventory) };
+    const view = MotifStorage.getView(storageView.state, storageView.data);
+    // The confirmation keeps its header, buttons, and focus while file counts arrive.
+    $("#overlay .modal-body").innerHTML = view.body;
+    $('[data-action="storage:confirm-delete"]', $("#overlay")).disabled = false;
   } catch (error) {
     if (controller.signal.aborted) return;
     if (request !== storageRequest || modal !== "storage") return;
@@ -365,7 +369,7 @@ async function dispatchStorage(action, identity) {
     case "card-delete": {
       const card = saved.find((item) => item.id === identity);
       if (!card || page !== "library") throw new Error("Refresh the workbench to find this campaign.");
-      deletion = { campaign: card.id, name: card.name, label: [card.name, campaignDistinction(card)].filter(Boolean).join(" · ") };
+      deletion = { campaign: card.id, name: card.name, label: card.name };
       await previewDeletion();
       return;
     }
@@ -413,6 +417,8 @@ async function dispatchStorage(action, identity) {
       openModal("rename");
       return;
     case "new":
+      if (typeof guardBrandNavigation === "function" && guardBrandNavigation({ action: "new" }))
+        return;
       if (!guardNavigation({ action: "new" })) {
         clearStorageContext();
         openModal("new");

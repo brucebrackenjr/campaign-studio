@@ -24,6 +24,8 @@ function harness() {
   };
   const pending = [], timers = [];
   const context = vm.createContext({
+    campaignIdentity: () => ({name: "Campaign", brand: "Brand"}),
+    MotifTextLimits: {issue: () => null, purposeIssue: () => null, guardFields: () => true},
     document: { addEventListener() {} },
     $: get,
     $$: () => [],
@@ -234,6 +236,8 @@ test("campaign names in page headings are escaped as text", () => {
   // The unavailable-campaign recovery shell has no authored draft yet.
   h.context.page = "campaign";
   h.context.draft = null;
+  const api = readFileSync("src/campaign_studio/static/motif/api.js", "utf8");
+  vm.runInContext(api.slice(api.indexOf("function campaignIdentity("), api.indexOf("async function saveDraft(")), h.context);
   const recovery = h.run('shell("Campaign could not be opened")');
   assert.ok(recovery.includes("Untitled campaign"));
   assert.ok(recovery.includes("Campaign could not be opened"));
@@ -416,7 +420,8 @@ test("Production recovery projects real saved counts and attempt outcomes", () =
 
 test("product image choices preserve current modes and expose the two approved actions", () => {
   for (const treatment of ['reuse','concept','prepared']) {
-    const context=vm.createContext({document:{addEventListener(){}},window:{},operation:null,page:'production',
+    const context=vm.createContext({
+    MotifTextLimits: {issue: () => null, purposeIssue: () => null, guardFields: () => true},document:{addEventListener(){}},window:{},operation:null,page:'production',
       modal:'product',draft:{products:[{id:'product'}]},projectBuffers:{form_drafts:{}},
       modalProduct:{id:'product',name:'Product',description:'Details',source:{role:treatment==='concept'?'concept':treatment==='prepared'?'prepared_product':'finished_scene',description:'Generation details'},treatment},
       retainedProductPhoto:()=>({source:{path:'retained.png'},url:'/retained'}),
@@ -850,6 +855,7 @@ test("partial package confirmation keeps the requested folder or report action w
 test("new-campaign dialog never inherits the previously opened campaign identity", () => {
   for (const name of ["Autumn Winds", "Bridle & Bough", ""]) {
     const context = vm.createContext({
+    MotifTextLimits: {issue: () => null, purposeIssue: () => null, guardFields: () => true},
       modal: "new", C: {name}, esc: String,
       input: (label, id, value) => `<input id="${id}" value="${value}">`,
       area: (label, id, value) => `<textarea id="${id}">${value}</textarea>`,
@@ -867,6 +873,7 @@ test("new-campaign dialog never inherits the previously opened campaign identity
 
 test("Overview distinguishes first production from saved missing and withheld outputs", () => {
   const context = vm.createContext({
+    MotifTextLimits: {issue: () => null, purposeIssue: () => null, guardFields: () => true},
     C: {products: [{id: "bell", name: "Bell strap"}], markets: ["en"]},
     FMT: [{name: "Square", ratio: "1:1"}], LANG: {en: "English (United States)"},
     filter: "all", pageNum: 0, model: {manifest: null},

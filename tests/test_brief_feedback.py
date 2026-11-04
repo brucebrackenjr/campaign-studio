@@ -23,6 +23,7 @@ from campaign_studio.imaging import compose, load_image
 from campaign_studio.intake import Intake
 from campaign_studio.planning import canonical_hash, make_plan
 from campaign_studio.provider import OpenAIImages
+from campaign_studio.text_limits import LIMITS
 from campaign_studio.workspace import Workspace
 
 
@@ -219,6 +220,33 @@ def preview_request(client, cid, ratio="1:1"):
     }
 
 
+def test_scratch_typography_preview_accepts_valid_names_without_a_plan(preview_ui):
+    client, state, _, _ = preview_ui
+    cid, _ = Intake(state.storage).new(
+        name="🦊" * LIMITS["campaign_name"], brand="é" * LIMITS["brand_name"]
+    )
+    saved = action(client, cid)
+    request = preview_request(client, cid)
+    request["brief"]["markets"]["en-US"]["copy"] = {
+        "message": "Ready for winter.",
+        "cta": "Explore the collection.",
+    }
+    request["brief"]["products"] = [
+        {"id": "product-1", "name": "Bell strap", "source": {"role": "concept"}}
+    ]
+    response = client.post(f"/api/motif/campaigns/{cid}/brief-preview", json=request)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "ready" and result["kind"] == "typography", result
+    assert not result["issues"] and result["logo_missing"]
+    image = client.get(result["image"]["url"])
+    assert image.status_code == 200
+    with Image.open(io.BytesIO(image.content)) as preview:
+        assert preview.size == (1080, 1080)
+    assert action(client, cid) == saved
+    assert Workspace(state).run_for(cid) is None
+
+
 def test_representative_preview_matches_real_renderer_all_formats_without_publication(preview_ui):
     client, state, run, cid = preview_ui
     with state.storage.connect() as db:
@@ -276,6 +304,23 @@ def test_representative_preview_matches_real_renderer_all_formats_without_public
     with state.storage.connect() as db:
         assert list(db.iterdump()) == rows
     assert all(p.read_bytes() == content for p, content in before.items())
+    assert state.revision_count(run) == 0 and not state.attempts(run)
+
+
+def test_attached_photo_previews_without_a_logo_even_with_a_saved_wide_logo_position(preview_ui):
+    client, state, run, cid = preview_ui
+    request = preview_request(client, cid)
+    request["brief"]["brand"]["logo_path"] = None
+    # A wide, shallow logo would fit at this position; a square placeholder would not.
+    request["brief"]["products"][0].setdefault("framing", {}).setdefault("en-US", {})["1:1"] = {
+        "logo_placement": {"left": 0.05, "top": 0.90, "width": 0.25}
+    }
+    response = client.post(f"/api/motif/campaigns/{cid}/brief-preview", json=request)
+    data = response.json()
+    assert data["status"] == "ready" and data["kind"] == "composition", data
+    assert data["logo_missing"] and not data["issues"]
+    with Image.open(io.BytesIO(client.get(data["image"]["url"]).content)) as preview:
+        assert preview.size == (1080, 1080) and preview.convert("RGB").getextrema()[0][0] < 255
     assert state.revision_count(run) == 0 and not state.attempts(run)
 
 

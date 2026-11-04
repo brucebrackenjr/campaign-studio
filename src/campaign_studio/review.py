@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from campaign_studio.brief import CampaignID, Contract, Text
+from campaign_studio.brief import CampaignID, Contract, Description
 from campaign_studio.planning import canonical_hash
 
 
@@ -17,7 +17,7 @@ class RevisionTarget(Contract):
 
 class CreativeUpdate(Contract):
     expected_version: int = Field(ge=0, strict=True)
-    description: Text | None = None
+    description: Description | None = None
 
     @model_validator(mode="after")
     def meaningful_edit(self):

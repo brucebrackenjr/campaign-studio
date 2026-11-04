@@ -80,7 +80,7 @@ jobs:
 
   windows:
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -94,13 +94,18 @@ jobs:
           enable-cache: false
       - name: Install from the lock
         run: uv sync --locked
-      - name: Native filesystem, key, campaign, and bundled-image checks
-        run: >-
-          uv run --locked pytest -q --basetemp=.pytest-tmp
-          tests/test_windows_runtime.py tests/test_project_folders.py tests/test_bundled.py
-          tests/test_web_workflow.py::test_status_reads_current_images_before_recovery_retires_them
-          "tests/test_process_durability.py::test_killed_after_response_recovers_before_first_revision[True]"
+      - name: Python behavioral tests on Windows
+        run: uv run --locked pytest --junitxml=.checks/windows-pytest.xml
       - name: Check installed smoke command
         run: .\.venv\Scripts\campaign-studio.exe smoke --data-dir .checks/smoke
       - name: Check installed synthetic images and export
         run: .\.venv\Scripts\campaign-studio.exe sample-run --data-dir .checks/sample
+      - name: Preserve Windows check reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-check-reports
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: .checks/windows-pytest.xml

@@ -30,6 +30,7 @@ function harness() {
     views = [],
     notices = [];
   const context = vm.createContext({
+    AbortController,
     draft: { campaign_id: "80324ca6-5874-5f29-9614-82eaa05dd506", name: "Chosen campaign" },
     modal: null,
     modalProduct: null,
@@ -151,7 +152,7 @@ test("completed duplicate resume reconciles deleted status instead of looping on
   assert.deepEqual(h.notices, ["Campaign deleted."]);
 });
 
-test("same-name context is stable across activity order and excludes only the current chooser ID", () => {
+test("campaign chooser uses brand and saved activity and excludes only the current campaign ID", () => {
   const h = harness();
   h.context.window = h.context;
   h.context.addEventListener = () => {};
@@ -165,17 +166,14 @@ test("same-name context is stable across activity order and excludes only the cu
   ];
   h.context.draft = { campaign_id: "c6ff7987-ac90-5520-a18a-9cddb419fbe3", name: "Field Notes", brand: { name: "HOLD" }, products: [{}], markets: { "en-US": {}, "es-MX": {} } };
   const original = JSON.stringify(h.context.saved);
-  assert.equal(h.run("campaignDistinction(saved[0])"), "Same name · 2 of 2");
-  assert.equal(h.run("campaignDistinction(saved[1])"), "Same name · 1 of 2");
   h.run("showCampaignChooser()");
-  assert.match(h.run("storageView.data.campaignSummary"), /^Same name · 2 of 2 · HOLD/);
+  assert.match(h.run("storageView.data.campaignSummary"), /^HOLD/);
   assert.equal(h.run("storageView.data.otherCampaigns.length"), 1);
   assert.equal(h.run("storageView.data.otherCampaigns[0].id"), "8fca7c2c-091a-5bfe-ace8-b6af9c0e801c");
-  assert.match(h.run("storageView.data.otherCampaigns[0].summary"), /^Same name · 1 of 2 · HOLD/);
+  assert.match(h.run("storageView.data.otherCampaigns[0].summary"), /^HOLD/);
   assert.equal(JSON.stringify(h.context.saved), original);
   h.context.saved.reverse();
   h.context.saved[0].updated = "2026-10-31T12:00:00Z";
-  assert.equal(h.run("campaignDistinction(saved[0])"), "Same name · 1 of 2");
   h.context.saved = [h.context.saved[1]];
   h.run("showCampaignChooser()");
   assert.equal(h.run("storageView.data.otherCampaigns.length"), 0);
@@ -235,4 +233,29 @@ test("image refusal restores the current connected trigger only for its still-cu
     assert.equal(focus,current?2:0);
     assert.equal(h.context.modal,null);
   }
+});
+
+test('deletion inventory updates one confirmation shell and preserves Cancel focus until counts are ready', async () => {
+  const h=harness(), nodes=new Map();
+  h.context.window=h.context;
+  h.run(readFileSync('src/campaign_studio/static/motif/storage-components.js','utf8'));
+  h.context.$=selector=>{
+    if(!nodes.has(selector)) nodes.set(selector,{childNodes:[],disabled:true,innerHTML:'',focus(){}});
+    return nodes.get(selector);
+  };
+  const cancel={name:'Cancel'};
+  h.context.document.activeElement=cancel;
+  const pending=h.run('previewDeletion()');
+  assert.equal(h.views.length,1);
+  const loading=h.run('MotifStorage.getView(storageView.state,storageView.data)');
+  assert.equal(loading.title,'Delete this campaign?');
+  assert.match(loading.footer,/confirm-delete" disabled/);
+  h.requests.shift().resolve({name:'Chosen campaign',token:'verified',removable_bytes:1024,source_file_count:2,output_png_count:6,package_count:1,unmanaged_file_count:0});
+  await pending;
+  assert.equal(h.views.length,1);
+  assert.equal(h.run('storageView.state'),'delete-confirm');
+  assert.equal(h.context.document.activeElement,cancel);
+  assert.match(nodes.get('#overlay .modal-body').innerHTML,/6 PNGs/);
+  assert.equal(nodes.get('[data-action="storage:confirm-delete"]').disabled,false);
+  assert.equal(h.run('deletion.inventory.token'),'verified');
 });

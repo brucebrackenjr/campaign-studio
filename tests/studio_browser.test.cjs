@@ -170,7 +170,7 @@ test("first framing image stays hidden until decoded and failure preserves the p
   const h = framingHarness();
   const first = h.run("refreshFramePreview()");
   assert.equal(h.get("#frame-image").hidden, true);
-  assert.equal(h.get("#frame-status").textContent, "Preparing local preview…");
+  assert.equal(h.get("#frame-status").textContent, "Preparing preview…");
   assert.equal(h.get("[data-action=saveFrame]").disabled, true);
   h.requests.shift().reject(new Error("Controlled first preview failure"));
   await first;
@@ -186,7 +186,7 @@ test("first framing image stays hidden until decoded and failure preserves the p
   for (const decode of h.decodes.splice(0)) decode.resolve({ src: decode.url });
   await flush();
   assert.equal(h.get("#frame-image").hidden, true);
-  assert.equal(h.get("#frame-status").textContent, "Preparing local preview…");
+  assert.equal(h.get("#frame-status").textContent, "Preparing preview…");
   h.displayDecodes.shift().resolve();
   await retry;
   assert.equal(h.get("#frame-image").hidden, false);
@@ -405,10 +405,8 @@ test("source-inherited safety is identified until edited or explicitly cleared",
     h.get("#frame-subject-state").textContent,
     "Source area retained",
   );
-  assert.match(
-    h.get("#frame-subject-help").textContent,
-    /came with the source/,
-  );
+  assert.equal(h.run("inheritedFrameSubject()"), true);
+  assert.equal(h.run("frameBody().framing.subject_box.left"), 0.2);
   h.run("framingDraft.subject.x=.21; syncFrameSafetyControl()");
   assert.equal(h.run("inheritedFrameSubject()"), false);
   assert.doesNotMatch(
@@ -417,10 +415,7 @@ test("source-inherited safety is identified until edited or explicitly cleared",
   );
   h.run("framingDraft.subject=null; syncFrameSafetyControl()");
   assert.equal(h.run("inheritedFrameSubject()"), false);
-  assert.match(
-    h.get("#frame-subject-help").textContent,
-    /No safety area marked/,
-  );
+  assert.equal(h.run("frameBody().framing.subject_box"), null);
 });
 
 test("carousel focus reveals a clipped card without moving the page or unrelated cards", () => {
@@ -466,9 +461,8 @@ test("carousel focus reveals a clipped card without moving the page or unrelated
   }
 });
 
-test("failed workbench thumbnail preserves its same-name badge and campaign target", () => {
+test("failed workbench thumbnail preserves its campaign target", () => {
   let onError;
-  const badge = { textContent: "Same name · 2 of 2" };
   const card = { campaignId: "8f57d6d7-9318-564d-b7a8-1b78b4e978b7", title: "Field Notes" };
   const artwork = {
     children: [],
@@ -486,7 +480,7 @@ test("failed workbench thumbnail preserves its same-name badge and campaign targ
       if (index >= 0) artwork.children.splice(index, 1, { html: value });
     },
   };
-  artwork.children = [thumbnail, badge];
+  artwork.children = [thumbnail];
   const context = vm.createContext({
     window: { addEventListener() {} },
     document: {
@@ -503,9 +497,7 @@ test("failed workbench thumbnail preserves its same-name badge and campaign targ
     context,
   );
   onError({ target: thumbnail });
-  assert.equal(artwork.children.length, 2);
-  assert.equal(artwork.children[1], badge);
-  assert.equal(badge.textContent, "Same name · 2 of 2");
+  assert.equal(artwork.children.length, 1);
   assert.match(artwork.children[0].html, /Image unavailable/);
   assert.deepEqual(artwork.parentElement, {
     campaignId: "8f57d6d7-9318-564d-b7a8-1b78b4e978b7",
@@ -698,4 +690,77 @@ test("dragging the framed photo tracks source pixels, clamps travel, and cancels
   }
   h.run("framingRecovery=null");pan.hidden=true;fire("pointerdown",0,0);
   assert.equal(pan.capture,null,"hidden pan surface cannot capture");
+});
+
+test('marked safety area applies directly after exact preview decode, without a separate editing commit', async () => {
+  const h = framingHarness();
+  h.run('markFrameSubject()');
+  assert.equal(h.run('framingMarking'), true);
+  assert.equal(h.get('#frame-primary').disabled, true);
+  assert.equal(h.requests.length, 1);
+  assert.ok(Math.abs(h.requests[0].body.framing.subject_box.left - .25) < 1e-12);
+  await h.finishPreview('/marked');
+  assert.equal(h.get('#frame-primary').disabled, false);
+  assert.equal(h.get('#frame-source').hidden, false);
+  assert.equal(h.get('#frame-image').hidden, true);
+  assert.equal(h.get('#frame-status').textContent, '');
+  h.context.finishFraming = async () => true;
+  const apply = h.run('saveFraming()');
+  await flush();
+  assert.match(h.requests[0].url, /framing\/apply$/);
+  assert.equal(h.requests[0].body.preview_digest, '/marked');
+  assert.ok(Math.abs(h.requests[0].body.framing.subject_box.right - .75) < 1e-12);
+  h.requests.shift().resolve({revision_id:'applied'});
+  await flush();
+  h.requests.shift().resolve({manifest:{revision_id:'applied'}});
+  assert.equal(await apply, true);
+});
+
+test('closing safety edits discards them; a crop cutting the current area never enables Apply', async () => {
+  const h = framingHarness();
+  h.run('markFrameSubject();endFraming();modal=""');
+  h.requests.shift().resolve({digest:'late',blocked:false,images:[]});
+  await flush();
+  assert.equal(h.decodes.length, 0);
+  h.run('modal="frame";beginFraming();framingSource={width:1000,height:1000,src:"/source"}');
+  assert.equal(h.run('framingDraft.subject'), null);
+  h.run('framingMarking=true;framingDraft.subject={x:.1,y:.1,w:.8,h:.8};framingDraft.zoom=2;requestFramePreview()');
+  await h.finishPreview('/unsafe');
+  assert.equal(h.get('#frame-primary').disabled, true);
+  assert.match(h.get('#frame-status').textContent, /Crop cuts the marked product area/);
+  await assert.rejects(h.run('saveFraming()'), /safe framing preview/);
+  assert.equal(h.requests.length, 0);
+});
+
+test('drawing cancellation restores the previous safety box and keyboard edits preview the updated box', async () => {
+  const h = framingHarness(), events = new Map();
+  h.context.ResizeObserver = class { observe() {} disconnect() {} };
+  for (const selector of ['#frame-source','#frame-show-safety','#frame-subject-box']) {
+    const element = h.get(selector);
+    element.addEventListener = (name, handler) => events.set(selector+':'+name, handler);
+  }
+  const stage=h.get('#frame-source');
+  stage.getBoundingClientRect=()=>({left:0,top:0,width:100,height:100});
+  stage.setPointerCapture=()=>{}; stage.hasPointerCapture=()=>false;
+  h.context.$$=()=>[];
+  h.context.bindFramePan=()=>null;
+  h.run('bindFraming()'); await h.finishPreview('/initial');
+  h.run('markFrameSubject()'); await h.finishPreview('/marked');
+  const original=h.run('JSON.stringify(framingDraft.subject)');
+  const fire=(name, extra={})=>events.get('#frame-source:'+name)({pointerId:1,button:0,clientX:10,clientY:10,preventDefault(){},stopPropagation(){},...extra});
+  fire('pointerdown');
+  assert.equal(h.get('#frame-primary').disabled, true);
+  assert.equal(await h.run('saveFraming()'), false);
+  fire('pointermove',{clientX:80,clientY:80});
+  assert.notEqual(h.run('JSON.stringify(framingDraft.subject)'), original);
+  fire('pointercancel');
+  assert.equal(h.run('JSON.stringify(framingDraft.subject)'), original);
+  await h.finishPreview('/restored');
+  events.get('#frame-subject-box:keydown')({key:'ArrowRight',preventDefault(){}});
+  assert.ok(Math.abs(h.requests[0].body.framing.subject_box.left - .26) < 1e-12);
+  await h.finishPreview('/moved');
+  events.get('#frame-subject-box:keydown')({key:'ArrowDown',shiftKey:true,preventDefault(){}});
+  assert.ok(Math.abs(h.requests[0].body.framing.subject_box.bottom - .76) < 1e-12);
+  await h.finishPreview('/resized');
+  assert.equal(h.get('#frame-primary').disabled, false);
 });

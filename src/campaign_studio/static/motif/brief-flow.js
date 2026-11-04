@@ -71,11 +71,11 @@
   }
   function preview(v) {
     const p = v.products.find((p) => p.id === v.productId);
-    return `<aside class="bf-preview ${v.preview?.note ? "bf-preview-noted" : ""}" aria-label="Brief preview"><div class="bf-preview-label"><strong>Brief preview</strong>${v.tab === "brand" ? marketSelect(v) : `<span>${languages[v.language]}</span>`}</div><div class="bf-preview-target"><select data-bf-field="previewProduct" aria-label="Preview product">${v.products.map((p) => `<option value="${esc(p.id)}" ${p.id === v.productId ? "selected" : ""}>${esc(p.name)}</option>`).join("") || '<option value="">No product selected</option>'}</select><div class="bf-formats" role="group" aria-label="Preview format">${["1:1", "9:16", "16:9"].map((r) => `<button type="button" data-bf-action="format:${r}" aria-label="Preview ${r}" aria-pressed="${v.ratio === r}">${r}</button>`).join("")}</div></div><div class="bf-preview-stage" data-bf-preview-stage>${previewStage(v.preview)}</div><div class="bf-preview-caption" data-bf-preview-caption>${previewCaption(v)}</div></aside>`;
+    return `<aside class="bf-preview ${v.preview?.note ? "bf-preview-noted" : ""}" aria-label="Product Preview"><div class="bf-preview-label"><strong>Product Preview</strong>${v.tab === "brand" ? marketSelect(v) : `<span>${languages[v.language]}</span>`}</div><div class="bf-preview-target"><select data-bf-field="previewProduct" aria-label="Preview product">${v.products.map((p) => `<option value="${esc(p.id)}" ${p.id === v.productId ? "selected" : ""}>${esc(p.name)}</option>`).join("") || '<option value="">No product selected</option>'}</select><div class="bf-formats" role="group" aria-label="Preview format">${["1:1", "9:16", "16:9"].map((r) => `<button type="button" data-bf-action="format:${r}" aria-label="Preview ${r}" aria-pressed="${v.ratio === r}">${r}</button>`).join("")}</div></div><div class="bf-preview-stage" data-bf-preview-stage>${previewStage(v.preview)}</div><div class="bf-preview-caption" data-bf-preview-caption>${previewCaption(v)}</div>${v.tab === "brand" && v.customPreviewColors ? `<p class="bf-hint">This image uses custom text colors. ${button("Use default for this image", "use-preview-default", "bf-small bf-quiet")}</p>` : ""}</aside>`;
   }
   function previewStage(p) {
-    if (p?.phase === "ready" && p.url)
-      return `<img src="${esc(p.url)}" alt="${esc(p.alt || "Representative composition using the current Brief")}">`;
+    if (["ready", "source"].includes(p?.phase) && p.url)
+      return `<img${p.kind === "typography" ? ' class="bf-typography-preview"' : ""} src="${esc(p.url)}" alt="${esc(p.alt || "Representative composition using the current Brief")}">`;
     if (p?.phase === "pending")
       return '<div class="bf-preview-busy" role="status"><i aria-hidden="true"></i>Updating preview…</div>';
     const messages = {
@@ -83,11 +83,7 @@
         "Choose a product to preview.",
         "Add a product and its imagery to see this brief take shape.",
       ],
-      invalid: [
-        "Finish this detail to preview.",
-        p?.message ||
-          "Enter a complete six-digit color. Your unfinished value is still saved in the brief.",
-      ],
+      invalid: [p?.message || "Check the preview settings.", ""],
       failed: [
         "Preview unavailable.",
         "Your brief is still here. Try loading this preview again.",
@@ -98,12 +94,13 @@
       ],
     };
     const [title, body] = messages[p?.phase] || messages.empty;
-    return `<div class="bf-preview-empty" role="status"><strong>${esc(title)}</strong><p>${esc(body)}</p>${p?.phase === "failed" ? button("Retry preview", "retry-preview", "bf-small") : ""}</div>`;
+    return `<div class="bf-preview-empty" role="status"><strong>${esc(title)}</strong>${body ? `<p>${esc(body)}</p>` : ""}${p?.phase === "failed" ? button("Retry preview", "retry-preview", "bf-small") : ""}</div>`;
   }
   function previewCaption(v) {
     const p = v.products.find((p) => p.id === v.productId),
       pv = v.preview || {};
-    return `<strong>${pv.kind === "typography" ? "Typography preview · product imagery unavailable" : "Representative preview · saved images unchanged"}</strong><br>${pv.kind === "typography" ? "The background is a placeholder. No image request was made." : p ? `${esc(languages[v.language])} · ${esc(v.ratio)}` : "Select a product, language, and format."}${pv.note ? `<br>${esc(pv.note)}` : ""}`;
+    if (pv.kind === "source") return `<strong>Product photo</strong><br>${esc(pv.note)}`;
+    return `${pv.kind === "typography" ? "No image exists for this product yet." : p ? `${esc(languages[v.language])} · ${esc(v.ratio)}` : "Select a product, language, and format."}${pv.note ? `<br>${esc(pv.note)}` : ""}`;
   }
   function inlineMessage(message, kind = "error", action) {
     return message
@@ -111,7 +108,7 @@
       : "";
   }
   function brand(v) {
-    return `<div class="bf-layout bf-brand-layout"><section class="bf-panel"><h2>One recognizable signature.</h2><div class="bf-brand-grid"><div>${field("Brand name", "brandName", v.brandName)}<div class="bf-field"><span class="bf-label">Visible logo</span><div class="bf-logo-card"><div class="bf-logo-art">${v.logo?.url ? `<img src="${esc(v.logo.url)}" alt="Selected logo">` : '<span class="bf-hint">No logo attached</span>'}</div>${button(v.logoStatus === "pending" ? "Checking logo…" : v.logo ? "Replace logo" : "Attach logo", "upload-logo", "bf-small", v.logoStatus === "pending" ? "disabled" : "")}<input type="file" accept="image/png,image/jpeg" data-bf-upload hidden><p class="bf-hint">PNG or JPEG · up to 20 MiB / 40 MP<br>Transparency is optional.</p></div>${v.logo ? `<p class="bf-logo-facts">${esc(v.logo.filename)}<br>${esc(v.logo.type)} · ${v.logo.width} × ${v.logo.height}${v.logo.opaque ? " · original background kept" : ""}</p>` : ""}</div></div><div><div class="bf-field"><label for="bf-defaultColor">Default text color</label>${colorControl("defaultColor", "default text color", v.defaultDraft ?? v.color, { defaultAction: true })}<p class="bf-hint">For text that uses the campaign default. Custom block colors stay unchanged.</p></div>${inlineMessage(v.colorMessage, v.colorAction ? "info" : "error", v.colorAction)}<div class="bf-palette-head"><h3>Brand palette</h3><div class="bf-row"><span>${v.palette.length} / 8 colors</span>${v.palette.length < 8 ? button("＋ Add color", "add-color", "bf-small bf-quiet") : ""}</div></div><div class="bf-palette">${v.palette.map((c, i) => `<div class="bf-palette-cell">${colorControl("palette-" + i, "palette color " + (i + 1), c, { compact: true })}<div class="bf-palette-meta">${normalizeHex(c) === v.color ? '<span class="bf-default">● Default</span>' : `<button type="button" data-bf-action="make-default:${i}">Make default</button>`}<button type="button" data-bf-action="remove-color:${i}" aria-label="Remove palette color ${i + 1}">×</button></div></div>`).join("")}</div><p class="bf-palette-hint">Six hex digits, with or without #. Matching colors are kept once.</p>${inlineMessage(v.paletteMessage, "error", v.paletteAction)}<p class="bf-font-note"><strong>Noto Sans by default.</strong> Choose Noto Sans or Barlow Condensed per Message and CTA in Studio. Existing custom styles stay.</p>${inlineMessage(v.logoMessage, v.logoStatus === "accepted" ? "info" : "error")}${v.fitted ? `<div class="bf-inline-message info">${esc(v.fitted)}</div>` : ""}</div></div></section>${preview(v)}</div>`;
+    return `<div class="bf-layout bf-brand-layout"><section class="bf-panel"><div class="bf-brand-heading"><h2>One recognizable signature.</h2>${v.hasSavedImages ? button(v.brandUpdating ? "Updating…" : "Update Images", "update-images", "bf-primary", !v.brandPending || v.brandUpdating || v.brandColorProblem || v.logoStatus === "pending" ? "disabled" : "") : ""}</div>${v.hasSavedImages && v.brandPending ? '<p class="bf-hint">Update Images to apply these Brand changes to Studio, Handoff, and exports.</p>' : ""}<div class="bf-brand-grid"><div>${field("Brand name", "brandName", v.brandName)}<div class="bf-field"><span class="bf-label">Brand logo</span><div class="bf-logo-card"><div class="bf-logo-art">${v.logo?.url ? `<img src="${esc(v.logo.url)}" alt="Selected logo">` : v.hasLogo ? '<span class="bf-hint">Logo attached</span>' : '<span class="bf-hint">No logo attached</span>'}</div>${button(v.logoStatus === "pending" ? "Checking logo…" : v.hasLogo ? "Replace logo" : "Attach logo", "upload-logo", "bf-small", v.logoStatus === "pending" ? "disabled" : "")}${v.logoStatus === "pending" ? button("Cancel upload", "cancel-logo-upload", "bf-small bf-quiet") : v.hasLogo ? button("Remove logo", "remove-logo", "bf-small bf-quiet") : ""}<input type="file" accept="image/png,image/jpeg" data-bf-upload hidden><p class="bf-hint">PNG or JPEG · up to 20 MiB / 40 MP<br>Transparency is optional.</p></div>${v.logo ? `<p class="bf-logo-facts">${esc(v.logo.filename)}<br>${esc(v.logo.type)} · ${v.logo.width} × ${v.logo.height}${v.logo.opaque ? " · original background kept" : ""}</p>` : ""}</div><label class="bf-logo-policy"><input type="checkbox" data-bf-field="requireLogo" ${v.requireLogo ? "checked" : ""}> Require a logo on final images</label></div><div><div class="bf-field"><label for="bf-defaultColor">Default text color</label>${colorControl("defaultColor", "default text color", v.defaultDraft ?? v.color, { defaultAction: true })}<p class="bf-hint">Applies across the campaign. Colors chosen for individual images in Studio stay unchanged.</p></div>${inlineMessage(v.colorMessage, v.colorAction ? "info" : "error", v.colorAction)}<div class="bf-palette-head"><h3>Brand palette</h3><div class="bf-row"><span>${v.palette.length} / 8 colors</span>${v.palette.length < 8 ? button("＋ Add color", "add-color", "bf-small bf-quiet") : ""}</div></div><div class="bf-palette">${v.palette.map((c, i) => `<div class="bf-palette-cell">${colorControl("palette-" + i, "palette color " + (i + 1), c, { compact: true })}<div class="bf-palette-meta">${normalizeHex(c) === v.color ? '<span class="bf-default">● Default</span>' : `<button type="button" data-bf-action="make-default:${i}">Make default</button>`}<button type="button" data-bf-action="remove-color:${i}" aria-label="Remove palette color ${i + 1}">×</button></div></div>`).join("")}</div><p class="bf-palette-hint">Six hex digits, with or without #. Matching colors are kept once.</p>${inlineMessage(v.paletteMessage, "error", v.paletteAction)}<p class="bf-font-note"><strong>Noto Sans by default.</strong> Choose Noto Sans or Barlow Condensed per Message and CTA in Studio. Existing custom styles stay.</p>${inlineMessage(v.logoMessage, v.logoStatus === "accepted" ? "info" : "error")}${v.fitted ? `<div class="bf-inline-message info">${esc(v.fitted)}</div>` : ""}</div></div></section>${preview(v)}</div>`;
   }
   function copyView(v) {
     const cc = v.copy[v.language],
@@ -125,7 +122,7 @@
       brand: ["Next: Copy & Rules", "tab:copy"],
     }[v.tab];
     const previous = { products: ['Brief','campaign'], brand: ['Products','products'], copy: ['Brand','brand'] }[v.tab];
-    return `<div class="hlb"><header class="bf-head wf-stage-header"><div class="mf-page-title-group"><div class="eyebrow">01 / CAMPAIGN</div><h1>Set the direction.</h1><p>Your products, your audience, and your exact words.</p></div>${button("Next: Production →", "production", "bf-primary")}</header><div class="bf-tab-row"><nav class="bf-tabs" role="tablist" aria-label="Campaign sections">${tabs.map(([id, label]) => `<button type="button" role="tab" id="bf-tab-${id}" aria-controls="bf-tab-panel" aria-selected="${v.tab === id}" tabindex="${v.tab === id ? 0 : -1}" data-bf-action="tab:${id}">${label}</button>`).join("")}</nav>${`<div class="wf-sequence-actions">${previous ? button("← Previous: " + previous[0], "tab:" + previous[1], "bf-quiet wf-previous") : ""}${next ? button(esc(next[0]) + " →", next[1], "bf-quiet") : ""}</div>`}</div><div id="bf-tab-panel" role="tabpanel" aria-labelledby="bf-tab-${v.tab}">${{ campaign, products, brand, copy: copyView }[v.tab](v)}</div></div>`;
+    return `<div class="hlb"><header class="bf-head wf-stage-header"><div class="mf-page-title-group"><div class="eyebrow">01 / CAMPAIGN</div><h1>Set the direction.</h1><p>Your products, your audience, and your exact words.</p></div>${button("Next: Production →", "production", "bf-primary", v.logoStatus === "pending" ? "disabled" : "")}</header><div class="bf-tab-row"><nav class="bf-tabs" role="tablist" aria-label="Campaign sections">${tabs.map(([id, label]) => `<button type="button" role="tab" id="bf-tab-${id}" aria-controls="bf-tab-panel" aria-selected="${v.tab === id}" tabindex="${v.tab === id ? 0 : -1}" data-bf-action="tab:${id}">${label}</button>`).join("")}</nav>${`<div class="wf-sequence-actions">${previous ? button("← Previous: " + previous[0], "tab:" + previous[1], "bf-quiet wf-previous") : ""}${next ? button(esc(next[0]) + " →", next[1], "bf-quiet") : ""}</div>`}</div><div id="bf-tab-panel" role="tabpanel" aria-labelledby="bf-tab-${v.tab}">${{ campaign, products, brand, copy: copyView }[v.tab](v)}</div></div>`;
   }
   function mount(root, { onField, onAction, onFile, onPreview }) {
     let value = null,
@@ -199,6 +196,8 @@
       root
         .querySelectorAll("[data-bf-mixed]")
         .forEach((el) => (el.indeterminate = true));
+      if (v.brandUpdating)
+        root.querySelectorAll("input, textarea, select, button").forEach(el => { el.disabled = true; });
       if (key || activeField || activeAction) {
         const el = root.querySelector(key ? "#" + CSS.escape(key)
           : activeField ? `[data-bf-field="${CSS.escape(activeField)}"]`

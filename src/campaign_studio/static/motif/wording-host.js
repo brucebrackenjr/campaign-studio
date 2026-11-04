@@ -31,12 +31,16 @@ function wordingNotice() {
 function wordingExportBlocked() {
   return currentWordingView().phase !== "clear";
 }
+function exportBlocked() {
+  return !!model?.logo_issue || wordingExportBlocked();
+}
 function paintWordingAvailability() {
   const content = MotifWording.notice(currentWordingView());
+  for (const slot of $$('[data-logo-notice]')) slot.innerHTML = handoffLogoNotice();
   const slots = $$('[data-wording-slot]');
   const focused = slots.some(slot => slot.contains(document.activeElement));
   for (const slot of slots) slot.innerHTML = content;
-  for (const button of $$('[data-wording-export]')) button.disabled = wordingExportBlocked() || button.dataset.wordingExport === "unavailable";
+  for (const button of $$('[data-wording-export]')) button.disabled = exportBlocked() || button.dataset.wordingExport === "unavailable";
   if (focused) focusWordingControl();
 }
 function focusWordingControl(action) {
@@ -98,7 +102,7 @@ function draftWordingView() {
   return dialog(cta ? "Edit the call to action." : "Edit the headline.",
     `<h3>${esc(item.product)}</h3><p class="small muted">${esc(item.language)}</p>` +
     (cta ? input("Call to action", "draft-wording-value", session.value)
-      : area("Headline", "draft-wording-value", session.value)) +
+      : area("Headline", "draft-wording-value", session.value)).replace('id="draft-wording-value"', `id="draft-wording-value" data-length-purpose="${cta ? "cta" : "headline"}"`) +
     MotifWording.fieldMessage(item.terms) + `<p class="small muted">${scope}</p>`,
     `<span class="small muted">Updates the brief. Review the plan before creating images.</span>` +
     btn("Cancel", "close") + btn("Apply wording", "applyDraftWording", "primary"));
@@ -121,6 +125,7 @@ async function applyDraftWording() {
   const session = draftWording;
   if (!session || session.saving || modal !== "draft-wording" ||
       draft !== session.owner || C.id !== session.campaign) return;
+  if (!MotifTextLimits.guardFields(["draft-wording-value"])) return;
   const target = draftWordingTarget(session), { field, market, origin } = session.item.target;
   if (!target || target[field] !== session.expected)
     throw new Error("This wording changed. Review the updated plan before correcting it.");
@@ -191,7 +196,7 @@ async function refreshWordingStatus() {
     if (model !== owner || C.id !== campaign) return;
     if (result.version !== version || result.output_run_id !== owner.output_run_id || result.manifest?.revision_id !== owner.manifest?.revision_id) {
       wordingCheckPhase = { campaign, owner, phase: "stale" };
-    } else { owner.wording_issue = result.wording_issue; wordingCheckPhase = null; }
+    } else { owner.wording_issue = result.wording_issue; owner.logo_issue = result.logo_issue; wordingCheckPhase = null; }
   } catch (_) {
     if (model === owner && C.id === campaign) wordingCheckPhase = { campaign, owner, phase: "failed" };
   }

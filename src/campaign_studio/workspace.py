@@ -675,7 +675,14 @@ class Workspace:
                         }
                     )
         brief = Brief.model_validate(value)
-        plan = make_local_plan(old, brief, self.storage)
+        opening = (
+            allow_unchanged
+            and edit.replacement is None
+            and "placement" not in edit.model_fields_set
+        )
+        # Opening a saved logo has no proposed change to plan. Keep the accepted
+        # plan; source and revision checks still run before its layers are rendered.
+        plan = old if opening else make_local_plan(old, brief, self.storage)
         impact = compare_plans(old, plan)
         # The replacement promise covers the available set, never an implicit repair.
         impact.render_outputs = [o for o in impact.render_outputs if o in available]

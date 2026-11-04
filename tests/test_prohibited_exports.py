@@ -403,10 +403,10 @@ def test_prohibited_content_is_importable_editable_and_saveable_before_planning(
         assert opened["value"]["markets"]["es-MX"]["copy"]["message"] == "Siempre contigo."
         assert opened["value"]["markets"]["es-MX"]["phrase_rules"][0]["phrase"] == "siempre"
         assert opened["run"] is None
-        saved = save(client, url, lambda a: a["brief"].update(name="Editable prohibited wording"))
+        saved = save(client, url, lambda a: a["brief"].update(name="Editable wording"))
         reopened = client.get(url).json()
         assert reopened["project"]["version"] == saved["version"]
-        assert reopened["project"]["authored"]["brief"]["name"] == "Editable prohibited wording"
+        assert reopened["project"]["authored"]["brief"]["name"] == "Editable wording"
         for page in ("campaign", "production", "studio", "handoff"):
             assert client.get(f"/campaigns/{campaign_id}/{page}").status_code == 200
         for retired in ("review", "export"):

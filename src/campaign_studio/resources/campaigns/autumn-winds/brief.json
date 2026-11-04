@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "campaign_id": "8d327173-abcd-525f-a8e1-88e80f5d5cee",
-  "name": "Autumn Winds – Stay a little longer",
+  "name": "Autumn at Home",
   "audience": "Design-conscious people who enjoy autumn gardens, quiet evenings, and thoughtfully made objects for home.",
   "creative_direction": "Rich New England autumn: copper, walnut, red and golden foliage, warm firelight, and tactile materials. Vary garden, porch, and indoor settings. Ground each product naturally. Leave calm dark space for the ivory logo, headline, and call to action. Keep the whole product small enough to crop and reposition across social formats.",
   "brand": {
@@ -86,7 +86,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -94,7 +94,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -114,7 +114,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -122,7 +122,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -142,7 +142,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -150,7 +150,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -172,7 +172,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -180,7 +180,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -200,7 +200,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -208,7 +208,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -228,7 +228,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -236,7 +236,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -274,7 +274,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -282,7 +282,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -302,7 +302,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -310,7 +310,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -330,7 +330,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -338,7 +338,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -360,7 +360,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -368,7 +368,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -388,7 +388,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -396,7 +396,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -416,7 +416,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -424,7 +424,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -462,7 +462,7 @@
                 "width": 0.42,
                 "font_size": 54,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -470,7 +470,7 @@
                 "width": 0.42,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -490,7 +490,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -498,7 +498,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -518,7 +518,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -526,7 +526,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -548,7 +548,7 @@
                 "width": 0.42,
                 "font_size": 54,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -556,7 +556,7 @@
                 "width": 0.42,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -576,7 +576,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -584,7 +584,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -604,7 +604,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -612,7 +612,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -650,7 +650,7 @@
                 "width": 0.42,
                 "font_size": 54,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -658,7 +658,7 @@
                 "width": 0.42,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -678,7 +678,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -686,7 +686,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -706,7 +706,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -714,7 +714,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -736,7 +736,7 @@
                 "width": 0.42,
                 "font_size": 54,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -744,7 +744,7 @@
                 "width": 0.42,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -764,7 +764,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -772,7 +772,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -792,7 +792,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -800,7 +800,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -838,7 +838,7 @@
                 "width": 0.7,
                 "font_size": 66,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.25,
@@ -846,7 +846,7 @@
                 "width": 0.65,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -866,7 +866,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -874,7 +874,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -894,7 +894,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -902,7 +902,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }
@@ -924,7 +924,7 @@
                 "width": 0.7,
                 "font_size": 66,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.25,
@@ -932,7 +932,7 @@
                 "width": 0.65,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -952,7 +952,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -960,7 +960,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           },
@@ -980,7 +980,7 @@
                 "width": 0.42,
                 "font_size": 60,
                 "font_id": "barlow_condensed",
-                "color": "#FFF4DC"
+                "color": null
               },
               "cta": {
                 "left": 0.34,
@@ -988,7 +988,7 @@
                 "width": 0.42,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#FFF4DC"
+                "color": null
               }
             }
           }

@@ -11,7 +11,7 @@ function harness() {
     while (pending.length < count) await once(requests, 'submitted');
   }
   const c = vm.createContext({
-    structuredClone, TextEncoder, crypto:require('node:crypto').webcrypto,
+    AbortController, structuredClone, TextEncoder, crypto:require('node:crypto').webcrypto,
     setTimeout(fn) { const id=next++; timers.set(id,fn); return id; }, clearTimeout(id) { timers.delete(id); },
     operation:null, copy:structuredClone, page:'campaign', tab:'brand', lang:'en', productLimit:5,
     currentProduct:0,currentFormat:0, LANG:{en:'English (United States)',es:'Spanish (Mexico)'}, MARKET:{en:'en-US',es:'es-MX'},FMT:[{ratio:'1:1'}],
@@ -39,6 +39,191 @@ function harness() {
     refreshBriefFlow();`);
   return {c,run,pending,timers,waitForRequests,plain:code=>JSON.parse(run('JSON.stringify('+code+')'))};
 }
+function previewView(h, decode = () => Promise.resolve()) {
+  let renders = 0, stage = {}, caption = {};
+  h.c.document = {activeElement:null};
+  h.c.Image = class { decode() { return decode(this.src); } };
+  h.c.root = {
+    addEventListener(){}, contains(){return false;}, querySelectorAll(){return [];},
+    querySelector(selector){return selector==='[data-bf-preview-stage]'?stage:selector==='[data-bf-preview-caption]'?caption:null;},
+    set innerHTML(_value){renders++;stage={innerHTML:''};caption={innerHTML:''};},
+  };
+  h.run('briefHost.view=MotifBriefFlow.mount(root,{onPreview:request=>requestBriefPreview(briefHost,request)});briefHost.previewSignature=null;refreshBriefFlow()');
+  return {renders:()=>renders, stage:()=>stage.innerHTML};
+}
+async function respondPreview(h, request, extra = {}) {
+  const digest = await h.run('briefRequestDigest('+JSON.stringify(request.body)+')');
+  request.resolve({request_digest:digest,target:{campaign_id:request.body.brief.campaign_id,
+    product_id:request.body.product_id,market:request.body.market,ratio:request.body.ratio},
+    status:'ready',kind:'typography',image:{url:'/current-preview'},fitted_outputs:[],...extra});
+}
+
+test('Brand edit settles its existing save before one preview; identical acknowledgements and source facts do not reload it', async () => {
+  const h=harness(), view=previewView(h);let phase='dirty', writes=0, finishSave;
+  const saved=new Promise(resolve=>finishSave=resolve);
+  h.c.viewModel=()=>{};
+  h.c.getSaveState=()=>({phase});
+  h.c.saveProject=async()=>{writes++;phase='saving';await saved;phase='saved';return true;};
+  h.run("changeBriefField(briefHost,'brandName','Updated Brand');flushBriefPreview(briefHost)");
+  assert.equal(writes,1);assert.equal(h.pending.length,0,'no pixels requested against a soon-to-expire version');
+  h.run("model.version='v2';refreshBriefFlow()");
+  const facts=h.run("refreshBriefSources('v2',copy(draft))");
+  h.pending[0].resolve({version:'v2',value:{campaign_id:h.c.draft.campaign_id},concept_previews:{}});
+  await facts;finishSave();await h.waitForRequests(2);
+  const request=h.pending[1];assert.match(request.url,/brief-preview$/);
+  assert.equal(request.body.version,'v2');assert.equal(request.body.brief.brand.name,'Updated Brand');
+  await respondPreview(h,request);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.match(view.stage(),/current-preview/);
+  const renders=view.renders();
+  h.run('refreshBriefFlow()');
+  const repeated=h.run("refreshBriefSources('v2',copy(draft))");
+  h.pending[2].resolve({version:'v2',value:{campaign_id:h.c.draft.campaign_id},concept_previews:{}});
+  await repeated;
+  assert.equal(view.renders(),renders,'the decoded preview DOM remains mounted');
+  assert.equal(h.pending.filter(p=>p.url.endsWith('/brief-preview')).length,1);
+  assert.equal(h.timers.size,0,'no duplicate preview remains scheduled');assert.equal(writes,1);
+});
+
+test('new typing during a preview save is coalesced into the acknowledged current request', async () => {
+  const h=harness();previewView(h);let finishSave,writes=0;
+  h.c.getSaveState=()=>({phase:'saving'});
+  h.c.saveProject=()=>{writes++;return new Promise(resolve=>finishSave=resolve);};
+  h.run("changeBriefField(briefHost,'message','First');flushBriefPreview(briefHost)");
+  h.run("changeBriefField(briefHost,'message','Latest');flushBriefPreview(briefHost);model.version='v3';refreshBriefFlow()");
+  assert.equal(h.pending.length,0);finishSave(true);await h.waitForRequests(1);
+  assert.equal(writes,1);assert.equal(h.pending[0].body.version,'v3');
+  assert.equal(h.pending[0].body.brief.markets['en-US'].copy.message,'Latest');
+  await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+  assert.equal(h.pending.length,1);assert.equal(h.timers.size,0);
+});
+
+test('other product source facts during decode update cards without restarting the selected image request', async () => {
+  const h=harness();let finishDecode,started;
+  h.run("draft.products.push({id:'b',name:'Beta',source:{role:'concept'},framing:{},copy_overrides:{}})");
+  const decoding=new Promise(resolve=>started=resolve);
+  const view=previewView(h,()=>{started();return new Promise(resolve=>finishDecode=resolve);});
+  h.c.viewModel=()=>{};h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+  const flight=h.run('briefHost.flight');await respondPreview(h,h.pending[0]);await decoding;
+  const generation=h.run('briefHost.generation'),renders=view.renders();
+  const facts=h.run("refreshBriefSources('v1',copy(draft))");
+  h.pending[1].resolve({version:'v1',value:{campaign_id:h.c.draft.campaign_id},concept_previews:{b:'/restored-source'}});
+  await facts;
+  assert.equal(h.run('briefHost.generation'),generation);assert.equal(view.renders(),renders);
+  finishDecode();await flight;
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
+  assert.equal(h.run('briefHost.vm.products[1].image'),'/restored-source');
+  assert.equal(h.pending.filter(p=>p.url.endsWith('/brief-preview')).length,1);
+  assert.equal(h.timers.size,0);
+});
+
+test('changed selected imagery or accepted revision still invalidates a ready preview', async () => {
+  for(const change of ['source','revision','run']) {
+    const h=harness();previewView(h);h.c.viewModel=()=>{};
+    h.run("model.run={id:'run-1'};refreshBriefFlow();flushBriefPreview(briefHost)");
+    await h.waitForRequests(1);await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+    const generation=h.run('briefHost.generation');
+    if(change==='source') {
+      const facts=h.run("refreshBriefSources('v1',copy(draft))");
+      h.pending[1].resolve({version:'v1',value:{campaign_id:h.c.draft.campaign_id},run:{id:'run-1'},concept_previews:{a:'/new-source'}});
+      await facts;
+    } else h.run(change==='revision'?"model.manifest.revision_id='r2';refreshBriefFlow()":"model.run.id='run-2';refreshBriefFlow()");
+    assert.ok(h.run('briefHost.generation')>generation,change);
+    assert.equal(h.run('briefHost.vm.preview.phase'),'pending');
+    h.run('flushBriefPreview(briefHost)');
+    await h.waitForRequests(change==='source'?3:2);
+    await respondPreview(h,h.pending.at(-1),{kind:'composition'});await h.run('briefHost.flight');
+    assert.equal(h.pending.filter(p=>p.url.endsWith('/brief-preview')).length,2);
+    assert.equal(h.run('briefHost.vm.preview.kind'),'composition');
+  }
+});
+
+test('selection-only preview changes do not write an already saved campaign', async () => {
+  const h=harness();previewView(h);
+  h.c.getSaveState=()=>({phase:'saved'});h.c.saveProject=()=>assert.fail('selection must not save');
+  await h.run("briefAction(briefHost,'format:9:16')");h.run('flushBriefPreview(briefHost)');
+  await h.waitForRequests(1);assert.equal(h.pending[0].body.ratio,'9:16');
+  await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
+});
+
+test('preview does not retry failed saves, and retired owners never request pixels after a save settles', async () => {
+  for (const outcome of ['failure','retired']) {
+    const h=harness();previewView(h);let resolveSave,rejectSave,writes=0;
+    h.c.getSaveState=()=>({phase:'dirty'});
+    h.c.saveProject=()=>{writes++;return new Promise((resolve,reject)=>{resolveSave=resolve;rejectSave=reject;});};
+    h.run('flushBriefPreview(briefHost)');const flight=h.run('briefHost.flight');
+    if(outcome==='retired'){h.run('briefHost.dead=true');resolveSave(true);}
+    else rejectSave(new Error('Save failed'));
+    await flight;assert.equal(writes,1);assert.equal(h.pending.length,0);
+    if(outcome==='failure')assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
+  }
+  for(const phase of ['error','conflict']) {
+    const h=harness();previewView(h);
+    h.c.getSaveState=()=>({phase,problem:{phase}});h.c.saveProject=()=>assert.fail('no hidden save retry');
+    h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+    await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+    assert.equal(h.pending.length,1);
+  }
+});
+
+test('invalid raw input remains untouched and retry still requests a fresh checked preview', async () => {
+  const h=harness();previewView(h);h.c.getSaveState=()=>({phase:'dirty',validationMessage:'Shorten the audience.'});
+  h.c.saveProject=()=>assert.fail('invalid authored values must not be submitted');
+  h.run("changeBriefField(briefHost,'defaultColor','BROKEN');flushBriefPreview(briefHost)");
+  assert.equal(h.pending.length,0);assert.equal(h.run('draft.brand.text_color'),'BROKEN');
+  h.run("changeBriefField(briefHost,'defaultColor','#FFFFFF');flushBriefPreview(briefHost)");
+  await h.waitForRequests(1);h.pending[0].reject(new Error('Preview failed'));
+  await h.run('briefHost.flight');assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
+  await h.run("briefAction(briefHost,'retry-preview')");h.run('flushBriefPreview(briefHost)');
+  await h.waitForRequests(2);await respondPreview(h,h.pending[1]);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
+});
+
+test('coalescing preserves exact response digest and target checks', async () => {
+  for(const field of ['digest','campaign_id','product_id','market','ratio']) {
+    const h=harness();previewView(h);h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+    const request=h.pending[0],target={campaign_id:h.c.draft.campaign_id,product_id:'a',market:'en-US',ratio:'1:1'};
+    if(field!=='digest')target[field]='different';
+    await respondPreview(h,request,field==='digest'?{request_digest:'wrong'}:{target});
+    await h.run('briefHost.flight');assert.equal(h.run('briefHost.vm.preview.phase'),'failed',field);
+  }
+});
+
+test('custom color notice follows the selected image even when its explicit color matches the default', async () => {
+  const h=harness();h.run("draft.products[0].framing={'en-US':{'1:1':{text_placements:{message:{color:'#FFFFFF'}}}}};draft.products.push({id:'b',name:'Beta',source:{role:'concept'},framing:{},copy_overrides:{}});refreshBriefFlow()");
+  assert.equal(h.run('briefHost.vm.customPreviewColors'),true);
+  await h.run("briefAction(briefHost,'format:9:16')");assert.equal(h.run('briefHost.vm.customPreviewColors'),false);
+  await h.run("briefAction(briefHost,'format:1:1');briefAction(briefHost,'language:es-MX')");assert.equal(h.run('briefHost.vm.customPreviewColors'),false);
+  await h.run("briefAction(briefHost,'language:en-US');changeBriefField(briefHost,'previewProduct','b')");assert.equal(h.run('briefHost.vm.customPreviewColors'),false);
+  h.run("changeBriefField(briefHost,'previewProduct','a')");assert.equal(h.run('briefHost.vm.customPreviewColors'),true);
+});
+
+test('using the campaign default clears only selected image colors and retains its other text settings', async () => {
+  const h=harness();let dirty=0;h.c.markDirty=()=>dirty++;
+  h.run(`draft.products[0].framing={'en-US':{'1:1':{text_placements:{message:{color:'#FFFFFF',left:.2,font:'barlow'},cta:{color:'#FFFFFF',top:.7,size:30}}},'9:16':{text_placements:{message:{color:'#FFFFFF',left:.3}}}},'es-MX':{'1:1':{text_placements:{cta:{color:'#FFFFFF',top:.4}}}}};
+    draft.products.push({id:'b',name:'Beta',source:{role:'concept'},framing:{'en-US':{'1:1':{text_placements:{message:{color:'#FFFFFF'}}}}},copy_overrides:{}});refreshBriefFlow()`);
+  const expected=h.plain('draft');
+  expected.products[0].framing['en-US']['1:1'].text_placements.message.color=null;
+  expected.products[0].framing['en-US']['1:1'].text_placements.cta.color=null;
+  await h.run("briefAction(briefHost,'use-preview-default')");
+  assert.deepEqual(h.plain('draft'),expected);assert.equal(dirty,1);
+  assert.equal(h.run('briefHost.vm.customPreviewColors'),false);
+});
+test('Brand controls cannot add edits or color-reset intent while images are updating', async () => {
+  const h=harness();
+  h.run("draft.products[0].framing={'en-US':{'1:1':{text_placements:{message:{color:'#112233'}}}}}; brandUpdating=true; refreshBriefFlow()");
+  const before=h.plain('draft');
+  h.c.markDirty=()=>assert.fail('must not add work during the accepted image update');
+  h.run("changeBriefField(briefHost,'defaultColor','#112233')");
+  await h.run("briefAction(briefHost,'use-preview-default')");
+  await h.run("briefAction(briefHost,'remove-logo')");
+  assert.deepEqual(h.plain('draft'),before);
+  assert.equal(h.run('projectBuffers.form_drafts.brand_color_defaults'),undefined);
+  h.run('brandUpdating=false');
+  h.c.markDirty=()=>{};
+  await h.run("briefAction(briefHost,'use-preview-default')");
+  assert.equal(h.run("draft.products[0].framing['en-US']['1:1'].text_placements.message.color"),null);
+});
 test('raw default is preserved without silently expanding palette; explicit use normalizes and deduplicates',async()=>{
   const h=harness();
   h.run("changeBriefField(briefHost,'defaultColor',' 61177c ',{commit:false})");
@@ -51,6 +236,35 @@ test('raw default is preserved without silently expanding palette; explicit use 
   h.run("changeBriefField(briefHost,'palette-1','ffffff',{commit:true})");
   assert.deepEqual(h.plain('draft.brand.palette'),['#FFFFFF']);
   assert.equal(h.run('briefHost.vm.preview.phase'),'invalid');
+});
+test('Brand color readiness follows the existing inline choice and ignores unrelated missing copy',async()=>{
+  const h=harness();h.c.brandChangesPending=()=>true;
+  const updateButton=()=>h.run('MotifBriefFlow.renderBrief(briefViewModel(briefHost))').match(/<button[^>]*data-bf-action="update-images"[^>]*>/)[0];
+  assert.equal(h.run('briefBrandColorProblem()'),'');
+  assert.doesNotMatch(updateButton(),/disabled/);
+  h.run("changeBriefField(briefHost,'defaultColor','611')");
+  assert.ok(h.run('briefBrandColorProblem()'));
+  assert.match(updateButton(),/disabled/);
+  h.run("changeBriefField(briefHost,'defaultColor','61177c')");
+  assert.match(h.run('briefBrandColorProblem()'),/Add #61177C to the palette/);
+  const html=h.run('MotifBriefFlow.renderBrief(briefViewModel(briefHost))');
+  assert.match(html,/Add color and use as default/,'the existing corrective action remains available');
+  assert.match(updateButton(),/disabled/);
+  assert.equal(h.run('draft.brand.text_color'),'61177c','readiness never trims or accepts the raw choice');
+  await h.run("briefAction(briefHost,'add-default')");
+  assert.equal(h.run('briefBrandColorProblem()'),'');
+  assert.doesNotMatch(updateButton(),/disabled/);
+  h.run("changeBriefField(briefHost,'defaultColor','#FFFFFF')");
+  assert.match(h.run('briefBrandColorProblem()'),/Use this palette color/,'an in-palette choice still waits for its explicit Use action');
+  await h.run("briefAction(briefHost,'use-default')");
+  assert.equal(h.run('briefBrandColorProblem()'),'');
+  h.run("draft.markets['en-US'].copy.message='';draft.audience='';draft.products[0].source={role:'finished_photo',path:'photo.png'};refreshBriefFlow()");
+  assert.equal(h.run('briefHost.vm.preview.phase'),'source');
+  assert.equal(h.run('briefBrandColorProblem()'),'','Brand does not inherit whole-brief preview admission');
+  assert.doesNotMatch(updateButton(),/disabled/);
+  h.run("changeBriefField(briefHost,'palette-0','')");
+  assert.match(h.run('briefBrandColorProblem()'),/each palette color/);
+  assert.match(updateButton(),/disabled/);
 });
 test('Campaign can continue to Production with zero products and unfinished values without preparing a plan',async()=>{
   const h=harness(), actions=[];
@@ -91,7 +305,7 @@ test('palette changes preserve custom text colors across other products and lang
 test('component rerender blur does not become a second edit or recursive render',()=>{
   const h=harness(); let renders=0;
   h.c.rerender=()=>{renders++;h.run("changeBriefField(briefHost,'defaultColor','BROKEN',{commit:true})")};
-  h.run('briefHost.view.render=rerender;refreshBriefFlow()');
+  h.run("briefHost.view.render=rerender;draft.audience='Changed audience';refreshBriefFlow()");
   assert.equal(renders,1);assert.equal(h.run('draft.brand.text_color'),'#FFFFFF');
 });
 test('acknowledged Brief refresh replaces only authoritative concept facts and updates current cards', async () => {
@@ -435,9 +649,11 @@ test('color normalization keeps the unchanged incoming control through its synch
   assert.equal(h.run('draft.brand.text_color'),'#ABCDEF');
   assert.deepEqual(h.plain('draft.brand.palette'),['#FFFFFF'],'blur normalizes without accepting a new palette color');
   assert.deepEqual(kept,[destination],'native focus and caret continue on the same input node');
+  source.value='fedcba';
   events.pointerdown({target:destination,button:0,isPrimary:true});
   events.focusout({target:source,relatedTarget:null,stopPropagation(){}});
   assert.deepEqual(kept,[destination,destination],'the explicit pointer target also covers missing relatedTarget');
+  source.value='abcdef';
   replacement.value='A different field after normalization';
   events.focusout({target:source,relatedTarget:destination,stopPropagation(){}});
   assert.equal(kept.length,2,'do not preserve a node that would overwrite changed field contents');
@@ -495,4 +711,84 @@ test('Campaign market selects keep current raw fields and switch through the exi
   const products=h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'products'})");
   assert.match(products,/class="pr-cap">1 of 5 products/);
   assert.match(products,/data-bf-action="add-product"/);
+});
+
+test('Brand and Copy preview the selected product without requiring a logo', () => {
+  const h = harness();
+  for (const section of ['brand', 'copy']) {
+    h.run(`tab='${section}';draft.brand.logo_path=null;draft.products[0].source={role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/lantern.png'};refreshBriefFlow()`);
+    assert.equal(h.run('briefHost.vm.preview.phase'), 'pending');
+    assert.equal(h.run('briefHost.vm.products[0].image'), '/asset');
+    assert.equal(h.run('briefHost.vm.logo'), null);
+  }
+  h.run("changeBriefField(briefHost,'defaultColor','#zz',{commit:false})");
+  assert.equal(h.run('briefHost.vm.preview.phase'), 'invalid');
+  assert.match(h.run('MotifBriefFlow.previewStage(briefHost.vm.preview)'), /six-digit default color/);
+});
+
+test('pending Brand upload disables Production and cancellation rejects its late result', async () => {
+  const h = harness(), original = h.run('draft.brand.logo_path');
+  const task = h.run("attachBriefLogo(briefHost,{name:'replacement.png',type:'image/png'})");
+  assert.equal(h.run('briefLogoUploadPending()'),true);
+  const html = h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'brand'})");
+  assert.match(html,/data-bf-action="production" disabled/);
+  assert.match(html,/Cancel upload/);
+  await h.run("briefAction(briefHost,'cancel-logo-upload')");
+  assert.equal(h.run('briefLogoUploadPending()'),false);
+  assert.equal(h.pending[0].options.signal.aborted,true);
+  h.pending[0].resolve({reference:'late.png',provenance:{}});
+  await task;
+  assert.equal(h.run('draft.brand.logo_path'),original);
+});
+
+test('Brand upload failure and timeout release navigation while preserving the selected logo', async () => {
+  for (const timeout of [false,true]) {
+    const h = harness(), original = h.run('draft.brand.logo_path'), failures=[];
+    h.c.imageInputFailure = error=>failures.push(error);
+    const task = h.run("attachBriefLogo(briefHost,{name:'replacement.png',type:'image/png'})");
+    if (timeout) h.timers.get(h.run('briefHost.logoUpload.timer'))();
+    h.pending[0].reject(new Error('Upload refused'));
+    await task;
+    assert.equal(h.run('briefLogoUploadPending()'),false);
+    assert.equal(h.run('draft.brand.logo_path'),original);
+    assert.equal(h.run('briefHost.logoUpload'),null);
+    if (timeout) assert.match(h.run('briefHost.logoMessage'),/took too long/);
+    else assert.equal(failures.length,1);
+  }
+});
+
+test('accepted Brand upload restores Production and marks the replacement as authored work', async () => {
+  const h=harness();let dirty=0;h.c.markDirty=()=>dirty++;
+  const task=h.run("attachBriefLogo(briefHost,{name:'replacement.png',type:'image/png'})");
+  h.pending[0].resolve({reference:'Campaigns/Test-12345678/Assets/Brand/new.png',provenance:{label:'Uploaded'}});
+  await task;
+  assert.equal(h.run('briefLogoUploadPending()'),false);
+  assert.equal(h.run('draft.brand.logo_path'),'Campaigns/Test-12345678/Assets/Brand/new.png');
+  assert.equal(dirty,1);
+  assert.doesNotMatch(h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'brand'})"),/data-bf-action="production" disabled/);
+});
+
+test('logo policy applies across markets and removing artwork preserves the policy and product', async () => {
+  const h=harness();
+  const original=h.run("JSON.stringify(draft.products[0])");
+  h.run("changeBriefField(briefHost,'requireLogo',true,{commit:true});lang='es';refreshBriefFlow()");
+  assert.equal(h.run('briefHost.vm.requireLogo'),true);
+  assert.match(h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'brand'})"),/data-bf-field="requireLogo" checked/);
+  await h.run("briefAction(briefHost,'remove-logo')");
+  assert.equal(h.run("draft.brand.logo_path"),'');
+  assert.equal(h.run("briefHost.vm.requireLogo"),true);
+  assert.equal(h.run("JSON.stringify(draft.products[0])"),original);
+  assert.equal(h.run("draft.brand.logo_provenance.label"),'Not provided');
+  h.run("changeBriefField(briefHost,'requireLogo',false,{commit:true})");
+  assert.equal(h.run("Object.hasOwn(draft.brand,'require_logo')"),false);
+});
+
+test('a new product photo is visible before the first headline is written',()=>{
+  const h=harness();
+  h.run("draft.brand.logo_path='';draft.products[0].source={role:'finished_scene',path:'Campaigns/Test-12345678/Assets/Products/new.png'};draft.markets['en-US'].copy.message='';refreshBriefFlow()");
+  assert.equal(h.run("briefHost.vm.preview.phase"),"source");
+  assert.match(h.run("MotifBriefFlow.renderBrief({...briefHost.vm,tab:'brand'})"), /Product photo<\/strong>/);
+  assert.match(h.run("MotifBriefFlow.previewStage(briefHost.vm.preview)"), /<img src="\/asset"/);
+  h.run("changeBriefField(briefHost,'message','New headline',{commit:true})");
+  assert.equal(h.run("briefHost.vm.preview.phase"),"pending");
 });

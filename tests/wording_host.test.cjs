@@ -14,7 +14,8 @@ function harness() {
       setSelectionRange(start,end){this.selection=[start,end]},setAttribute(name,value){this[name]=value},insertAdjacentHTML(){}});
     return nodes.get(selector);
   };
-  const context=vm.createContext({document:{addEventListener(){}},window:{scrollY:123,scrollTo(){}},queueMicrotask,
+  const context=vm.createContext({
+    MotifTextLimits: {issue: () => null, guardFields: () => true},document:{addEventListener(){}},window:{scrollY:123,scrollTo(){}},queueMicrotask,
     $:get,$$:()=>[],model:{version:'v1',output_run_id:'run',manifest:{revision_id:'r1'},wording_issue:null},
     C:{id:campaign,products:[{id:'p1'},{id:'p2'}]},draft:{markets:{'en-US':{phrase_rules:[]},'es-MX':{phrase_rules:[]}}},
     MARKET:{en:'en-US',es:'es-MX'},page:'handoff',tab:'brand',reviewTab:'compare',selected:[1,0],formats:[2,1],
@@ -141,3 +142,26 @@ test('refresh cannot overwrite typing, completed local autosave, or a replaced c
   }
 });
 
+
+test('a required missing logo blocks export with clear wording even when phrase checks pass',()=>{
+  const h=harness();h.context.model.logo_issue={code:'logo_required'};
+  assert.equal(h.run('wordingExportBlocked()'),false);
+  assert.equal(h.run('exportBlocked()'),true);
+  h.context.model.logo_issue=null;
+  assert.equal(h.run('exportBlocked()'),false);
+});
+
+test('deduplicated phrase evidence keeps exact editable copy and every matching rule',()=>{
+  const h=harness(), first=finding('p1'), repeated=finding('p1');
+  repeated.rule='second-rule';
+  repeated.context.phrase.configured_phrase='move';
+  repeated.context.phrase.matches[0].value=null;
+  h.context.model.wording_issue={code:'prohibited_phrase',matches:[first,repeated]};
+  const row=h.run('currentWordingView().cases[0]');
+  assert.equal(row.value,'Make a move');
+  assert.deepEqual(Array.from(row.terms),['Make','move']);
+  assert.deepEqual(Array.from(row.ruleIds),['rule','second-rule']);
+  // A subset can arrive in a different order; a later full value fills its reference.
+  h.context.model.wording_issue.matches=[repeated,first];
+  assert.equal(h.run('currentWordingView().cases[0].value'),'Make a move');
+});

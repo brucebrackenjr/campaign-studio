@@ -668,6 +668,9 @@
   object-fit: contain;
   box-shadow: 0 3px 12px #25342022;
 }
+.bf-preview-stage > .bf-typography-preview {
+  background: conic-gradient(#666 25%, #7a7a7a 0 50%, #666 0 75%, #7a7a7a 0) 0 0 / 20px 20px;
+}
 .bf-preview-stage > .bf-preview-empty {
   padding: 20px;
   text-align: center;
@@ -1242,3 +1245,16 @@
 @media (min-width: 1001px) and (max-height: 820px) {
   .bf-brand-layout .bf-preview-caption { margin-top: 8px; }
 }
+
+.bf-logo-policy { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+.bf-logo-policy input { width: 1rem; height: 1rem; flex: none; }
+
+.bf-brand-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.bf-brand-heading h2 { margin: 0; }

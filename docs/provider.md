@@ -6,7 +6,7 @@ The application uses the official OpenAI Python SDK through the small `OpenAIIma
 
 The configured model snapshot is `gpt-image-2.5-flare-2026-09-08`. The saved request specifies one 1920 × 1920 opaque PNG at high quality, zero automatic retries, and a 120-second overall deadline. Exact parameters and instructions participate in the saved plan digest, so a confirmed plan cannot silently send different request settings.
 
-For the demonstrated missing-image concept, the app sends text describing the subject, intended audience, and scene direction. Supplied finished photographs, logos, and exact advertising copy stay in local processing for this path. Generated imagery is an invented concept, not a claim of fidelity to an existing photographed product.
+For the demonstrated missing-image concept, the app sends text describing the subject, intended audience, and scene direction. Supplied finished photographs, logos, and exact advertising copy stay in local processing for this path. Generated imagery is an invented concept, not a claim of fidelity to an existing photographed product. The composition instructions ask for the complete product inside the central area shared by the Square, Story, and Landscape crops, with surrounding scenery. The 1920-square source provides room for moderate local zoom; cropping and enlargement do not create new detail. Inspect all three formats because prompt compliance and product framing still require human judgment.
 
 The October 29 demonstration generated one brush-roll source and reused a supplied chalk photograph. Local composition produced twelve campaign PNGs. A shared Spanish correction then changed six files without another image request, retaining the six English files unchanged.
 

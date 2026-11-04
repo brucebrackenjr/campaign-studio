@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "campaign_id": "6316374e-bce1-55df-b7ca-5b141ebf4a87",
-  "name": "Bridle & Bough – Let winter run wild",
+  "name": "Winter at the Ranch",
   "audience": "People who love snowy ranches, horses, cabin weekends, and beautifully made winter equipment.",
   "creative_direction": "A rural snowy ranch inspired by a winter sleigh ride: deep fresh snow, pine forests, horses, and a rustic cabin with warm window light. Photograph tactile wood, brass, leather, and wool naturally. Leave quiet pale space for dark espresso campaign lettering. The full product should occupy the central third with room for portrait, square, and landscape crops. No baked-in words or logos.",
   "brand": {
@@ -86,7 +86,7 @@
                 "width": 0.88,
                 "font_size": 66,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -94,7 +94,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -114,7 +114,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -122,7 +122,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -142,7 +142,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -150,7 +150,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }
@@ -172,7 +172,7 @@
                 "width": 0.88,
                 "font_size": 66,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -180,7 +180,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -200,7 +200,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -208,7 +208,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -228,7 +228,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -236,7 +236,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }
@@ -274,7 +274,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -282,7 +282,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -302,7 +302,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -310,7 +310,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -330,7 +330,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -338,7 +338,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }
@@ -360,7 +360,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -368,7 +368,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -388,7 +388,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -396,7 +396,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -416,7 +416,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -424,7 +424,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }
@@ -463,7 +463,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -471,7 +471,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -491,7 +491,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -499,7 +499,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -519,7 +519,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -527,7 +527,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }
@@ -549,7 +549,7 @@
                 "width": 0.88,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -557,7 +557,7 @@
                 "width": 0.88,
                 "font_size": 32,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -577,7 +577,7 @@
                 "width": 0.88,
                 "font_size": 84,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.06,
@@ -585,7 +585,7 @@
                 "width": 0.88,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           },
@@ -605,7 +605,7 @@
                 "width": 0.57,
                 "font_size": 72,
                 "font_id": "barlow_condensed",
-                "color": "#38271E"
+                "color": null
               },
               "cta": {
                 "left": 0.055,
@@ -613,7 +613,7 @@
                 "width": 0.57,
                 "font_size": 36,
                 "font_id": "noto_sans",
-                "color": "#38271E"
+                "color": null
               }
             }
           }

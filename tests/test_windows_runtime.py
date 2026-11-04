@@ -104,3 +104,23 @@ def test_network_and_ambiguous_device_roots_refuse_locally():
     for supplied in (r"\\server\share", r"\\?\UNC\server\share", r"C:relative", r"\rooted"):
         with pytest.raises(StorageError, match="local Windows drive"):
             Storage(Path(supplied))
+
+
+def test_open_destination_refuses_replacement_without_losing_the_saved_file(tmp_path):
+    storage = Storage(tmp_path / "Workspace")
+    State(storage)
+    cid, _ = Intake(storage).new()
+    reference = storage.project(cid).ref("Assets/held-open.txt")
+    storage.write(reference, b"original")
+    target = storage.path(reference)
+
+    # Windows keeps this file open without delete sharing, as another application may do.
+    with target.open("rb") as reader:
+        with pytest.raises(PermissionError):
+            storage.write(reference, b"replacement")
+        assert reader.read() == b"original"
+        assert target.read_bytes() == b"original"
+
+    storage.write(reference, b"replacement")
+    assert target.read_bytes() == b"replacement"
+    assert sorted(path.name for path in target.parent.iterdir()) == [target.name]

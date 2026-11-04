@@ -7,6 +7,7 @@ const vm = require('node:vm');
 function fixture() {
   const listeners = [];
   const context = vm.createContext({
+    MotifTextLimits: {issue: () => null, guardFields: () => true},
     document: { addEventListener() {} },
     $: () => ({ getBoundingClientRect: () => ({ left: 10, top: 20, width: 540, height: 540 }) }),
     listeners,
@@ -80,6 +81,7 @@ function keyboardFixture() {
     return nodes.get(key);
   };
   const context = vm.createContext({
+    MotifTextLimits: {issue: () => null, guardFields: () => true},
     document: {addEventListener(type, fn) { const prior = events[type]; events[type] = e => { prior?.(e); fn(e); }; }},
     $: node, structuredClone, copy: structuredClone, AbortController,
     setTimeout(fn) {timers.push(fn); return timers.length;}, clearTimeout() {},
@@ -92,7 +94,7 @@ function keyboardFixture() {
   run(fs.readFileSync('src/campaign_studio/static/motif/direct-manipulation.js', 'utf8'));
   run(fs.readFileSync('src/campaign_studio/static/motif/text.js', 'utf8'));
   run(`textEditor = {
-    campaign:'292e9e84-eb00-5fdb-87e8-423f5e51fac4', selected:'message', width:1080, height:1080,
+    values:{message:'Saved',cta:'Explore'}, campaign:'292e9e84-eb00-5fdb-87e8-423f5e51fac4', selected:'message', width:1080, height:1080,
     sequence:0, geometrySequence:0, gestureBlock:'message', placements:{},
     pending:false, saving:false, recovery:null, layers:null,
     geometry:{text_blocks:{

@@ -21,7 +21,9 @@
 <div><strong>{{ campaign.outputs|map(attribute='market')|unique|list|length }}</strong>markets</div>
 <div><strong>{{ campaign_display.spend }}</strong>Campaign spend estimate{% if campaign_display.spend_helper %}<p class="muted">{{ campaign_display.spend_helper }}</p>{% endif %}</div>
 </section>
+{% set logo_omitted = campaign.findings|default([])|selectattr('rule', 'equalto', 'logo_presence')|selectattr('severity', 'equalto', 'warning')|list %}
 <section id="images"><h2>The complete picture.</h2>
+{% if logo_omitted %}<p><strong>These images have no logo.</strong></p>{% endif %}
 <p class="muted">Click an image for its full-size PNG.</p>
 <div class="grid">
 {% for market,language in languages.items() %}{% for ratio,size in sizes.items() %}
@@ -77,7 +79,7 @@
 </section>
 <section id="provenance"><h2>Origins stay with the images.</h2><div class="details">
 {% for source in campaign.sources %}<h3>{{ campaign.product_names[source.product_id] }}</h3><p>{{ {'finished_scene':'Supplied finished scene','prepared_product':'Prepared product','concept':'Description-only concept'}.get(source.role,'Saved source') }} · {{ sentence(source.provenance.label) }} {{ sentence(source.provenance.rights) }}</p>{% endfor %}
-<h3>Logo origin</h3><p>{{ sentence(campaign.logo_provenance.label) }} {{ sentence(campaign.logo_provenance.rights) }}</p>
+{% if not logo_omitted and campaign.logo_provenance %}<h3>Logo origin</h3><p>{{ sentence(campaign.logo_provenance.label) }} {{ sentence(campaign.logo_provenance.rights) }}</p>{% endif %}
 {% if campaign.replay %}<p>{% if campaign.replay.historical_requests is number %}Example imagery was prepared earlier: {{ campaign.replay.historical_requests }} historical requests. Excluded from this campaign’s totals.{% else %}Example imagery was prepared earlier; its request count was not recorded.{% endif %}</p>{% endif %}
 <p>Supplied descriptions belong to this exact saved revision and description snapshot.</p>
 </div><p>Unknown rights remain unspecified. No Content Credentials claim is made. Private keys, raw provider responses, and personal paths are excluded.</p></section>

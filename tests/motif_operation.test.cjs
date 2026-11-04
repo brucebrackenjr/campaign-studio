@@ -51,6 +51,7 @@ function harness() {
         },
         textContent: "",
         childNodes: [],
+        querySelector: get,
       });
     return elements.get(selector);
   };
@@ -81,6 +82,7 @@ function harness() {
     clearTimeout() {},
     queueMicrotask,
     WORDING_RECOVERY: {},
+    MotifTextLimits: { issue: () => null, guardFields: () => true }, // Length boundary has its own real-contract cases.
     captureProject() {},
     captureProductInputs() {},
     projectChanged() {},
@@ -424,7 +426,9 @@ test("Workbench deletion previews and confirms the clicked card even when anothe
   const h = navigationHarness();
   const target = "62220994-1d32-5713-80d2-ac0b6ff0baf3";
   const active = h.run("draft.campaign_id");
-  h.run(`page='library'; saved[0].name='Second campaign'; campaignDistinction=()=>''; finishDeletion=async()=>{};`);
+  h.run(`page='library'; saved[0].name='Second campaign'; finishDeletion=async()=>{};`);
+  h.run(readFileSync("src/campaign_studio/static/motif/storage-components.js", "utf8"));
+  h.context.MotifStorage = h.context.window.MotifStorage;
   const preview = h.click(`storage:card-delete:${target}`);
   assert.equal(h.pending[0].url, `/api/campaigns/${target}/cleanup/preview`);
   h.pending[0].resolve({ token: "second-only", name: "Second campaign" });
@@ -927,6 +931,207 @@ test("a JSON import opens the new campaign without prompting for its named image
   `);
   await h.run("dispatchAction({action:'doImport'})");
   assert.deepEqual(calls.map(row => Array.from(row)), [
-    ["/api/motif/import","Imported",source], ["refresh"], ["open","fresh-id","campaign"],
+    ["/api/motif/import","Imported",source], ["open","fresh-id","campaign"], ["refresh"],
   ]);
+});
+
+function productUploadHarness() {
+  const h=harness();
+  h.run("modal='product';modalProduct={id:'a',name:'Lantern',description:'Brass lantern',treatment:'reuse',source:{role:'finished_scene',path:'old.png',provenance:{}}};draft.products=[structuredClone(modalProduct)];projectBuffers={form_drafts:{}};openModal=()=>{};markDirty=()=>{}");
+  h.context.api=(url,body,options)=>new Promise((resolve,reject)=>h.pending.push({url,body,options,resolve,reject}));
+  return h;
+}
+test('product Update cannot commit the old photo while a chosen replacement is pending',async()=>{
+  const h=productUploadHarness(),task=h.run("upload({name:'new.png',type:'image/png'})");
+  assert.equal(h.run('modalProduct.uploading'),true);
+  h.run('saveProductDraft()');
+  assert.equal(h.run('draft.products[0].source.path'),'old.png');
+  h.pending[0].resolve({reference:'new.png',url:'/uploads/new.png'});
+  await task;
+  assert.equal(h.run('modalProduct.uploading'),false);
+  assert.equal(h.run('modalProduct.source.path'),'new.png');
+  h.get('#product-name').value='Lantern';
+  h.get('#product-description').value='Brass lantern';
+  h.get('#product-origin').value='Uploaded';
+  h.get('#product-rights').value='Owned';
+  h.run('saveProductDraft()');
+  assert.equal(h.run('draft.products[0].source.path'),'new.png');
+});
+test('canceling a pending product upload preserves the earlier photo after a late response',async()=>{
+  const h=productUploadHarness(),task=h.run("upload({name:'new.png',type:'image/png'})");
+  h.run('cancelProductUpload()');
+  assert.equal(h.pending[0].options.signal.aborted,true);
+  h.pending[0].resolve({reference:'new.png',url:'/uploads/new.png'});
+  await task;
+  assert.equal(h.run('modalProduct.uploading'),false);
+  assert.equal(h.run('modalProduct.source.path'),'old.png');
+  assert.equal(h.run('draft.products[0].source.path'),'old.png');
+});
+test('failed and timed out photo uploads settle so the editor can retry or cancel',async()=>{
+  for (const timeout of [false,true]) {
+    const h=productUploadHarness(),task=h.run("upload({name:'new.png',type:'image/png'})");
+    if (timeout) h.timers[h.run('pendingProductUpload.timer')-1]();
+    h.pending[0].reject(new Error('Image refused'));
+    if (timeout) await task;
+    else await assert.rejects(task,/Image refused/);
+    assert.equal(h.run('modalProduct.uploading'),false);
+    assert.equal(h.run('pendingProductUpload'),null);
+    assert.equal(h.run('modalProduct.source.path'),'old.png');
+    if(timeout) assert.match(h.run('modalProduct.error'),/took too long/);
+  }
+});
+test('pending Brand uploads guard the top-level navigation and the campaign chooser',async()=>{
+  const h=harness();h.context.briefLogoUploadPending=()=>true;h.context.scrollTo=()=>{};
+  h.run("page='campaign';dirty=false");
+  await h.run("navigate('production')");
+  assert.equal(h.run('page'),'campaign');
+  assert.match(h.notices[0],/logo upload/);
+  h.run("showCampaignChooser=()=>{throw Error('Must retain the active logo upload')}");
+  await h.run("dispatchAction({action:'campaigns'})");
+  assert.equal(h.run('page'),'campaign');
+  h.context.briefLogoUploadPending=()=>false;
+  await h.run("navigate('production')");
+  assert.equal(h.run('page'),'production');
+});
+test('a newer product photo choice wins when the earlier upload responds last',async()=>{
+  const h=productUploadHarness();
+  const first=h.run("upload({name:'first.png',type:'image/png'})");
+  const second=h.run("upload({name:'second.png',type:'image/png'})");
+  assert.equal(h.pending[0].options.signal.aborted,true);
+  h.pending[1].resolve({reference:'second.png',url:'/uploads/second.png'});
+  await second;
+  h.pending[0].resolve({reference:'first.png',url:'/uploads/first.png'});
+  await first;
+  assert.equal(h.run('modalProduct.source.path'),'second.png');
+  assert.equal(h.run('modalProduct.uploading'),false);
+});
+
+test("a committed import survives failed catalog refresh without invalid-brief feedback or duplication", async () => {
+  const h = harness(), source = {size: 123, text: async () => '{"name":"Imported"}'};
+  h.get("#json-file").files = [source];
+  h.context.calls = [];
+  h.run(`
+    page="library";modal="import";draft=null;
+    api=async path=>{calls.push(["post",path]);return {campaign_id:"saved-import"}};
+    openCampaign=async id=>calls.push(["open",id]);
+    refreshCatalog=async()=>{throw Error("Unreadable neighboring manifest")};
+    openModal=name=>calls.push(["modal",name]);
+  `);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.deepEqual(h.context.calls.map(row => Array.from(row)), [["post","/api/motif/import"],["open","saved-import"]]);
+  assert.match(h.notices[0], /brief was imported/);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.equal(h.context.calls.filter(c=>c[0]==="post").length,1);
+  assert.equal(h.run("importFile"),null);
+});
+
+test("a busy import preserves its chosen file and offers retry without blaming its contents", async () => {
+  const h = harness(), source = {size: 123, text: async () => '{"name":"Imported"}'};
+  h.get("#json-file").files = [source];
+  h.run(`
+    page="library";modal="import";draft=null;
+    api=async()=>{throw Object.assign(Error("Another campaign operation is already active."), {code:"busy",status:409})};
+    openModal=name=>modal=name;
+  `);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.equal(h.run("modal"), "import-busy");
+  assert.equal(h.run("importFile"), source);
+  assert.equal(h.run("importedCampaignId"), null);
+  Object.assign(h.context, {
+    dialog: (title, body, buttons) => title + body + buttons,
+    notice: message => message,
+    btn: (label, action) => label + action,
+  });
+  const markup = h.run("modalView()");
+  assert.match(markup, /Another operation is finishing/);
+  assert.doesNotMatch(markup, /repair|Correct the named fields/);
+  await h.run("dispatchAction({action:'returnImport'})");
+  assert.equal(h.run("modal"), "import");
+  assert.equal(h.run("importFile"), source);
+});
+
+test("failed opening after committed import retries the saved identity, never the JSON POST", async () => {
+  const h=harness(), source={size:123,text:async()=>'{"name":"Imported"}'};
+  h.get("#json-file").files=[source];h.context.calls=[];
+  h.run(`
+    page="library";modal="import";draft=null;
+    api=async path=>{calls.push(["post",path]);return {campaign_id:"saved-import"}};
+    openCampaign=async id=>{calls.push(["open",id]);throw Error("Temporary page error")};
+    refreshCatalog=async()=>calls.push(["refresh"]);
+    openModal=name=>calls.push(["modal",name]);
+  `);
+  await h.run("dispatchAction({action:'doImport'})");
+  assert.equal(h.context.calls.at(-1)[1],"import-open-failed");
+  h.run("openCampaign=async id=>calls.push(['open',id])");
+  await h.run("dispatchAction({action:'openImported'})");
+  assert.equal(h.context.calls.filter(c=>c[0]==="post").length,1);
+  assert.equal(h.context.calls.filter(c=>c[0]==="open").length,2);
+  assert.equal(h.context.calls.at(-1)[0],"refresh");
+});
+
+test('Individual PNGs focuses the rendered download destination without queued trigger restoration', async () => {
+  for (const available of [true, false]) {
+    const h = harness(), microtasks = [], events = [];
+    let scrollY = 0, rendered = false;
+    const trigger = {isConnected: true, dataset: {action: 'exportZip'}, focus() {
+      events.push('trigger focus'); h.context.document.activeElement = this; scrollY = 0;
+    }};
+    const destination = {focus(options) {
+      assert.equal(rendered, true);
+      assert.equal(h.get('#app').inert, false);
+      assert.equal(h.run('modal'), '');
+      assert.equal(options.preventScroll, true);
+      events.push('download focus'); h.context.document.activeElement = this;
+    }};
+    const overview = h.get('.overview-grid');
+    overview.querySelector = () => available ? destination : null;
+    overview.focus = options => {
+      assert.equal(overview.tabIndex, -1);
+      assert.equal(rendered, true);
+      assert.equal(options.preventScroll, true);
+      events.push('grid focus'); h.context.document.activeElement = overview;
+    };
+    overview.scrollIntoView = options => {
+      assert.equal(options.block, 'start'); events.push('grid scroll'); scrollY = 400;
+    };
+    h.context.document.querySelectorAll = () => [trigger];
+    h.context.queueMicrotask = fn => microtasks.push(fn);
+    h.context.trigger = trigger;
+    h.context.render = () => {rendered = true; trigger.isConnected = false;};
+    h.run("draft=null;page='handoff';modal='export-failure';lastFocus=trigger;closeModal=realCloseModal");
+    h.get('#app').inert = true;
+    h.get('#overlay').innerHTML = 'Export failure';
+    await h.run("dispatchAction({action:'exportOverview'})");
+    for (const task of microtasks.splice(0)) task();
+    assert.equal(h.context.document.activeElement, available ? destination : overview);
+    assert.equal(scrollY, 400);
+    assert.deepEqual(events, [available ? 'download focus' : 'grid focus', 'grid scroll']);
+    assert.equal(h.get('#overlay').innerHTML, '');
+    assert.equal(h.run('page'), 'handoff');
+    assert.deepEqual(h.notices, []);
+    assert.equal(h.pending.length, 0);
+  }
+});
+
+test('ordinary modal close and cancel still restore focus before and after the caller rerenders', () => {
+  for (const cancel of [false, true]) {
+    const h = harness(), microtasks = [], focused = [];
+    const trigger = {isConnected: true, dataset: {action: 'exportZip'}, focus() {
+      focused.push('original'); h.context.document.activeElement = this;
+    }};
+    const replacement = {dataset: {action: 'exportZip'}, focus() {
+      focused.push('replacement'); h.context.document.activeElement = this;
+    }};
+    h.context.document.querySelectorAll = () => [replacement];
+    h.context.queueMicrotask = fn => microtasks.push(fn);
+    h.context.trigger = trigger;
+    h.run("draft=null;modal='export-failure';lastFocus=trigger;closeModal=realCloseModal");
+    h.run(`closeModal({cancel:${cancel}})`);
+    assert.deepEqual(focused, ['original']);
+    assert.equal(microtasks.length, 1);
+    trigger.isConnected = false;
+    microtasks.shift()();
+    assert.deepEqual(focused, ['original', 'replacement']);
+    assert.equal(h.context.document.activeElement, replacement);
+  }
 });

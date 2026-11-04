@@ -39,7 +39,7 @@ def test_complete_and_partial_report_preserves_content_and_safe_origins(
     state, runner, _, brief = setup_case(tmp_path)
     value = brief.model_dump()
     value["brand"]["name"] = "Bridle & Bough" if partial else "Autumn Winds"
-    value["name"] = value["brand"]["name"] + " – Campaign slogan"
+    value["name"] = value["brand"]["name"] + " – Slogan"
     value["creative_direction"] = "PRIVATE_PROMPT_CANARY must not enter the package."
     value["brand"]["logo_provenance"] = {
         "label": "Logo supplied by café <studio>",
@@ -98,7 +98,7 @@ def test_complete_and_partial_report_preserves_content_and_safe_origins(
     package_name = public["package_name"]
     assert package_name.startswith(value["brand"]["name"] + "-")
     assert len(package_name.removeprefix(value["brand"]["name"] + "-")) == 8
-    assert "Campaign slogan" not in package_name and " - " not in package_name
+    assert "Slogan" not in package_name and " - " not in package_name
     report = Report(html)
     text = " ".join(report.text)
     assert len([name for name in payloads if name.endswith(".png")]) == (6 if partial else 12)

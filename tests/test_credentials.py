@@ -19,7 +19,14 @@ from test_web_workflow import wait_for_work
 
 from campaign_studio.app import create_app
 from campaign_studio.config import Settings
-from campaign_studio.credentials import BODY_LIMIT, KEY, CredentialError, LocalCredentials
+from campaign_studio.credentials import (
+    BODY_LIMIT,
+    KEY,
+    CredentialError,
+    LocalCredentials,
+    read_saved_key,
+)
+from campaign_studio.local_files import local_root
 from campaign_studio.provider import OpenAIImages
 
 DUMMY = "dummy-only-new-credential"
@@ -34,6 +41,7 @@ def setup(tmp_path, existing=b"# Other settings\nCAMPAIGN_STUDIO_PORT=8000\n"):
     return LocalCredentials(target, environment=environment), target, environment
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows saves DPAPI ciphertext instead of dotenv")
 def test_private_save_preserves_unrelated_multiline_settings_and_removes_duplicate_keys(tmp_path):
     unrelated = "# Keep this comment\nOTHER='two\nlines'\nEMPTY=\n"
     helper, target, environment = setup(
@@ -70,6 +78,8 @@ def test_invalid_key_preserves_file_and_process_without_echo(tmp_path, value):
     "kind", ["symlink", "hardlink", "directory", "fifo", "parent_alias", "writable"]
 )
 def test_unsafe_destinations_refuse_without_mutation(tmp_path, kind):
+    if os.name == "nt" and kind in {"fifo", "writable"}:
+        pytest.skip("POSIX FIFO and mode-bit rules do not apply to Windows")
     parent = tmp_path / "launch"
     parent.mkdir()
     original = tmp_path / "original"
@@ -100,6 +110,7 @@ def test_unsafe_destinations_refuse_without_mutation(tmp_path, kind):
         assert target.read_bytes() == b"unchanged"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows replaces damaged DPAPI data, not dotenv")
 def test_invalid_or_oversize_local_file_is_not_rewritten_or_logged(tmp_path, caplog, capsys):
     for payload in [b"OTHER='private malformed file", b"#" * 131073]:
         helper, target, environment = setup(tmp_path, payload)
@@ -116,6 +127,8 @@ def test_invalid_or_oversize_local_file_is_not_rewritten_or_logged(tmp_path, cap
 def test_persistence_failures_preserve_working_key_and_report_uncertain_only_when_needed(
     tmp_path, monkeypatch, failure
 ):
+    if os.name == "nt" and failure in {"directory_once", "directory_always", "rollback"}:
+        pytest.skip("Windows uses MoveFileExW rather than POSIX directory fsync and rollback")
     helper, target, environment = setup(tmp_path)
     before = target.read_bytes()
     original_sync, original_replace = os.fsync, helper._replace
@@ -164,16 +177,19 @@ def test_persistence_failures_preserve_working_key_and_report_uncertain_only_whe
 
 
 def test_concurrent_save_is_busy_until_durable_activation(tmp_path, monkeypatch):
+    import campaign_studio.credentials as credentials
+
     helper, target, environment = setup(tmp_path)
     entered, release = Event(), Event()
-    original = helper._replace
+    owner, method = (credentials, "publish_file") if os.name == "nt" else (helper, "_replace")
+    original = getattr(owner, method)
 
-    def held(*args):
+    def held(*args, **kwargs):
         entered.set()
         assert release.wait(10)
-        return original(*args)
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(helper, "_replace", held)
+    monkeypatch.setattr(owner, method, held)
     with ThreadPoolExecutor(max_workers=1) as pool:
         flight = pool.submit(helper.save, DUMMY)
         assert entered.wait(5)
@@ -186,7 +202,7 @@ def test_concurrent_save_is_busy_until_durable_activation(tmp_path, monkeypatch)
         assert flight.result(10)["saved"]
     assert environment[KEY] == DUMMY
     assert second.save("dummy-other")["saved"]
-    assert environment[KEY] == dotenv_values(target, interpolate=False)[KEY] == "dummy-other"
+    assert environment[KEY] == read_saved_key(target) == "dummy-other"
 
 
 @pytest.mark.parametrize("explicit", [None, "", "dummy-environment"])
@@ -197,8 +213,13 @@ def test_launch_source_is_pinned_and_explicit_environment_wins(tmp_path, monkeyp
     monkeypatch.setattr(sys, "prefix", str(tmp_path / ".venv"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(KEY, raising=False)
-    target = tmp_path / ".env"
-    target.write_text("OPENAI_API_KEY=dummy-local\n")
+    if os.name == "nt":
+        target = local_root(tmp_path / "runtime") / "private/openai-key.dpapi"
+        target.parent.mkdir(parents=True)
+        LocalCredentials(target, environment={}).save("dummy-local")
+    else:
+        target = tmp_path / ".env"
+        target.write_text("OPENAI_API_KEY=dummy-local\n", encoding="utf-8")
     if explicit is not None:
         monkeypatch.setenv(KEY, explicit)
     settings = Settings.from_environment(data_dir=tmp_path / "runtime")
@@ -215,7 +236,12 @@ def test_launch_source_is_pinned_and_explicit_environment_wins(tmp_path, monkeyp
     monkeypatch.chdir(child)
     if explicit is None:
         assert helper.save(DUMMY)["saved"] and not (child / ".env").exists()
-        env = {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH"}
+        }
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
         reopened = subprocess.run(
             [
                 sys.executable,

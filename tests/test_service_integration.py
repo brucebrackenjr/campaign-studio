@@ -547,7 +547,9 @@ def test_report_registry_integrity_kind_isolation_and_deletion(produced):
             record["snapshot_id"],
         )
     root = Path(folder["location"])
-    original = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    original = {
+        p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()
+    }
     for reference in (
         "manifest.json",
         "index.html",

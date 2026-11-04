@@ -63,6 +63,10 @@ function textStyle(editor) {
   else if (key) $$('[data-mf-color]', style).find(el => el.dataset.mfColor === key)?.focus({ preventScroll: true });
   else if (defaultFocused) $("[data-mf-color-default]", style)?.focus({ preventScroll: true });
 }
+function textLengthIssue(editor = textEditor) {
+  return editor && (MotifTextLimits.issue("mf-word-message", editor.values.message) ||
+    MotifTextLimits.issue("mf-word-cta", editor.values.cta));
+}
 function paintText() {
   const editor = textEditor;
   if (!editor || !textCurrent(editor)) return;
@@ -70,7 +74,7 @@ function paintText() {
   $("#text-status").classList.toggle("is-error", !!editor.recovery || !!editor.preview?.result.blocked || editor.anchorBlocked);
   const apply = $('[data-action="applyText"]');
   apply.textContent = editor.saving ? "Applying…" : "Apply text";
-  apply.disabled = editor.saving || editor.pending || !!editor.recovery || editor.anchorBlocked || !editor.preview?.displayed || editor.preview.result.blocked || !editor.preview.result.impact.render_outputs.length;
+  apply.disabled = !!textLengthIssue(editor) || editor.saving || editor.pending || !!editor.recovery || editor.anchorBlocked || !editor.preview?.displayed || editor.preview.result.blocked || !editor.preview.result.impact.render_outputs.length;
   const recovery = $('[data-action="recoverText"]');
   recovery.hidden = !editor.recovery;
   recovery.textContent = editor.recovery === "production" ? "Open recovery" : editor.recovery === "stale" ? "Use latest image" : editor.recovery === "uncertain" ? "Check current image" : "Retry preview";
@@ -198,13 +202,16 @@ function scheduleTextPreview(preserveGesture = false) {
   if (!["stale", "uncertain"].includes(editor.recovery)) {
     editor.message = MotifEditorControls.copy.previewing;
     editor.recovery = null;
-    if (!editor.input?.active()) editor.timer = setTimeout(previewText, 180);
+    const issue = textLengthIssue(editor);
+    if (issue) editor.message = issue;
+    else if (!editor.input?.active()) editor.timer = setTimeout(previewText, 180);
   }
   paintText();
 }
 async function previewText() {
   const editor = textEditor;
   if (!editor || !textCurrent(editor) || editor.saving || editor.input?.active() || ["stale", "uncertain"].includes(editor.recovery)) return;
+  if (textLengthIssue(editor)) return;
   if (editor.pending) { editor.queued = true; return; }
   const sequence = editor.sequence, current = () => textCurrent(editor) && editor.sequence === sequence;
   editor.pending = true;
@@ -369,7 +376,7 @@ async function finishText(editor, latest) {
 }
 async function applyText() {
   const editor = textEditor, preview = editor?.preview;
-  if (!editor || editor.saving || editor.pending || editor.recovery || editor.anchorBlocked || !preview?.displayed || preview.result.blocked || !preview.result.impact.render_outputs.length) return false;
+  if (!editor || textLengthIssue(editor) || editor.saving || editor.pending || editor.recovery || editor.anchorBlocked || !preview?.displayed || preview.result.blocked || !preview.result.impact.render_outputs.length) return false;
   editor.saving = true;
   paintText();
   try {
@@ -464,7 +471,7 @@ function recordCombinedText(event) {
   Object.assign(editor, MotifEditorControls.readFields($(".mf-combined-wording")));
   if (event.target.dataset.mfValue) {
     editor.selected = event.target.dataset.mfValue;
-    event.target.parentElement.querySelector(".mw-field-message")?.remove();
+    event.target.closest(".mf-word-field").querySelector(".mw-field-message")?.remove();
   }
   editor.anchor = null;
   scheduleTextPreview();

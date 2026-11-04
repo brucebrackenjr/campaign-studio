@@ -14,6 +14,7 @@ from campaign_studio.brief import Contract
 from campaign_studio.intake import Intake, draft_bytes
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import timestamp
+from campaign_studio.text_limits import authored_length_issues
 from campaign_studio.workspace import ActionError
 
 AUTHORED_LIMIT = 1_048_576
@@ -130,7 +131,7 @@ class AuthoredProjects:
             return prior
         return {"version": document["version"], "revision_id": revision_id}
 
-    def reconcile_applied_fields(self, document, authored):
+    def reconcile_applied_fields(self, document, authored, *, colors_only=False):
         """Carry explicit image applications into untouched authored fields.
 
         Matching raw Brief controls follow the applied copy; distinct unfinished
@@ -167,6 +168,11 @@ class AuthoredProjects:
                 mode="json"
             )
         after = self.workspace.state.plan(current["run_id"]).brief.model_dump(mode="json")
+        superseded = set()
+        if applied and applied.get("version") == document["version"]:
+            superseded = self.reconcile_color_defaults(authored, before, after)
+        if colors_only:
+            return superseded
         draft = authored["brief"]
         brand = draft.get("brand")
         if isinstance(brand, dict):
@@ -240,6 +246,68 @@ class AuthoredProjects:
             product["copy_overrides"] = overrides
 
     @staticmethod
+    def reconcile_color_defaults(authored, before, after):
+        """A later owned Studio color Apply supersedes that image's older reset."""
+        forms = authored.get("form_drafts", {})
+        pending = forms.get("brand_color_defaults")
+        if not isinstance(pending, list):
+            return set()
+        old_products = {p["id"]: p for p in before["products"]}
+        new_products = {p["id"]: p for p in after["products"]}
+        products = authored["brief"].get("products", [])
+        drafts = {
+            p.get("id"): p
+            for p in (products if isinstance(products, list) else [])
+            if isinstance(p, dict) and isinstance(p.get("id"), str)
+        }
+        superseded = set()
+        for target in pending:
+            if not isinstance(target, dict):
+                continue
+            pid, market, ratio = (target.get(key) for key in ("product_id", "market", "ratio"))
+            if not all(isinstance(key, str) for key in (pid, market, ratio)):
+                continue
+            if pid not in old_products or pid not in new_products:
+                continue
+            old = old_products[pid].get("framing", {}).get(market, {}).get(ratio, {})
+            new = new_products[pid].get("framing", {}).get(market, {}).get(ratio, {})
+            old_text, new_text = old.get("text_placements", {}), new.get("text_placements", {})
+            if not any(
+                placement.get("color") is not None
+                and placement.get("color") != old_text.get(field, {}).get("color")
+                for field, placement in new_text.items()
+            ):
+                continue
+            superseded.add((pid, market, ratio))
+            frames = drafts.get(pid, {}).get("framing", {})
+            languages = frames.get(market, {}) if isinstance(frames, dict) else {}
+            raw = languages.get(ratio) if isinstance(languages, dict) else None
+            if not isinstance(raw, dict) or not isinstance(raw.get("text_placements"), dict):
+                continue
+            comparison = copy.deepcopy(raw)
+            for field, placement in raw["text_placements"].items():
+                if isinstance(placement, dict) and placement.get("color") is None:
+                    comparison["text_placements"][field]["color"] = old_text.get(field, {}).get(
+                        "color"
+                    )
+                    placement["color"] = new_text.get(field, {}).get("color")
+            if comparison == old:
+                # Only the old reset differed, so retain the complete later Apply.
+                # Distinct unfinished geometry remains untouched otherwise.
+                languages[ratio] = copy.deepcopy(new)
+        forms["brand_color_defaults"] = [
+            target
+            for target in pending
+            if not isinstance(target, dict)
+            or not all(
+                isinstance(target.get(key), str) for key in ("product_id", "market", "ratio")
+            )
+            or (target.get("product_id"), target.get("market"), target.get("ratio"))
+            not in superseded
+        ]
+        return superseded
+
+    @staticmethod
     def check_envelope(authored):
         # These are transport containers, not production fields. Text, numeric
         # strings, incomplete values, and validation feedback remain untouched.
@@ -255,6 +323,14 @@ class AuthoredProjects:
             raise ActionError(
                 "authored_shape", "This project state could not be saved.", 422
             ) from error
+        issues = authored_length_issues(authored)
+        if issues:
+            raise ActionError(
+                "text_too_long",
+                f"{issues[0]['label']}: {issues[0]['message']}",
+                422,
+                field_errors=issues,
+            )
         if len(encoded) > AUTHORED_LIMIT:
             raise ActionError("authored_size", "This project state is too large to save.", 413)
 

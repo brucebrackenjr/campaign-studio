@@ -1,4 +1,9 @@
-/* Motif viewport refinement. Original styles.css, app.js, type, and colors are retained. */
+/* Viewport refinements layered over styles.css. */
+[data-logo-notice]:empty { display: none; }
+[data-logo-notice] > .notice { margin: 0; }
+[data-logo-notice] > .notice:not(.block) { background: #fff3d6; border-color: #d6bc7a; color: #59461f; padding: 12px 16px; align-items: center; }
+[data-logo-notice] > .notice p:empty { display: none; }
+
 @media (min-width: 1101px) {
   /* 01 – Shared desktop composition. */
   .topbar { height: 64px; }
@@ -109,7 +114,8 @@
   main:has(> .export-hero) > .page-head { grid-column: 1 / -1; margin-bottom: 4px; }
   main:has(> .export-hero) > .export-hero { grid-column: 1 / -1; padding: 18px 24px; }
   main:has(> .export-hero) > .notice,
-  main:has(> .export-hero) > [data-wording-slot] { grid-column: 1 / -1; margin: 0; }
+  main:has(> .export-hero) > [data-wording-slot],
+  main:has(> .export-hero) > [data-logo-notice] { grid-column: 1 / -1; margin: 0; }
   main:has(> .export-hero) > .two-col { grid-column: 1; grid-row: span 4; display: flex; flex-direction: column; gap: 16px; margin-top: 0 !important; }
   main:has(> .export-hero) > .two-col > .panel { padding: 18px; }
   main:has(> .export-hero) .data-row { gap: 12px; padding: 9px 0; }

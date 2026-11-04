@@ -4,7 +4,6 @@ import copy
 import hashlib
 import io
 
-from PIL import Image
 from pydantic import Field, TypeAdapter, ValidationError
 
 from campaign_studio.authored import AuthoredProjects
@@ -162,8 +161,6 @@ def representative_preview(state, campaign_id, action):
             problem(["brand"], "brand", "Choose a palette and default text color.")
         logo = attachment(brand_value.get("logo_path"), ["brand", "logo_path"])
         if logo is None:
-            logo = Image.new("RGBA", (1, 1))
-            opened.append(logo)
             result["logo_missing"] = True
         else:
             require_visible_logo(logo)
@@ -173,7 +170,7 @@ def representative_preview(state, campaign_id, action):
         brand = Brand.model_validate(
             {
                 "id": "preview-brand",
-                "name": "Representative preview",
+                "name": "Preview",
                 "logo_path": "preview",
                 "logo_provenance": {"label": "Representative preview", "rights": "Not provided"},
                 "palette": brand_value.get("palette"),

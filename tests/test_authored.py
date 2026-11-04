@@ -486,7 +486,7 @@ def test_authored_save_during_provider_wait_preserves_new_work_and_pinned_execut
     async def transport(request):
         calls.append(json.loads(request.content))
         entered.set()
-        assert await asyncio.to_thread(release.wait, 5)
+        assert await asyncio.to_thread(release.wait, 60), "Test did not release the provider"
         return httpx.Response(200, json=response)
 
     app = create_app(
@@ -508,7 +508,7 @@ def test_authored_save_during_provider_wait_preserves_new_work_and_pinned_execut
             json={"run_id": run_id, "digest": plan.digest, "allowance": 1},
         )
         assert started.status_code == 202, started.text
-        assert entered.wait(2)
+        assert entered.wait(30), f"Mock provider was never reached: {state.run(run_id)['state']}"
         try:
             for campaign in (cid, other):
                 request = action(client, campaign)
@@ -520,7 +520,7 @@ def test_authored_save_during_provider_wait_preserves_new_work_and_pinned_execut
                     future = pool.submit(
                         client.post, f"/api/motif/campaigns/{campaign}/authored", json=request
                     )
-                    saved = future.result(timeout=2)
+                    saved = future.result(timeout=10)
                 assert saved.status_code == 200, saved.text
                 assert not release.is_set()
                 assert action(client, campaign)["authored"] == request["authored"]
@@ -680,7 +680,7 @@ def test_explicit_logo_replacement_supersedes_only_its_guarded_brief_choice(tmp_
     authored["brief"]["brand"]["text_color"] = "#12"
     authored["form_drafts"] = {
         "fields": {
-            "brief/brand/en": {"brand-name": "  Unfinished raw brand  ", "text-color": "#12"},
+            "brief/brand/en": {"brand-name": "  Raw brand draft  ", "text-color": "#12"},
             "brief/copy/en": {"copy-headline": "Unapplied Brief wording"},
         }
     }
@@ -704,7 +704,7 @@ def test_explicit_logo_replacement_supersedes_only_its_guarded_brief_choice(tmp_
     assert saved["authored"]["brief"]["brand"]["logo_provenance"]["label"] == "User-supplied logo"
     assert (
         saved["authored"]["form_drafts"]["fields"]["brief/brand/en"]["brand-name"]
-        == "  Unfinished raw brand  "
+        == "  Raw brand draft  "
     )
     assert saved["authored"]["brief"]["audience"] == "  Unfinished unrelated work  "
     assert saved["authored"]["brief"]["brand"]["text_color"] == "#12"

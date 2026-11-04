@@ -169,7 +169,7 @@ def test_empty_draft_reopens_but_cannot_plan(tmp_path):
         ]
         document = client.get(f"/api/motif/campaigns/{cid}").json()
         assert document["value"]["products"] == []
-        document["value"]["name"] = "Empty, saved, and reopened"
+        document["value"]["name"] = "Empty, saved, reopened"
         action = authored_edit(client, cid)
         action["authored"]["brief"] = document["value"]
         saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=action)

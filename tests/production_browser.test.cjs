@@ -9,6 +9,7 @@ function harness() {
     polls = [],
     el = { checked: true };
   const context = vm.createContext({
+    campaignIdentity: () => ({name: "Campaign", brand: "Brand"}),
     document: {addEventListener() {}},
     draft: { campaign_id: "292e9e84-eb00-5fdb-87e8-423f5e51fac4" },
     dirty: false,
@@ -238,7 +239,6 @@ test('rule status intersects current unavailable outputs and separates other omi
   h.context.model.manifest.outputs[0].url = '/restored.png';
   h.context.model.manifest.complete = true;
   assert.equal(h.run('wordingExportBlocked()'), false);
-  assert.match(h.run('savedResultNotice()'), /Saved images are ready/);
 });
 
 test('rules-only and mixed progress retain independent causes and only actionable recovery', () => {
@@ -255,17 +255,11 @@ test('rules-only and mixed progress retain independent causes and only actionabl
   assert.match(html, /Withheld/);
   assert.match(html, /Edit headline in Studio/);
   assert.match(html, /data-action="recover" disabled/);
-  assert.doesNotMatch(h.run('savedResultNotice()'), /Recover saved sources locally|needs attention/);
   h.context.model.manifest.outputs.push({id:'failed',url:null});
-  html = h.run('savedResultNotice()');
-  assert.match(html, /prohibited-word list/);
-  assert.match(html, /Review the available images\. No new request starts automatically/);
   h.context.model.local_recovery.output_ids = ['failed'];
   assert.equal(h.run('canRecoverCurrentOutputs()'), true);
-  assert.match(h.run('savedResultNotice()'), /Recover saved sources locally/);
   h.context.model.run = {...h.context.model.run,id:'new-unstarted-plan',state:'planned'};
   assert.equal(h.run('canRecoverCurrentOutputs()'), false, 'old pixels are not a latest-run recovery command');
-  assert.match(h.run('savedResultNotice()'), /prohibited-word list/);
 });
 
 test('withholding cannot conceal active, unknown, stopped, source, or integrity problems', () => {

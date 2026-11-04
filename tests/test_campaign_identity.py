@@ -109,10 +109,10 @@ def test_create_import_same_names_register_distinct_uuid_strings_and_rename_is_s
     for identity in created:
         for page in ("campaign", "production", "studio", "handoff"):
             assert client.get(f"/campaigns/{identity}/{page}").status_code == 200
-    save_name(client, created[0], "Renamed, still the same campaign")
+    save_name(client, created[0], "Renamed, same campaign")
     reopened = client.get(f"/api/motif/campaigns/{created[0]}").json()
     assert reopened["project"]["authored"]["brief"]["campaign_id"] == created[0]
-    assert reopened["project"]["authored"]["brief"]["name"] == "Renamed, still the same campaign"
+    assert reopened["project"]["authored"]["brief"]["name"] == "Renamed, same campaign"
     other = client.get(f"/api/motif/campaigns/{created[1]}").json()
     assert other["project"]["authored"]["brief"]["name"] == "Same campaign name"
     project = reopened["project"]
@@ -227,6 +227,9 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
     assert intake.read(campaign) == document
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows publishes with MoveFileExW, not directory fsync"
+)
 def test_creation_directory_sync_failure_removes_only_its_newly_linked_draft(tmp_path, monkeypatch):
     state = State(Storage(tmp_path / "runtime"))
     intake = Intake(state.storage)

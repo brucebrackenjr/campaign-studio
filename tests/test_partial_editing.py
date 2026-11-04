@@ -1,6 +1,7 @@
 """Partial output corrections use real saved files and synthetic transport only."""
 
 import asyncio
+import copy
 import json
 
 import httpx
@@ -288,11 +289,26 @@ def test_stale_partial_targets_reject_but_unstarted_plan_keeps_current_editable(
 def test_local_recomposition_fixes_copy_fit_without_filling_other_omissions(partial):
     state, runner, run_id, first, _, calls = partial
     value = state.plan(run_id).brief.model_dump()
-    value["products"][1]["copy_overrides"] = {"es-MX": {"message": "X" * 5000}}
+    value["products"][1]["copy_overrides"] = {"es-MX": {"message": "Oversized layout"}}
+    original_framing = copy.deepcopy(value["products"][1]["framing"])
+    value["products"][1]["framing"]["es-MX"] = {
+        ratio: {
+            "text_placements": {
+                "message": {
+                    "left": 0.1,
+                    "top": 0.1,
+                    "width": 0.2,
+                    "font_size": 1000,
+                }
+            }
+        }
+        for ratio in ("1:1", "9:16", "16:9")
+    }
     blocked = make_local_plan(state.plan(run_id), Brief.model_validate(value), state.storage)
     broken = render_revision(state, run_id, blocked, reuse_revision=first["revision_id"])
     assert broken["metrics"]["completed_images"] == 3
     value["products"][1]["copy_overrides"]["es-MX"]["message"] = "Para cada movimiento."
+    value["products"][1]["framing"] = original_framing
     corrected = make_local_plan(state.plan(run_id), Brief.model_validate(value), state.storage)
     repaired = runner.revise(run_id, corrected.brief, broken["revision_id"], corrected.digest)
     assert repaired["metrics"]["completed_images"] == 6

@@ -1,13 +1,14 @@
 "use strict";
 // Selected Motif markup; data and mutations are owned by the local service.
 function shell(content) {
+  const identity = campaignIdentity();
   const focused =
     page === "review" && reviewTab === "product" && C.products.length > 0;
   return `<header class="topbar">
 <div class="motif-brand"><a href="#library" class="wordmark" data-action="library" aria-label="Motif – Campaign Studio home"><i class="mark" aria-hidden="true"></i>Motif</a><span class="motif-descriptor">Campaign Studio</span></div>
 <div class="top-context">${
     page !== "library"
-      ? `<button data-action="campaigns" aria-label="Select a saved campaign" title="${esc(draft?.name || "Untitled campaign")}">${esc(draft?.name || "Untitled campaign")} <span aria-hidden="true">⌄</span>
+      ? `<button class="campaign-heading" data-action="campaigns" aria-label="Select a saved campaign" title="${esc([identity.brand, identity.name].filter(Boolean).join(" · "))}"><span class="campaign-heading-text"><span class="campaign-heading-brand" ${identity.brand.trim() ? "" : "hidden"}>${esc(identity.brand)}</span><span class="campaign-heading-name">${esc(identity.name)}</span></span><span class="campaign-heading-caret" aria-hidden="true"></span>
 </button>`
       : ""
   }</div>
@@ -54,9 +55,8 @@ function head(title, sub = "", actions = "", eyebrow = "", extraClass = "") {
 }
 // This renderer consumes one ordinary workbench entry; it owns no state or I/O.
 function homeHero(latest) {
-  const distinction = latest ? campaignDistinction(latest) : "";
   const identity = latest
-    ? [latest.name || "Untitled campaign", distinction].filter(Boolean).join(" · ")
+    ? latest.name || "Untitled campaign"
     : "";
   const placeholder = !latest
     ? "Your next idea belongs here."
@@ -71,7 +71,7 @@ function homeHero(latest) {
 <span class="eyebrow">${latest ? "YOUR MOST RECENT CAMPAIGN" : "YOUR NEXT CAMPAIGN"}</span>
 <h1>Make the<br>next move.</h1>
 ${latest
-    ? `<p class="home-campaign-name" title="${esc(identity)}"><span class="home-campaign-title">${esc(latest.name || "Untitled campaign")}</span>${distinction ? `<span class="small muted home-campaign-distinction">${esc(distinction)}</span>` : ""}</p>`
+    ? `<p class="home-campaign-name" title="${esc(identity)}"><span class="home-campaign-title">${esc(latest.name || "Untitled campaign")}</span></p>`
     : `<p>Bring your products, your words, and your point of view.</p>`}
 <div class="row home-continue-row">${latest
     ? `${btn("Continue working", "openCampaign", "dark", `data-campaign-id="${esc(latest.id)}" aria-label="${esc(`Continue working on ${identity}`)}"`)}<span class="small muted">Pick up your most recent campaign.</span>`
@@ -86,20 +86,22 @@ ${latest
 
 function workbenchCard(c) {
   const id = esc(c.id);
-  const identity = [c.name, campaignDistinction(c)].filter(Boolean).join(" · ");
-  const art = !c.products
+  const identity = c.name;
+  const art = c.recovery_message
+    ? '<span class="awaiting-art">Saved files unavailable</span>'
+    : !c.products
     ? '<span class="awaiting-art"><i class="mark" aria-hidden="true"></i><span>Awaiting<br>products</span></span>'
     : c.thumbnail
       ? `<img data-workbench-thumbnail src="${esc(c.thumbnail)}" alt="${esc(c.thumbnail_label || `${c.brand} campaign artwork`)}">`
       : `<span class="awaiting-art">${workbenchEmptyImage(c)}</span>`;
-  const state = c.damaged_images || c.outcome_unknown ? "warning" : c.status === "complete" ? "" : "neutral";
+  const state = c.recovery_message || c.damaged_images || c.outcome_unknown ? "warning" : c.status === "complete" ? "" : "neutral";
   return `<div class="workbench-item">
     <button class="campaign-card" data-action="openCampaign" data-campaign-id="${id}" title="${esc(identity)}">
-      <span class="campaign-image">${art}${campaignDistinctionTag(c)}</span>
+      <span class="campaign-image">${art}</span>
       <span class="info">
         <span class="eyebrow">${esc(c.brand || "New brand")}</span>
         <strong class="workbench-title">${esc(c.name)}</strong>
-        <span class="small muted">${c.products} ${c.products === 1 ? "product" : "products"} · ${c.markets} ${c.markets === 1 ? "market" : "markets"} · ${workbenchCounts(c)}</span>
+        <span class="small muted">${c.recovery_message ? esc(c.recovery_message) : `${c.products} ${c.products === 1 ? "product" : "products"} · ${c.markets} ${c.markets === 1 ? "market" : "markets"} · ${workbenchCounts(c)}`}</span>
         <span class="workbench-footer"><span class="small muted">${esc(activityLabel(c.updated))}</span>${badge(workbenchStatus(c), state)}</span>
       </span>
     </button>
@@ -111,14 +113,14 @@ function workbenchCard(c) {
 
 function library() {
   let cards = workbenchCampaigns();
-  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0">${cards.map(workbenchCard).join("")}<button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:transparent;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px">Bring your products, your words,<br>and your point of view.</p></button></div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
+  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${typeof setupNotice !== "undefined" && setupNotice ? notice(setupNotice, "", "info") : ""}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0">${cards.map(workbenchCard).join("")}<button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:transparent;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px">Bring your products, your words,<br>and your point of view.</p></button></div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
 }
 function brief() {
   return '<div id="brief-root"></div>';
 }
 function dialog(title, body, foot = "", wide = false, eyebrow = null) {
   return `<div class="overlay">
-<section class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+<section class="modal ${wide ? "wide" : ""} ${(["campaigns", "rename"].includes(modal) || (modal === "storage" && typeof storageView !== "undefined" && storageView?.state === "campaign-context")) ? "campaign-identity-dialog" : ""}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
 <header class="modal-head">
 <div>
 <span class="eyebrow">${esc(eyebrow ?? (modal === "new" ? "New campaign" : C.name || "MOTIF / CAMPAIGN STUDIO"))}</span>
@@ -339,16 +341,6 @@ function partialExportOmissions() {
     return `This saved version has ${model.manifest.outputs.length - model.manifest.metrics.completed_images} missing images.`;
   return `This saved version has ${withheld} ${withheld === 1 ? "image" : "images"} withheld by current rules${other ? ` and ${other} other unavailable ${other === 1 ? "image" : "images"}` : ""}.`;
 }
-function savedResultNotice() {
-  const rules = wordingNotice();
-  if (unavailableSource()) return rules;
-  if (model.manifest?.complete && !damagedFiles())
-    return notice("Saved images are ready.", "Review, correct, or hand off the saved version.", "info", "nav:review", "Review saved images");
-  if (model.notice || rulesOnlyResult()) return rules;
-  return rules + notice("This saved run needs attention.", canRecoverCurrentOutputs()
-    ? "Recover saved sources locally. A separate retry review is required before any new request."
-    : "Review the available images. No new request starts automatically.", "info", "nav:review", "Review saved images");
-}
 function review() {
   if (!C.products.length)
     return emptyPage("The work will live here.", "Add your first product and review a production plan.", "nav:production", "Add products in Production");
@@ -404,7 +396,7 @@ function overviewView(exporting = false) {
       }<div class="info">
 <h3>${esc(C.products[e.p].name)}</h3>
 <p class="small muted">${LANG[e.l]} · ${FMT[e.f].name} ${FMT[e.f].ratio}</p>
-<div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${wordingExportBlocked() ? "disabled" : ""}` : "")}</div>
+<div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${exportBlocked() ? "disabled" : ""}` : "")}</div>
 </div>
 </article>`;
     })
@@ -454,6 +446,12 @@ function activityView() {
 
 </div>`;
 }
+function handoffLogoNotice() {
+  if (model.logo_issue) return notice("This campaign requires a logo.", "Attach the logo in Brand, then generate the final images in Production.", "block", "nav:brand", "Open Brand");
+  if (model.manifest?.findings?.some(f => f.rule === "logo_presence" && f.severity === "warning"))
+    return notice("These images have no logo. You can export them as they are.", "", "", "nav:brand", "Open Brand");
+  return "";
+}
 function handoff() {
   const campaign = campaignMetricDisplay();
   if (!model?.manifest)
@@ -471,8 +469,8 @@ function handoff() {
 <h2>${empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>
 <p class="small muted" style="margin-top:8px">${C.markets.length} ${C.markets.length === 1 ? "market" : "markets"} · 3 formats · offline review included</p>
 </div>
-<div class="row wrap">${btn("Preview offline report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || wordingExportBlocked() ? "disabled" : ""}`)}${btn("Download ZIP ↓", "exportZip", "primary", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || wordingExportBlocked() ? "disabled" : ""}`)}${btn("Export folder", "exportFolder", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || wordingExportBlocked() ? "disabled" : ""}`)}</div>
-</section>${wordingNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved sources or review a deliberate retry. Export does not create imagery." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing. The package will say so.`, "Only available images from this saved version will be included. Nothing is generated by export.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
+<div class="row wrap">${btn("Preview offline report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Download ZIP ↓", "exportZip", "primary", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Export folder", "exportFolder", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}</div>
+</section><div data-logo-notice>${handoffLogoNotice()}</div>${wordingNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved sources or review a deliberate retry. Export does not create imagery." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing. The package will say so.`, "Only available images from this saved version will be included. Nothing is generated by export.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
 <section class="panel">
 <h3>Everything travels together.</h3>
 <div class="file-list">Package contents<br>&nbsp; ├─ index.html &nbsp; <span class="muted">the visual review</span>

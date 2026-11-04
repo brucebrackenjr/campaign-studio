@@ -4,7 +4,7 @@ const { readFileSync } = require("node:fs");
 const vm = require("node:vm");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function harness() {
+function harness(validate) {
   const context = vm.createContext({ structuredClone, setTimeout, clearTimeout, modalProduct: { treatment: "concept" } });
   vm.runInContext(readFileSync("src/campaign_studio/static/motif/project.js", "utf8"), context);
   let current = { brief: { name: "Original", color: "#12" }, form_drafts: {} };
@@ -12,6 +12,7 @@ function harness() {
   const saved = { version: "v1", base: { revision_id: "r1" }, authored: structuredClone(current), saved_at: "before" };
   const queue = context.projectSaveQueue({
     capture: () => structuredClone(current),
+    validate,
     restore: (value) => { current = value; },
     send: async (campaign, value) => {
       calls.push({ campaign, value: structuredClone(value) });
@@ -711,31 +712,89 @@ test("applied copy reconciles raw controls and product fields individually witho
 
 test("own late Save acknowledgement reconciles observed applied Copy without overwriting later typing", () => {
   const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',brand:{},products:[],markets:{'en-US':{copy:{message:'Before',cta:'Before CTA'}}}};
-  const submitted={brief,form_drafts:{fields:{'brief/copy/en':{'copy-headline':'Before','copy-cta':'Before CTA'}}}};
+  const retired={product_id:'p1',market:'en-US',ratio:'1:1'},later={...retired,ratio:'16:9'};
+  const submitted={brief,form_drafts:{brand_color_defaults:[retired],fields:{'brief/copy/en':{'copy-headline':'Before','copy-cta':'Before CTA'}}}};
   const current={base:{revision_id:'applied'},authored:structuredClone(submitted)};
   current.authored.brief.markets['en-US'].copy={message:'Applied',cta:'Applied CTA'};
+  current.authored.form_drafts.brand_color_defaults=[];
   current.authored.form_drafts.fields['brief/copy/en']={'copy-headline':'Applied','copy-cta':'Applied CTA'};
-  const context=vm.createContext({copy:structuredClone,refreshCampaignIdentity(){},draft:structuredClone(brief),model:{project:{}},logoSession:null,dirty:false});
+  const context=vm.createContext({copy:structuredClone,refreshCampaignIdentity(){},draft:structuredClone(brief),model:{project:{}},MotifTextLimits:{purposeIssue:()=>null},logoSession:null,dirty:false});
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
   let options;context.projectSaveQueue=o=>{options=o;return {open(){}};};context.initializeProject({});
   vm.runInContext("projectBuffers.form_drafts={fields:{'brief/copy/en':{'copy-headline':'Before','copy-cta':'  still typing  '}}};",context);
+  context.localTargets=[retired,later];vm.runInContext('projectBuffers.form_drafts.brand_color_defaults=copy(localTargets)',context);
   options.acknowledged({version:'ack'},'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',submitted,current);
   assert.equal(context.draft.markets['en-US'].copy.message,'Applied');
   assert.equal(vm.runInContext("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']",context),'Applied');
   assert.equal(vm.runInContext("projectBuffers.form_drafts.fields['brief/copy/en']['copy-cta']",context),'  still typing  ');
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(projectBuffers.form_drafts.brand_color_defaults)',context)),[later]);
+});
+
+test('Studio color Apply retires its acknowledged Brand reset before the next normal Save', async()=>{
+  const cid='8fca7c2c-091a-5bfe-ace8-b6af9c0e801c';
+  const square={product_id:'p1',market:'en-US',ratio:'1:1'}, landscape={...square,ratio:'16:9'}, other={...square,product_id:'p2'};
+  const brief={campaign_id:cid,brand:{},markets:{},audience:'Unfinished audience',products:[{id:'p1',framing:{'en-US':{'1:1':{text_placements:{message:{color:null,left:.2},cta:{color:null}}}}}}]};
+  const initial={version:'saved-reset',base:{revision_id:'r1'},authored:{brief,form_drafts:{brand_color_defaults:[square,landscape],fields:{'brief/campaign/en':{audience:'Unfinished audience'}}}}};
+  const context=vm.createContext({structuredClone,copy:structuredClone,setTimeout,clearTimeout,draft:structuredClone(brief),dirty:false});
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+  context.initial=initial;
+  const writes=[];context.sendAuthored=async(id,body)=>{writes.push(structuredClone(body));return {version:'saved-after-apply'};};
+  vm.runInContext(`projectOwner='${cid}';projectBuffers.form_drafts=copy(initial.authored.form_drafts);
+    projectQueue=projectSaveQueue({capture:()=>({brief:copy(draft),form_drafts:copy(projectBuffers.form_drafts)}),restore(){},send:sendAuthored,delay:10000});
+    projectQueue.open(projectOwner,initial,{restoreState:false});projectQueue.hold();`,context);
+  const accepted=structuredClone(initial);
+  accepted.version='accepted-studio';accepted.base.revision_id='r2';
+  accepted.authored.brief.products[0].framing['en-US']['1:1'].text_placements.message.color='#733B31';
+  accepted.authored.form_drafts.brand_color_defaults=[landscape];
+  // Distinct newer work is outside the acknowledgement and must survive it.
+  context.other=other;
+  vm.runInContext('projectBuffers.form_drafts.brand_color_defaults.push(other);draft.audience="Later audience";',context);
+  context.receiveProject({value:{campaign_id:cid},project:accepted},{project:initial},{applied:true});
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(projectBuffers.form_drafts.brand_color_defaults)',context)),[landscape,other]);
+  vm.runInContext('projectQueue.release()',context);
+  assert.equal(await context.saveProject(),true);
+  assert.equal(writes.length,1);
+  assert.deepEqual(writes[0].authored.form_drafts.brand_color_defaults,[landscape,other]);
+  assert.equal(writes[0].authored.brief.products[0].framing['en-US']['1:1'].text_placements.message.color,'#733B31');
+  assert.equal(writes[0].authored.brief.audience,'Later audience');
+  assert.equal(writes[0].authored.form_drafts.fields['brief/campaign/en'].audience,'Unfinished audience');
+
+  // A fresh reset after the Apply is new intent, not the retired prior choice.
+  const saved=JSON.parse(vm.runInContext('JSON.stringify({version:projectQueue.version(),base:{revision_id:"r2"},authored:projectQueue.authored()})',context));
+  context.square=square;
+  vm.runInContext('projectBuffers.form_drafts.brand_color_defaults.push(square);draft.products[0].framing["en-US"]["1:1"].text_placements.message.color=null;',context);
+  context.receiveProject({value:{campaign_id:cid},project:saved},{project:accepted});
+  assert.equal(await context.saveProject(),true);
+  assert.deepEqual(writes[1].authored.form_drafts.brand_color_defaults,[landscape,other,square]);
+  assert.equal(writes[1].authored.brief.products[0].framing['en-US']['1:1'].text_placements.message.color,null);
+  vm.runInContext('projectQueue.stop()',context);
+});
+
+test('a competing fetched draft cannot retire this tab’s pending Brand reset',()=>{
+  const cid='8fca7c2c-091a-5bfe-ace8-b6af9c0e801c', target={product_id:'p1',market:'en-US',ratio:'1:1'};
+  const initial={version:'mine',base:{},authored:{brief:{campaign_id:cid,brand:{},products:[],markets:{}},form_drafts:{brand_color_defaults:[target]}}};
+  const context=vm.createContext({structuredClone,copy:structuredClone,setTimeout,clearTimeout,draft:structuredClone(initial.authored.brief)});
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);context.initial=initial;
+  vm.runInContext(`projectOwner='${cid}';projectBuffers.form_drafts=copy(initial.authored.form_drafts);
+    projectQueue=projectSaveQueue({capture:()=>({brief:copy(draft),form_drafts:copy(projectBuffers.form_drafts)}),restore(){},send(){}});projectQueue.open(projectOwner,initial);`,context);
+  const theirs=structuredClone(initial);theirs.version='another-tab';theirs.authored.form_drafts.brand_color_defaults=[];
+  context.receiveProject({value:{campaign_id:cid},project:theirs},{project:initial});
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(projectBuffers.form_drafts.brand_color_defaults)',context)),[target]);
+  assert.equal(vm.runInContext('projectQueue.version()',context),'mine');
+  vm.runInContext('projectQueue.stop()',context);
 });
 
 test('acknowledged campaign label updates without replacing the focused field or newer typing',()=>{
-  const selector={title:'Old name',firstChild:{textContent:'Old name '}},field={value:'Newer unsaved name'},document={activeElement:field,title:'Old name',addEventListener(){}};
+  const label={textContent:'Old name'},brand={textContent:'Old brand'},selector={title:'Old name',querySelector:q=>q==='.campaign-heading-name'?label:brand},field={value:'Newer unsaved name'},document={activeElement:field,title:'Old name',addEventListener(){}};
   const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',name:'Newer unsaved name'};
-  const context=vm.createContext({document,$:()=>selector,page:'campaign',copy:structuredClone,draft:brief,model:{project:{}},logoSession:null,dirty:false});
+  const context=vm.createContext({document,$:()=>selector,page:'campaign',copy:structuredClone,draft:brief,model:{project:{}},MotifIdentityLayout:{fit(){}},MotifTextLimits:{purposeIssue:()=>null},logoSession:null,dirty:false});
   const api=readFileSync('src/campaign_studio/static/motif/api.js','utf8');
-  vm.runInContext(api.slice(api.indexOf('function refreshCampaignIdentity('),api.indexOf('async function saveDraft(')),context);
+  vm.runInContext(api.slice(api.indexOf('function campaignIdentity('),api.indexOf('async function saveDraft(')),context);
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
   let options;context.projectSaveQueue=o=>{options=o;return {open(){}};};
   context.initializeProject({});
   options.acknowledged({version:'ack'},brief.campaign_id,{brief:{...brief,name:'Saved campaign name'}});
-  assert.equal(selector.title,'Saved campaign name');assert.equal(selector.firstChild.textContent,'Saved campaign name ');
+  assert.equal(selector.title,'Saved campaign name');assert.equal(label.textContent,'Saved campaign name');
   assert.equal(document.title,'Motif – Campaign Studio · Saved campaign name');
   assert.equal(document.activeElement,field);assert.equal(field.value,'Newer unsaved name');assert.equal(context.draft.name,'Newer unsaved name');
 });
@@ -801,4 +860,97 @@ test('an old operation cannot release a new campaign queue hold', async()=>{
   h.queue.release(current);await new Promise(resolve=>setTimeout(resolve,15));
   assert.equal(h.calls.length,1);assert.equal(h.calls[0].campaign,'second');
   assert.equal(h.calls[0].value.authored.brief.name,'New current work');h.queue.stop();
+});
+
+
+test('campaign identity uses complete independent brand and campaign fields',()=>{
+  const name={textContent:''},brand={textContent:''},selector={querySelector:q=>q==='.campaign-heading-name'?name:brand},document={title:''};
+  const draft={campaign_id:'current',name:'Autumn – A new day',brand:{name:'Autumn Winds'},markets:{'en-US':{copy:{message:'Stay a little longer.'}}}};
+  const context=vm.createContext({draft,model:{},MotifIdentityLayout:{fit(){}},MotifTextLimits:{purposeIssue:(purpose,value)=>Array.from(value||'').length>(purpose==='brand_name'?20:25)?'Too long':null},document,$:()=>selector,page:'campaign'});
+  const api=readFileSync('src/campaign_studio/static/motif/api.js','utf8');
+  vm.runInContext(api.slice(api.indexOf('function campaignIdentity('),api.indexOf('async function saveDraft(')),context);
+  context.refreshCampaignIdentity();
+  assert.equal(name.textContent,draft.name);
+  assert.equal(brand.textContent,draft.brand.name);
+  assert.equal(selector.title,`${draft.brand.name} · ${draft.name}`);
+  assert.equal(document.title,`Motif – Campaign Studio · ${selector.title}`);
+  context.refreshCampaignIdentity('W'.repeat(25),'M'.repeat(20));
+  assert.equal(name.textContent,'W'.repeat(25));assert.equal(brand.textContent,'M'.repeat(20));
+  context.refreshCampaignIdentity('Other campaign','');
+  assert.equal(brand.hidden,true);assert.equal(name.textContent,'Other campaign');
+  assert.equal(selector.title,'Other campaign');
+  assert.equal(draft.name,'Autumn – A new day');
+});
+
+test('over-limit header drafts use only their own acknowledged identity without changing the fields',()=>{
+ const draft={campaign_id:'a',name:'W'.repeat(26),brand:{name:'W'.repeat(21)}};
+ const context=vm.createContext({draft,model:{project:{authored:{brief:{campaign_id:'a',name:'Accepted campaign',brand:{name:'Accepted brand'}}}}},MotifTextLimits:{purposeIssue:(purpose,value)=>Array.from(value||'').length>(purpose==='brand_name'?20:25)?'Too long':null}});
+ const api=readFileSync('src/campaign_studio/static/motif/api.js','utf8');
+ vm.runInContext(api.slice(api.indexOf('function campaignIdentity('),api.indexOf('function refreshCampaignIdentity(')),context);
+ assert.equal(context.campaignIdentity().name,'Accepted campaign');assert.equal(context.campaignIdentity().brand,'Accepted brand');
+ assert.equal(draft.name,'W'.repeat(26));assert.equal(draft.brand.name,'W'.repeat(21));
+ draft.campaign_id='b';
+ assert.equal(context.campaignIdentity().name,'Untitled campaign');assert.equal(context.campaignIdentity().brand,'');
+ draft.name='New campaign';draft.brand.name='New brand';
+ assert.equal(context.campaignIdentity().name,'New campaign');assert.equal(context.campaignIdentity().brand,'New brand');
+ context.model.project.authored.brief={campaign_id:'b',name:'B acknowledged',brand:{name:'B brand'}};
+ draft.name='W'.repeat(26);draft.brand.name='W'.repeat(21);
+ assert.equal(context.campaignIdentity().name,'B acknowledged');assert.equal(context.campaignIdentity().brand,'B brand');
+});
+
+for (const correctionTiming of ['before refusal', 'after refusal']) test(`length refusal saves corrected work ${correctionTiming}`, async()=>{
+  const h=harness();let reject;
+  h.reply=()=>new Promise((resolve,no)=>{reject=no;});
+  h.current.brief.name='W'.repeat(26);
+  const refused=h.queue.save();
+  if(correctionTiming==='before refusal'){
+    h.current.brief.name='Corrected campaign';h.queue.markChanged();
+    await new Promise(resolve=>setTimeout(resolve,15));
+  }
+  reject(Object.assign(new Error('Campaign name: Use no more than 25 characters (26 entered).'),{status:422,code:'text_too_long'}));
+  await assert.rejects(refused,/Campaign name.*25/);
+  assert.match(h.queue.getSaveState().problem.message,/Campaign name.*25/);
+  let persisted;
+  h.reply=async(id,request)=>{persisted=structuredClone(request.authored);return{version:'v2'};};
+  if(correctionTiming==='after refusal'){h.current.brief.name='Corrected campaign';h.queue.markChanged();}
+  await new Promise(resolve=>setTimeout(resolve,25));
+  assert.equal(h.calls.length,2);assert.equal(persisted.brief.name,'Corrected campaign');
+  assert.equal(h.queue.getSaveState().phase,'saved');assert.equal(h.queue.getSaveState().problem,null);
+  assert.equal(h.current.brief.name,'Corrected campaign');h.queue.stop();
+});
+
+test('unchanged over-limit work does not retry automatically or discard the typed value',async()=>{
+  const h=harness();h.current.brief.name='W'.repeat(26);
+  h.reply=async()=>{throw Object.assign(new Error('Campaign name: Use no more than 25 characters.'),{status:422,code:'text_too_long'});};
+  await assert.rejects(h.queue.save(),/25/);
+  h.queue.markChanged();await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(h.calls.length,1);assert.equal(h.current.brief.name,'W'.repeat(26));assert.equal(h.queue.isDirty(),true);h.queue.stop();
+});
+
+for(const buffer of [false,true])test(`local length refusal retains ${buffer?'off-tab buffer':'brief'} text without a request or failure banner, then correction autosaves`,async()=>{
+ const invalid=value=>Array.from(buffer?value.form_drafts?.fields?.other?.['campaign-name']||'':value.brief.name).length>25?'Campaign name: Use no more than 25 characters.':null;
+ const h=harness(invalid);
+ const set=value=>{if(buffer)h.current.form_drafts={fields:{other:{'campaign-name':value}}};else h.current.brief.name=value;};
+ set('🦊'.repeat(26));h.queue.markChanged();await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(await h.queue.saveCurrent(),false);assert.equal(h.calls.length,0);assert.equal(h.queue.isDirty(),true);
+ assert.equal(h.queue.getSaveState().phase,'dirty');assert.equal(h.queue.getSaveState().problem,null);assert.match(h.queue.getSaveState().validationMessage,/Campaign name.*25/);
+ set('Corrected');h.queue.markChanged();await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(h.calls.length,1);assert.equal(invalid(h.calls[0].value.authored),null);assert.equal(h.queue.isDirty(),false);assert.equal(h.queue.getSaveState().validationMessage,'');h.queue.stop();
+});
+
+test('over-limit newer typing during an accepted save stays in place and waits for correction',async()=>{
+ const h=harness(value=>Array.from(value.brief.name).length>25?'Campaign name: Use no more than 25 characters.':null);let resolve;
+ h.reply=()=>new Promise(yes=>resolve=yes);h.current.brief.name='First allowed';const saving=h.queue.save();
+ h.current.brief.name='W'.repeat(26);h.queue.markChanged();resolve({version:'v2'});assert.equal(await saving,false);
+ await new Promise(resolve=>setTimeout(resolve,20));assert.equal(h.calls.length,1);assert.equal(h.current.brief.name,'W'.repeat(26));assert.equal(h.queue.getSaveState().problem,null);
+ h.reply=async()=>({version:'v3'});h.current.brief.name='Corrected newer';h.queue.markChanged();await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(h.calls.length,2);assert.equal(h.calls[1].value.authored.brief.name,'Corrected newer');assert.equal(h.queue.isDirty(),false);h.queue.stop();
+});
+
+test('opening the project and reading its save status never captures controls before the campaign view exists',()=>{
+ const context=vm.createContext({structuredClone,setTimeout,clearTimeout});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+ const queue=context.projectSaveQueue({capture(){throw Error('Campaign view not mounted');},restore(){},send(){},validate(){throw Error('No authored capture is ready');}});
+ queue.open('new-owner',{version:'v1',base:{},authored:{brief:{name:'Loaded'}}},{restoreState:false});
+ assert.equal(queue.getSaveState().phase,'saved');assert.equal(queue.getSaveState().validationMessage,'');queue.stop();
 });

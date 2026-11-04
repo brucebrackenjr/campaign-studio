@@ -59,7 +59,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        fresh = seed_examples and (not storage.root.exists() or not any(storage.root.iterdir()))
+        fresh = not storage.root.exists() or not any(storage.root.iterdir())
+        initialized = storage.path("private/state.sqlite3").is_file()
         state = State(storage)
         from campaign_studio.cleanup import Cleanup
 
@@ -77,10 +78,14 @@ def create_app(
             lambda: OpenAIImages(credentials.current_key())
         )
         app.state.key_available = key_available or (lambda: credentials.status()["available"])
-        if fresh:
+        if seed_examples:
             from campaign_studio.bundled import install_campaigns
 
-            await install_campaigns(app.state.workspace, product_limit=settings.product_limit)
+            await install_campaigns(
+                app.state.workspace,
+                product_limit=settings.product_limit,
+                allow_new=fresh or initialized,
+            )
         yield
         active = [task for task in app.state.operations.values() if not task.done()]
         for task in active:

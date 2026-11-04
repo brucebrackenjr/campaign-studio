@@ -16,6 +16,7 @@
         const id=[productId,market,match.field].map(encodeURIComponent).join(':');
         if(!groups.has(id))groups.set(id,{id,product:context.product_name||'Product',language:languages[market]||market,field:fields[match.field]||'Printed wording',terms:[],value:match.value,target:{productId,market,field:match.field,origin:match.origin,path:match.path},ruleIds:[]});
         const row=groups.get(id);
+        if(row.value == null && match.value != null)row.value=match.value;
         if(!row.terms.includes(phrase.configured_phrase))row.terms.push(phrase.configured_phrase);
         if(!row.ruleIds.includes(finding.rule))row.ruleIds.push(finding.rule);
       }

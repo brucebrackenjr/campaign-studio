@@ -314,6 +314,38 @@ class Intake:
             # Leave the draft readable for the existing local recovery path.
             manifest = None
         receipt = (manifest or {}).get("edit_receipt", {})
+        authored = document.get("authored")
+        if manifest and authored and authored.get("form_drafts", {}).get("brand_color_defaults"):
+            from campaign_studio.authored import AuthoredProjects
+
+            AuthoredProjects(workspace).reconcile_applied_fields(
+                document, authored, colors_only=True
+            )
+        if receipt.get("brand_update"):
+            from campaign_studio.brand_updates import reconcile_brand_update
+
+            accepted = workspace.state.plan(output_run["id"])
+            reconcile_brand_update(document, accepted.brief.brand, receipt)
+            if (
+                receipt["brand_update"]["version"] == document["version"]
+                and output_run["id"] == run["id"]
+            ):
+                from pydantic import ValidationError
+
+                from campaign_studio.authored import AuthoredProjects
+                from campaign_studio.planning import canonical_hash
+
+                raw = document.get("authored", {}).get("brief", document["value"])
+                try:
+                    matches = Brief.model_validate(raw) == accepted.brief
+                except ValidationError:
+                    matches = False
+                if matches:
+                    # Brand-only work is already represented by these images.
+                    # Any unrelated unfinished difference keeps its plan pending.
+                    document["planned_run"] = output_run["id"]
+                    document["planned_authored_hash"] = canonical_hash(raw)
+                    document["authored_base"] = AuthoredProjects(workspace).base(campaign_id)
         if (
             "replacement_draft_version" in receipt
             and receipt["replacement_draft_version"] == document["version"]
@@ -328,21 +360,35 @@ class Intake:
                     document["authored"]["brief"]["brand"][field] = copy.deepcopy(brand[field])
         return document
 
-    def persist_logo_revision(self, campaign_id, workspace):
+    def persist_applied_revision(self, campaign_id, workspace, *, only_superseded_colors=False):
         with self.storage.exclusive_draft():
-            self._persist_logo_revision(campaign_id, workspace)
+            self._persist_applied_revision(
+                campaign_id, workspace, only_superseded_colors=only_superseded_colors
+            )
 
-    def _persist_logo_revision(self, campaign_id, workspace):
+    def _persist_applied_revision(self, campaign_id, workspace, *, only_superseded_colors=False):
         from campaign_studio.planning import canonical_hash
 
         # Revision publication is authoritative. The same baseline reconciliation
         # repairs a lost refresh after a crash without discarding unrelated fields.
         previous = self.read(campaign_id)
         current = self.current_document(campaign_id, workspace)
-        if current and (
-            current["value"] != previous["value"]
-            or current.get("authored") != previous.get("authored")
-        ):
+        if only_superseded_colors:
+            prior_targets = (
+                (previous or {})
+                .get("authored", {})
+                .get("form_drafts", {})
+                .get("brand_color_defaults")
+            )
+            current_targets = (
+                (current or {})
+                .get("authored", {})
+                .get("form_drafts", {})
+                .get("brand_color_defaults")
+            )
+            if prior_targets == current_targets:
+                return
+        if current and current != previous:
             previous_authored = previous.get("authored")
             if (
                 previous_authored
@@ -703,7 +749,7 @@ class Intake:
                     record[key] = "Not provided"
 
         fill(candidate, ("name", "audience", "creative_direction"))
-        fill(candidate["brand"], ("name", "logo_path"))
+        fill(candidate["brand"], ("name",))
         for product in candidate["products"]:
             fill(product, ("name", "description"))
             fill(product["source"], ("path", "description"))
@@ -916,7 +962,7 @@ class Intake:
 
     def fit_replacement_logo(self, brief, previous_reference):
         """A changed Brief attachment uses the same proportional fit as Studio."""
-        if brief.brand.logo_path == previous_reference:
+        if not brief.brand.logo_path or brief.brand.logo_path == previous_reference:
             return brief, []
         try:
             image, _ = load_image(self.storage.path(brief.brand.logo_path))
@@ -1012,7 +1058,9 @@ class Intake:
                     "Recheck applies only rule changes. Your wording, product, or brand edits "
                     "are still here; save and review their production plan first.",
                 )
-            new = make_plan(brief, self.storage)
+            # Rules reuse the existing photographs and their original requests,
+            # but every attached file is read again to detect changes on disk.
+            new = make_plan(brief, self.storage, retained_requests=old.generation_requests)
             impact = compare_plans(old, new)
             if impact.render_outputs or new.assets != old.assets:
                 raise ActionError(
@@ -1118,8 +1166,15 @@ class Intake:
                 master = replay["sources"][product_id]
                 source_plan = workspace.state.plan(source_run["id"], current=False)
                 request = source_plan.generation_requests.get(product_id)
+                source_product = next(
+                    (product for product in source_plan.brief.products if product.id == product_id),
+                    None,
+                )
                 if (
-                    request == request_for(brief, products[product_id])
+                    request is not None
+                    and source_product is not None
+                    and request_for(source_plan.brief, source_product)
+                    == request_for(brief, products[product_id])
                     and request.model == master["model"]
                     and attempt["source_sha256"] == master["sha256"]
                     and attempt["created_at"][:10] == master["generated_on"]
@@ -1148,7 +1203,9 @@ class Intake:
             if prior is None or prior.source.role == "finished_scene":
                 continue
             old_request = old.generation_requests.get(product_id) or request_for(old.brief, prior)
-            if plan.generation_requests[product_id] != old_request:
+            # Compare the producer's inputs under the same request builder.
+            # Revised app instructions alone do not require a new photograph.
+            if plan.generation_requests[product_id] != request_for(old.brief, prior):
                 continue
             asset = plan.assets.get(f"products/{product_id}")
             old_asset = old.assets.get(f"products/{product_id}")

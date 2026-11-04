@@ -23,12 +23,12 @@
    root.dataset.saveState=phase[state.phase];q('[data-hs-label]').textContent=labels[state.phase];
    q('[data-hs="details"]').setAttribute('aria-label',labels[state.phase]+'. Campaign save details.');q('[data-hs="details"]').setAttribute('aria-expanded',String(open));
    // Keep keyboard focus on Save while its current request is unavailable.
-   q('[data-hs="save"]').setAttribute('aria-disabled',String(['saving','conflict'].includes(state.phase)||state.busy===true));
+   q('[data-hs="save"]').setAttribute('aria-disabled',String(['saving','conflict'].includes(state.phase)||state.busy===true||!!state.validationMessage));
    q('[data-hs="save"]').setAttribute('aria-label','Save '+(options.scopeLabel||'campaign'));
-   q('[data-hs="save"]').title='Save current work, including unfinished fields and pending edits';
+   q('[data-hs="save"]').title=state.validationMessage||'Save current work, including unfinished fields and pending edits';
    q('[data-hs="review"]').hidden=state.phase!=='conflict';q('[data-hs="review"]').disabled=state.busy===true;
    if(live!==labels[state.phase]){live=labels[state.phase];q('.mf-save-live').textContent=live;}
-   const d=details[state.phase];q('.mf-save-details').hidden=!open;q('.mf-save-details strong').textContent=d[0];q('[data-hs-body]').textContent=state.message||d[1];
+   const d=details[state.phase];q('.mf-save-details').hidden=!open;q('.mf-save-details strong').textContent=d[0];q('[data-hs-body]').textContent=state.validationMessage||state.message||d[1];
    const meta=q('.mf-save-meta');meta.hidden=state.phase!=='saved';meta.textContent='Saved to this workspace'+(state.savedAt?' · '+new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date(state.savedAt)):'');
   }
   const close=()=>{open=false;render(state);};
@@ -36,7 +36,7 @@
    if(a==='details'){open=!open;render(state);}
    if(a==='close-details'){close();q('[data-hs="details"]').focus();}
    // The host publishes success/failure/conflict. A resolved promise alone never means Saved.
-   if(a==='save'&&state&&!['saving','conflict'].includes(state.phase)&&state.busy!==true)Promise.resolve().then(()=>host.onSave()).catch(()=>{});
+   if(a==='save'&&state&&!['saving','conflict'].includes(state.phase)&&state.busy!==true&&!state.validationMessage)Promise.resolve().then(()=>host.onSave()).catch(()=>{});
    if(a==='review')Promise.resolve().then(()=>host.onReviewConflict()).catch(()=>{});
   };
   const key=e=>{if(e.key==='Escape'&&open){e.stopPropagation();e.preventDefault();close();q('[data-hs="details"]').focus();}};

@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from campaign_studio.text_limits import LIMITS
+
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")]
 CAMPAIGN_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 CampaignID = Annotated[str, StringConstraints(pattern=CAMPAIGN_ID_PATTERN)]
@@ -24,7 +26,25 @@ def valid_campaign_id(value) -> bool:
     return isinstance(value, str) and re.fullmatch(CAMPAIGN_ID_PATTERN, value) is not None
 
 
-Text = Annotated[str, StringConstraints(min_length=1, max_length=5000, pattern=r"\S")]
+def bounded_text(purpose):
+    return Annotated[
+        str, StringConstraints(min_length=1, max_length=LIMITS[purpose], pattern=r"\S")
+    ]
+
+
+CampaignName = bounded_text("campaign_name")
+BrandName = bounded_text("brand_name")
+ProductName = bounded_text("product_name")
+Headline = bounded_text("headline")
+CallToAction = bounded_text("cta")
+Audience = bounded_text("audience")
+CreativeDirection = bounded_text("direction")
+Description = bounded_text("description")
+OriginLabel = bounded_text("origin_label")
+UsageRights = bounded_text("rights")
+FileReference = bounded_text("file_reference")
+ReplayModel = bounded_text("replay_model")
+ReplayHistory = bounded_text("replay_history")
 
 
 def normalize_color(value):
@@ -51,8 +71,8 @@ class Contract(BaseModel):
 
 
 class Provenance(Contract):
-    label: Text
-    rights: Text
+    label: OriginLabel
+    rights: UsageRights
     synthetic: bool = False
 
 
@@ -109,14 +129,14 @@ class Framing(Contract):
 
 class FinishedScene(Contract):
     role: Literal["finished_scene"]
-    path: Text
+    path: FileReference
     provenance: Provenance
     subject_box: Box | None = None
 
 
 class PreparedProduct(Contract):
     role: Literal["prepared_product"]
-    path: Text
+    path: FileReference
     provenance: Provenance
     opaque_nonreflective_product_confirmed: Literal[True]
 
@@ -124,7 +144,7 @@ class PreparedProduct(Contract):
 class Concept(Contract):
     role: Literal["concept"]
     imagery_absent: Literal[True]
-    description: Text
+    description: Description
     provenance: Provenance
 
 
@@ -132,8 +152,8 @@ Source = Annotated[FinishedScene | PreparedProduct | Concept, Field(discriminato
 
 
 class Copy(Contract):
-    message: Text
-    cta: Text | None = None
+    message: Headline
+    cta: CallToAction | None = None
 
     @model_validator(mode="after")
     def visible_text(self):
@@ -146,8 +166,8 @@ class Copy(Contract):
 
 
 class Override(Contract):
-    message: Text | None = None
-    cta: Text | None = None
+    message: Headline | None = None
+    cta: CallToAction | None = None
 
     @model_serializer(mode="plain")
     def supplied_fields(self):
@@ -161,16 +181,22 @@ class Override(Contract):
         return self
 
 
+MAX_PHRASE_RULES = 32
+MAX_PHRASE_LENGTH = LIMITS["phrase"]
+
+
 class PhraseRule(Contract):
     id: Identifier
-    phrase: Text
+    phrase: Annotated[
+        str, StringConstraints(min_length=1, max_length=MAX_PHRASE_LENGTH, pattern=r"\S")
+    ]
     match: Literal["literal", "whole_word"] = "literal"
     case_sensitive: bool = False
 
 
 class MarketContent(Contract):
     text: Copy = Field(alias="copy")
-    phrase_rules: list[PhraseRule] | None = None
+    phrase_rules: list[PhraseRule] | None = Field(default=None, max_length=MAX_PHRASE_RULES)
 
     @model_validator(mode="after")
     def unique_rules(self):
@@ -183,8 +209,8 @@ class MarketContent(Contract):
 
 class Product(Contract):
     id: Identifier
-    name: Text
-    description: Text
+    name: ProductName
+    description: Description
     source: Source
     copy_overrides: dict[Market, Override] = Field(default_factory=dict)
     framing: dict[Market, dict[Ratio, Framing]] = Field(default_factory=dict)
@@ -192,11 +218,21 @@ class Product(Contract):
 
 class Brand(Contract):
     id: Identifier
-    name: Text
-    logo_path: Text
-    logo_provenance: Provenance
+    name: BrandName
+    logo_path: FileReference | Literal[""] = ""
+    logo_provenance: Provenance = Field(
+        default_factory=lambda: Provenance(label="Not provided", rights="Not provided")
+    )
+    require_logo: bool = Field(default=False, strict=True)
     palette: list[Color] = Field(min_length=1, max_length=8)
     text_color: Color
+
+    @model_serializer(mode="wrap")
+    def serialize_logo_requirement(self, handler):
+        value = handler(self)
+        if not self.require_logo:
+            value.pop("require_logo", None)
+        return value
 
     @field_validator("palette", mode="before")
     @classmethod
@@ -222,9 +258,9 @@ class Brand(Contract):
 
 
 class ReplayMaster(Contract):
-    path: Text
+    path: FileReference
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    model: Text
+    model: ReplayModel
     generated_on: date
     provenance: Provenance
 
@@ -233,15 +269,15 @@ class Replay(Contract):
     partial: bool = False
     sources: dict[Identifier, ReplayMaster] = Field(min_length=1, max_length=5)
     historical_requests: int = Field(ge=1, strict=True)
-    history: Text
+    history: ReplayHistory
 
 
 class Brief(Contract):
     schema_version: Literal[1] = 1
     campaign_id: CampaignID
-    name: Text
-    audience: Text
-    creative_direction: Text
+    name: CampaignName
+    audience: Audience
+    creative_direction: CreativeDirection
     brand: Brand
     copy_provenance: Provenance
     markets: dict[Market, MarketContent] = Field(min_length=1, max_length=2)

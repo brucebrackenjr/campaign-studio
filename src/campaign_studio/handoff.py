@@ -15,7 +15,7 @@ from campaign_studio.exporting import (
     export_zip,
     folder_matches,
     package_payloads,
-    require_export_wording,
+    require_export_rules,
     zipped_payloads,
 )
 from campaign_studio.local_files import display_path
@@ -64,7 +64,7 @@ class Handoff:
     def create_zip(self, target: RevisionTarget, action: PackageAction) -> dict:
         with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
             self.state.require_current_output(target)
-            require_export_wording(self.state, target.campaign_id)
+            require_export_rules(self.state, target.campaign_id, target.revision_id)
             # Publication cannot race this lock. The selected output may predate
             # an unstarted plan, while its metadata snapshot remains authoritative.
             target = target.model_copy(update={"mode": "saved_version"})
@@ -137,7 +137,7 @@ class Handoff:
     def create_folder(self, target: RevisionTarget, action: PackageAction) -> dict:
         with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
             self.state.require_current_output(target)
-            require_export_wording(self.state, target.campaign_id)
+            require_export_rules(self.state, target.campaign_id, target.revision_id)
             target = target.model_copy(update={"mode": "saved_version"})
             self.state.require_images(target.revision_id)
             self.metadata(target)
@@ -201,7 +201,7 @@ class Handoff:
             if report is None:
                 raise missing
             self.state.run(report["run_id"])
-            require_export_wording(self.state, report["campaign_id"])
+            require_export_rules(self.state, report["campaign_id"], report["revision_id"])
             prefix = report["reference"].rsplit("/", 1)[0]
             try:
                 raw = self.state.storage.path(f"{prefix}/manifest.json").read_bytes()
@@ -240,7 +240,7 @@ class Handoff:
 
     def download(self, target: RevisionTarget, artifact_id: str):
         with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
-            require_export_wording(self.state, target.campaign_id)
+            require_export_rules(self.state, target.campaign_id, target.revision_id)
             return self._download(target, artifact_id)
 
     def _download(self, target: RevisionTarget, artifact_id: str):

@@ -38,6 +38,109 @@ def make_package(state, run, revision):
     return target, handoff.create_zip(target, action), handoff.create_folder(target, action)
 
 
+@pytest.mark.parametrize("metadata_added", ["before_preview", "after_preview", "after_commit"])
+def test_campaign_deletion_removes_finder_metadata_and_empty_folders(tmp_path, metadata_added):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    intake = Intake(state.storage)
+    intake.write(brief.campaign_id, brief.model_dump(mode="json"), None)
+    other, _ = intake.new()
+    other_draft = state.storage.path(state.storage.project(other).draft)
+    survivor = other_draft.read_bytes()
+    project = state.storage.project(brief.campaign_id)
+    root = state.storage.path(f"Campaigns/{project.folder}")
+    folders = (root, root / "Assets", root / "Brief")
+
+    def add_metadata():
+        for folder in folders:
+            (folder / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1" + b"Finder settings")
+
+    cleanup = Cleanup(state)
+    if metadata_added == "before_preview":
+        add_metadata()
+    preview = cleanup.preview_campaign(brief.campaign_id)
+    assert preview["unmanaged_file_count"] == 0
+    if metadata_added == "after_preview":
+        add_metadata()
+    cleanup.delete_campaign(brief.campaign_id, preview["token"], defer_cleanup=True)
+    if metadata_added == "after_commit":
+        add_metadata()
+    result = Cleanup(State(state.storage)).resume_all()
+    assert result[0]["state"] == "complete"
+    assert not root.exists()
+    assert other_draft.read_bytes() == survivor
+    with state.storage.connect() as db:
+        for table in ("campaigns", "runs", "file_owners", "cleanup_intents"):
+            column = "id" if table == "campaigns" else "campaign_id"
+            assert (
+                db.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {column}=?", (brief.campaign_id,)
+                ).fetchone()[0]
+                == 0
+            )
+        assert (
+            db.execute(
+                "SELECT COUNT(*) FROM uploads WHERE reference LIKE ?",
+                (f"Campaigns/{project.folder}/%",),
+            ).fetchone()[0]
+            == 0
+        )
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("kind", ["notes", "not_finder", "symlink"])
+def test_campaign_deletion_preserves_unmanaged_files_and_aliases(tmp_path, kind):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    root = state.storage.path(f"Campaigns/{state.storage.project(brief.campaign_id).folder}")
+    metadata = root / ".DS_Store"
+    external = tmp_path / "outside.bin"
+    signature = b"\x00\x00\x00\x01Bud1"
+    external.write_bytes(signature)
+    if kind == "symlink":
+        try:
+            metadata.symlink_to(external)
+        except OSError:
+            pytest.skip("Creating symlinks is unavailable on this host.")
+    elif kind == "not_finder":
+        metadata.write_bytes(b"User file with a Finder filename")
+    else:
+        metadata.write_bytes(signature)
+        (root / "producer notes.txt").write_text("Keep these notes.")
+    before = metadata.read_bytes()
+    cleaner = Cleanup(state)
+    preview = cleaner.preview_campaign(brief.campaign_id)
+    assert preview["unmanaged_file_count"] == 1
+    assert cleaner.delete_campaign(brief.campaign_id, preview["token"])["state"] == "complete"
+    assert metadata.read_bytes() == before
+    assert external.read_bytes() == signature
+    if kind == "symlink":
+        assert metadata.is_symlink()
+    if kind == "notes":
+        assert (root / "producer notes.txt").read_text() == "Keep these notes."
+
+
+def test_finder_metadata_removal_failure_remains_pending_for_retry(tmp_path, monkeypatch):
+    state, _, _, brief = setup_case(tmp_path, 2, True)
+    root = state.storage.path(f"Campaigns/{state.storage.project(brief.campaign_id).folder}")
+    metadata = root / ".DS_Store"
+    metadata.write_bytes(b"\x00\x00\x00\x01Bud1")
+    unlink = Path.unlink
+
+    def locked(path, *args, **kwargs):
+        if path == metadata:
+            raise PermissionError("Finder metadata is held open")
+        return unlink(path, *args, **kwargs)
+
+    cleaner = Cleanup(state)
+    preview = cleaner.preview_campaign(brief.campaign_id)
+    monkeypatch.setattr(Path, "unlink", locked)
+    result = cleaner.delete_campaign(brief.campaign_id, preview["token"])
+    assert result["state"] == "pending"
+    assert cleaner.status(brief.campaign_id)["campaign_state"] == "pending"
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert cleaner.retry(brief.campaign_id, result["cleanup_id"])["state"] == "complete"
+    assert not root.exists()
+
+
 def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp_path):
     state, runner, run, brief = setup_case(tmp_path, 2, True)
     manifest = asyncio.run(runner.execute(run))

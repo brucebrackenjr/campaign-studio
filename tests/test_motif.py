@@ -221,7 +221,10 @@ def test_workbench_image_expectation_uses_first_product_source_receipt(tmp_path)
         assert state.revision_count(run) == 0
 
 
-def test_new_concept_reuses_unchanged_generated_product_and_reopens(tmp_path):
+@pytest.mark.parametrize("instructions_changed", [False, True])
+def test_new_concept_reuses_unchanged_generated_product_and_reopens(
+    tmp_path, monkeypatch, instructions_changed
+):
     state, runner, run_id, response = generated_case(tmp_path)
     calls = []
 
@@ -231,6 +234,10 @@ def test_new_concept_reuses_unchanged_generated_product_and_reopens(tmp_path):
 
     provider = OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport))
     before = asyncio.run(runner.execute(run_id, provider))
+    if instructions_changed:
+        monkeypatch.setattr(
+            "campaign_studio.generation.CONCEPT_FRAMING", "Updated composition instructions."
+        )
     old_source = state.attempts(run_id)[0]
     old_hash = hashlib.sha256(state.storage.path(old_source["source_ref"]).read_bytes()).hexdigest()
     ws = Workspace(state)
@@ -643,6 +650,55 @@ def test_damaged_revision_requires_recovery_before_complete_package(tmp_path):
             json={"snapshot_id": after["metadata"]["snapshot_id"], "allow_partial": False},
         )
         assert response.status_code == 200 and response.json()["included"] == 12
+
+
+@pytest.mark.parametrize("damage_asset", [False, True])
+def test_generated_rule_recheck_retains_request_and_checks_assets(
+    tmp_path, monkeypatch, damage_asset
+):
+    from campaign_studio.workspace import ActionError
+
+    state, runner, run_id, response = generated_case(tmp_path)
+    provider = OpenAIImages(
+        "synthetic-test-credential",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response)),
+    )
+    first = asyncio.run(runner.execute(run_id, provider))
+    old = state.plan(run_id)
+    attempts = state.attempts(run_id)
+    ws, intake = Workspace(state), Intake(state.storage)
+    cid = old.brief.campaign_id
+    current = intake.current_document(cid, ws)
+    value = old.brief.model_dump(mode="json")
+    value["markets"]["en-US"]["phrase_rules"] = [
+        {"id": "unused-rule", "phrase": "A phrase absent from the campaign"}
+    ]
+    monkeypatch.setattr(
+        "campaign_studio.generation.CONCEPT_FRAMING", "Updated composition instructions."
+    )
+    monkeypatch.setattr(
+        "campaign_studio.rendering.compose",
+        lambda *a: pytest.fail("Rule recheck must not compose new pixels"),
+    )
+    document = BriefDraft(
+        value=value,
+        version=current["version"] if current else None,
+        base_revision=first["revision_id"],
+    )
+    if damage_asset:
+        logo = state.storage.path(old.brief.brand.logo_path)
+        logo.write_bytes(logo.read_bytes() + b"changed bytes")
+        with pytest.raises(ActionError, match="source changed"):
+            intake.recheck_rules(cid, document, run_id, ws)
+        assert state.effective_revision(run_id) == first["revision_id"]
+    else:
+        result = intake.recheck_rules(cid, document, run_id, ws)
+        assert result["complete"]
+        assert {o["id"]: o["sha256"] for o in result["outputs"]} == {
+            o["id"]: o["sha256"] for o in first["outputs"]
+        }
+        assert state.plan(run_id).generation_requests == old.generation_requests
+    assert state.attempts(run_id) == attempts
 
 
 def test_rule_recheck_publishes_findings_without_pixels_and_preserves_history(

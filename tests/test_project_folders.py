@@ -39,8 +39,8 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
         state = app.state.workspace.state
         campaigns = app.state.workspace.catalog()
         autumn, bridle = (
-            next(c for c in campaigns if c["name"].startswith(name))["id"]
-            for name in ("Autumn Winds", "Bridle & Bough")
+            next(c for c in campaigns if c["name"] == name)["id"]
+            for name in ("Autumn at Home", "Winter at the Ranch")
         )
         a, b = state.storage.project(autumn), state.storage.project(bridle)
         project_dir, survivor = root / "Campaigns" / a.folder, root / "Campaigns" / b.folder

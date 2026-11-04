@@ -1,7 +1,7 @@
 """Deliberate owned-file cleanup and retirement of older image sets.
 
-The database commits an exact file list before unlinking. Restart only resumes
-those lists; it never discovers new deletion targets or sweeps upload orphans.
+The database commits an exact file list before unlinking campaign content.
+Empty campaign directories may also contain disposable Finder metadata.
 """
 
 import hashlib
@@ -18,6 +18,20 @@ from campaign_studio.local_files import is_link
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import StateError, timestamp
 from campaign_studio.storage import StorageError
+
+
+def _finder_metadata(path):
+    """Recognize Finder's folder settings, without following aliases."""
+    if path.name != ".DS_Store":
+        return False
+    try:
+        info = path.lstat()
+        if is_link(info) or not stat.S_ISREG(info.st_mode):
+            return False
+        with path.open("rb") as stream:
+            return stream.read(8) == b"\x00\x00\x00\x01Bud1"
+    except FileNotFoundError:
+        return False
 
 
 def pending_campaign(db, campaign_id):
@@ -59,15 +73,21 @@ class Cleanup:
             runs = db.execute("SELECT id FROM runs WHERE campaign_id=?", (campaign_id,)).fetchall()
         draft = self.storage.path(self.storage.project(campaign_id).draft)
         document = draft if draft.is_file() else None
-        value = json.loads(document.read_bytes()) if document else {}
-        authored = value.get("authored", {}).get("brief")
-        if isinstance(authored, dict):
-            # Even an explicitly empty saved name belongs to the current project.
-            name = authored.get("name")
-        else:
-            name = value.get("value", value).get("name")
-            if not name and runs:
+        # A display name is optional recovery metadata, never deletion authority.
+        # The registered file inventory and its confirmation token still decide
+        # exactly which files can be removed when a saved draft is damaged.
+        name = f"Campaign {campaign_id[:8]}"
+        try:
+            value = json.loads(document.read_bytes()) if document else {}
+            authored = value.get("authored", {}).get("brief")
+            if isinstance(authored, dict):
+                name = authored.get("name") or "Untitled campaign"
+            elif document:
+                name = value.get("value", value).get("name") or "Untitled campaign"
+            elif runs:
                 name = self.state.plan(runs[-1][0]).brief.name
+        except ValueError, KeyError, TypeError, AttributeError, OSError:
+            pass
         return [row[0] for row in runs], str(name or "Untitled campaign")
 
     def _files(self, references):
@@ -178,6 +198,9 @@ class Cleanup:
                 remaining += sum(
                     (Path(directory) / name).relative_to(self.storage.root).as_posix()
                     not in managed
+                    and not (
+                        Path(directory) in directories and _finder_metadata(Path(directory) / name)
+                    )
                     for name in other
                 )
         return {
@@ -316,6 +339,12 @@ class Cleanup:
             for parent in sorted(parents, key=lambda p: len(p.parts), reverse=True):
                 if not parent.is_relative_to(project_root):
                     raise StorageError("The saved cleanup directory is outside its project.")
+                if inventory["kind"] == "campaign" and parent.is_dir():
+                    # Finder adds this file when a folder is opened. Remove it only
+                    # after all other contents are gone; preserve actual user files.
+                    contents = list(parent.iterdir())
+                    if len(contents) == 1 and _finder_metadata(contents[0]):
+                        contents[0].unlink()
                 with suppress(OSError):
                     parent.rmdir()  # Unregistered files remain where the producer put them.
             with self.storage.connect() as db:

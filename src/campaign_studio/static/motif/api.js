@@ -25,6 +25,7 @@ function decodedImage(url) {
   return image.decode().then(() => image);
 }
 let productLimit = Number(document.body.dataset.cap);
+let setupNotice = null;
 let saved = [],
   model = null,
   draft = null,
@@ -61,9 +62,9 @@ async function api(path, body, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
-    const fields = (data.field_errors || []).map(
+    const fields = [...new Set((data.field_errors || []).map(
       (f) => `${f.label}: ${f.message}`,
-    );
+    ))];
     const error = new Error(
       fields.length
         ? fields.join(" ")
@@ -219,6 +220,7 @@ function isCurrentRun(campaignId, runId) {
 async function refreshCatalog() {
   const result = await api("/api/motif/workspace");
   saved = result.campaigns;
+  setupNotice = result.setup_notice || null;
   pendingCleanup = result.pending_cleanup || [];
   productLimit = result.product_limit;
   keyAvailable = result.key_available;
@@ -272,18 +274,38 @@ function updateURL() {
       : `/campaigns/${draft.campaign_id}/${route}`,
   );
 }
-function refreshCampaignIdentity(name = draft?.name) {
-  const label = name || "Untitled campaign";
+function campaignIdentity(name = draft?.name, brand = draft?.brand?.name || "") {
+  const saved = model?.project?.authored?.brief;
+  const acknowledged = saved?.campaign_id === draft?.campaign_id ? saved : null;
+  const valid = (value, purpose, fallback = "") => {
+    if (typeof value === "string" && !MotifTextLimits.purposeIssue(purpose, value)) return value;
+    return typeof fallback === "string" && !MotifTextLimits.purposeIssue(purpose, fallback) ? fallback : "";
+  };
+  // Invalid drafts remain fully editable. The header keeps this campaign's
+  // acknowledged identity until its name fits; it never slices the text.
+  return {
+    name: valid(name, "campaign_name", acknowledged?.name) || "Untitled campaign",
+    brand: valid(brand, "brand_name", acknowledged?.brand?.name),
+  };
+}
+function refreshCampaignIdentity(name = draft?.name, brand = draft?.brand?.name || "") {
+  const current = campaignIdentity(name, brand), label = current.name;
+  brand = current.brand;
+  const identity = [brand, label].filter(Boolean).join(" · ");
   const selector = $('.top-context [data-action="campaigns"]');
   if (selector) {
-    selector.title = label;
-    selector.firstChild.textContent = `${label} `;
+    selector.title = identity;
+    selector.querySelector(".campaign-heading-name").textContent = label;
+    const brandRow = selector.querySelector(".campaign-heading-brand");
+    brandRow.textContent = brand;
+    brandRow.hidden = !brand.trim();
   }
-  document.title = `Motif – Campaign Studio${page === "library" ? "" : ` · ${label}`}`;
+  MotifIdentityLayout.fit(selector);
+  document.title = `Motif – Campaign Studio${page === "library" ? "" : ` · ${identity}`}`;
 }
 async function saveDraft() {
   if (!(await saveProject()))
-    throw new Error("Your work is still here. Finish saving before reviewing its production plan.");
+    throw new Error(getSaveState()?.validationMessage || "Your work is still here. Finish saving before reviewing its production plan.");
 }
 
 function markDirty() {

@@ -32,7 +32,7 @@ from campaign_studio.planning import (
 from campaign_studio.state import State, StateError
 
 
-def inspect_png(path, output: Output, logo: Image.Image, color: str) -> list[Finding]:
+def inspect_png(path, output: Output, logo: Image.Image | None, color: str) -> list[Finding]:
     findings = []
     try:
         with Image.open(path) as decoded:
@@ -50,33 +50,34 @@ def inspect_png(path, output: Output, logo: Image.Image, color: str) -> list[Fin
                 evidence="The exported PNG decodes at its declared dimensions.",
             )
         )
-        logo_image, position = logo_placement(logo, actual.size, output.framing.logo_placement)
-        opaque = logo_image.getchannel("A").point(lambda alpha: 255 if alpha == 255 else 0)
-        with wording_mask(output.text, output.ratio, output.framing) as text:
-            # Copy is printed above the logo. Its antialiased edges also
-            # obscure the original artwork, so compare only exposed logo pixels.
-            covered = text.crop(
-                (*position, position[0] + logo_image.width, position[1] + logo_image.height)
-            ).point(lambda value: 255 if value else 0)
-            opaque = ImageChops.subtract(opaque, covered)
-            covered.close()
-        # Intentionally covered/translucent artwork has no opaque reference to
-        # compare. Do not invent a failure or a successful comparison for it.
-        if opaque.getbbox() is not None:
-            cropped = actual.crop(
-                (*position, position[0] + logo_image.width, position[1] + logo_image.height)
-            )
-            difference = ImageChops.difference(cropped, logo_image.convert("RGB"))
-            masked = Image.composite(difference, Image.new("RGB", difference.size), opaque)
-            findings.append(
-                Finding(
-                    item=output.id,
-                    rule="logo_pixels",
-                    severity="blocking" if masked.getbbox() else "pass",
-                    evidence="Compared exported opaque logo pixels with the supplied logo.",
-                    remedy="Restore the supplied logo and recompose this output.",
+        if logo is not None:
+            logo_image, position = logo_placement(logo, actual.size, output.framing.logo_placement)
+            opaque = logo_image.getchannel("A").point(lambda alpha: 255 if alpha == 255 else 0)
+            with wording_mask(output.text, output.ratio, output.framing) as text:
+                # Copy is printed above the logo. Its antialiased edges also
+                # obscure the original artwork, so compare only exposed logo pixels.
+                covered = text.crop(
+                    (*position, position[0] + logo_image.width, position[1] + logo_image.height)
+                ).point(lambda value: 255 if value else 0)
+                opaque = ImageChops.subtract(opaque, covered)
+                covered.close()
+            # Intentionally covered/translucent artwork has no opaque reference to
+            # compare. Do not invent a failure or a successful comparison for it.
+            if opaque.getbbox() is not None:
+                cropped = actual.crop(
+                    (*position, position[0] + logo_image.width, position[1] + logo_image.height)
                 )
-            )
+                difference = ImageChops.difference(cropped, logo_image.convert("RGB"))
+                masked = Image.composite(difference, Image.new("RGB", difference.size), opaque)
+                findings.append(
+                    Finding(
+                        item=output.id,
+                        rule="logo_pixels",
+                        severity="blocking" if masked.getbbox() else "pass",
+                        evidence="Compared exported opaque logo pixels with the supplied logo.",
+                        remedy="Restore the supplied logo and recompose this output.",
+                    )
+                )
         blocks = text_blocks(output.text, output.ratio, output.framing)
         with ExitStack() as resources:
             layers = [

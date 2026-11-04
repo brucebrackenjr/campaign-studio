@@ -351,7 +351,7 @@ def test_zip_matches_folder_moves_offline_and_excludes_private_files(produced, t
                 )
             else:
                 assert path.read_bytes() == folder_bytes
-    saved = json.loads((extracted / "manifest.json").read_text())
+    saved = json.loads((extracted / "manifest.json").read_text(encoding="utf-8"))
     assert saved["revision_id"] == revision_id and saved["complete"] == (not partial)
     assert sum(bool(item["file"]) for item in saved["outputs"]) == (6 if partial else 12)
     assert all(item.get("omission") for item in saved["outputs"] if not item["file"])
@@ -360,9 +360,9 @@ def test_zip_matches_folder_moves_offline_and_excludes_private_files(produced, t
         == state.metadata_snapshot(revision_id)["snapshot_id"]
     )
     parser = LocalLinks()
-    parser.feed((extracted / "index.html").read_text())
+    parser.feed((extracted / "index.html").read_text(encoding="utf-8"))
     assert all(
-        f'id="{link[1:]}"' in (extracted / "index.html").read_text()
+        f'id="{link[1:]}"' in (extracted / "index.html").read_text(encoding="utf-8")
         if link.startswith("#")
         else ":" not in link and (extracted / link).is_file()
         for link in parser.links
@@ -419,7 +419,7 @@ def test_new_run_inherits_only_same_campaign_and_unchanged_pixels(produced):
     state, runner, run_id, first = produced
     describe_all(state, first)
     value = state.plan(run_id).brief.model_dump()
-    value["name"] = "Renamed synthetic campaign"
+    value["name"] = "Renamed sample campaign"
     new_run = state.create(make_plan(Brief.model_validate(value), state.storage), 0)
     state.confirm(new_run, state.plan(new_run).digest)
     second = asyncio.run(runner.execute(new_run))

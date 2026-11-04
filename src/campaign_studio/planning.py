@@ -27,7 +27,7 @@ from campaign_studio.validation import FieldIssue, field_issue
 
 class MatchedField(Contract):
     field: Literal["message", "cta"]
-    value: str
+    value: str | None = None
     origin: Literal["market_shared", "product_override"]
     path: list[str | int]
 
@@ -55,7 +55,7 @@ class FindingContext(Contract):
 class Finding(Contract):
     item: str
     rule: str
-    severity: Literal["pass", "blocking"]
+    severity: Literal["pass", "warning", "blocking"]
     evidence: str
     remedy: str = "Correct this input before continuing."
     context: FindingContext | None = None
@@ -115,6 +115,7 @@ def copy_findings(brief: Brief, output: Output) -> list[Finding]:
     )
     rules = brief.markets[output.market].phrase_rules
     findings = []
+    included_fields = set()
     for rule in rules or []:
         phrase = unicodedata.normalize("NFC", rule.phrase)
         if not rule.case_sensitive:
@@ -138,7 +139,17 @@ def copy_findings(brief: Brief, output: Output) -> list[Finding]:
                     )
                 else:
                     origin, path = "market_shared", ["markets", output.market, "copy", field]
-                matches.append(MatchedField(field=field, value=text, origin=origin, path=path))
+                # Every rule keeps its decision and field address. Include the
+                # full editable copy once per output field, not once per rule.
+                matches.append(
+                    MatchedField(
+                        field=field,
+                        value=text if field not in included_fields else None,
+                        origin=origin,
+                        path=path,
+                    )
+                )
+                included_fields.add(field)
         findings.append(
             Finding(
                 item=output.id,
@@ -235,16 +246,36 @@ def make_local_plan(previous: Plan, brief: Brief, storage: Storage) -> Plan:
     Callers verify the full affected set against these saved hashes before preview/save.
     Paid production always uses make_plan without this retained-input path.
     """
-    return make_plan(brief, storage, _previous=previous)
+    return make_plan(
+        brief, storage, _previous=previous, retained_requests=previous.generation_requests
+    )
 
 
-def make_plan(brief: Brief, storage: Storage, *, _previous: Plan | None = None) -> Plan:
+def make_plan(
+    brief: Brief,
+    storage: Storage,
+    *,
+    _previous: Plan | None = None,
+    retained_requests: dict[str, GenerationRequest] | None = None,
+) -> Plan:
     require_font()
     findings = []
     assets = {}
     images = {}
     project = storage.project(brief.campaign_id)
-    references = {"logo": brief.brand.logo_path}
+    references = {"logo": brief.brand.logo_path} if brief.brand.logo_path else {}
+    if not brief.brand.logo_path:
+        findings.append(
+            Finding(
+                item="logo",
+                rule="logo_presence",
+                severity="blocking" if brief.brand.require_logo else "warning",
+                evidence="No logo artwork is attached.",
+                remedy="Attach a logo, or turn off the logo requirement."
+                if brief.brand.require_logo
+                else "Attach a logo if these images need branding.",
+            )
+        )
     references.update(
         {
             f"products/{product.id}": product.source.path
@@ -308,7 +339,9 @@ def make_plan(brief: Brief, storage: Storage, *, _previous: Plan | None = None) 
         if source.role != "finished_scene" and (
             brief.replay is None or product.id not in brief.replay.sources
         ):
-            generation[product.id] = request_for(brief, product)
+            # Local edits reuse the saved photograph and its original request.
+            retained_request = (retained_requests or {}).get(product.id)
+            generation[product.id] = retained_request or request_for(brief, product)
             transmitted[product.id] = (
                 "Audience, creative direction, and a scene or concept description; "
                 "no supplied product pixels."

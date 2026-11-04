@@ -237,6 +237,7 @@ class Runner:
         logo_edit=None,
         text_edit=None,
         frame_edit=None,
+        brand_edit=None,
     ) -> dict:
         with self.state.storage.exclusive_run():
             started = time.monotonic()
@@ -245,7 +246,7 @@ class Runner:
             self.state.require_current_revision(run_id, expected_revision)
             old = self.state.plan(run_id)
             authored_base = None
-            if any(edit is not None for edit in (logo_edit, text_edit, frame_edit)):
+            if any(edit is not None for edit in (logo_edit, text_edit, frame_edit, brand_edit)):
                 from campaign_studio.authored import AuthoredProjects
                 from campaign_studio.workspace import Workspace
 
@@ -254,6 +255,14 @@ class Runner:
                 )
             # Web edits re-derive the brief under this lock; sample callers supply a complete brief.
             new = None
+            brand_impact = None
+            if brand_edit is not None:
+                from campaign_studio.brand_updates import BrandUpdates
+                from campaign_studio.workspace import Workspace
+
+                brief, new, brand_impact = BrandUpdates(Workspace(self.state)).prepare(
+                    old.brief.campaign_id, brand_edit
+                )
             if logo_edit is not None:
                 from campaign_studio.workspace import Workspace
 
@@ -271,7 +280,7 @@ class Runner:
             if new.digest != expected_plan_digest:
                 raise StateError("The edit preview changed; preview its effects again.")
             impact = compare_plans(old, new)
-            if logo_edit is not None:
+            if logo_edit is not None or brand_edit is not None:
                 previous = self.state.revision(expected_revision)
                 manifest = json.loads(
                     self.state.storage.path(previous["manifest_ref"]).read_bytes()
@@ -303,7 +312,7 @@ class Runner:
             # Corrections never recover another output or alter attempt outcomes.
             self.state.require_edit_inputs(run_id, new, impact.render_outputs)
             retirement_files = None
-            if logo_edit is not None:
+            if logo_edit is not None or brand_edit is not None:
                 from campaign_studio.cleanup import Cleanup
 
                 self.state.require_image_cleanup(run_id)
@@ -338,11 +347,14 @@ class Runner:
                 reuse_revision=expected_revision,
                 operation_started=started,
                 preserve_omissions=logo_edit is not None
+                or brand_edit is not None
                 or (text_edit is not None and not text_edit.values),
                 retirement_files=retirement_files,
                 edit_receipt={
                     "kind": (
-                        "logo"
+                        "brand"
+                        if brand_edit is not None
+                        else "logo"
                         if logo_edit is not None
                         else "text"
                         if text_edit is not None
@@ -352,16 +364,24 @@ class Runner:
                     "preview_digest": expected_plan_digest,
                     **({"authored_base": authored_base} if authored_base else {}),
                     **(
+                        {
+                            "brand_update": brand_edit.model_dump(mode="json"),
+                            "brand_fitted_outputs": brand_impact["fitted_outputs"],
+                        }
+                        if brand_edit is not None
+                        else {}
+                    ),
+                    **(
                         {"replacement_draft_version": logo_edit.draft_version}
                         if logo_edit is not None and logo_edit.replacement
                         else {}
                     ),
                 }
-                if any(edit is not None for edit in (logo_edit, text_edit, frame_edit))
+                if any(edit is not None for edit in (logo_edit, text_edit, frame_edit, brand_edit))
                 else None,
             )
             if (
-                any(edit is not None for edit in (logo_edit, text_edit, frame_edit))
+                any(edit is not None for edit in (logo_edit, text_edit, frame_edit, brand_edit))
                 and self.state.effective_revision(run_id) != result["revision_id"]
             ):
                 # A failed candidate remains useful diagnostics, not an applied
@@ -369,11 +389,17 @@ class Runner:
                 raise StateError(
                     "Could not apply. Your edits are still here.", code="apply_not_accepted"
                 )
-            if logo_edit is not None and logo_edit.replacement:
+            if (
+                brand_edit is not None
+                or text_edit is not None
+                or (logo_edit is not None and logo_edit.replacement)
+            ):
                 from campaign_studio.intake import Intake
                 from campaign_studio.workspace import Workspace
 
-                Intake(self.state.storage).persist_logo_revision(
-                    brief.campaign_id, Workspace(self.state)
+                Intake(self.state.storage).persist_applied_revision(
+                    brief.campaign_id,
+                    Workspace(self.state),
+                    **({"only_superseded_colors": True} if text_edit is not None else {}),
                 )
             return result

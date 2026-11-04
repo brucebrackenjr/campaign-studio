@@ -47,21 +47,35 @@
           "type": "string"
         },
         "name": {
-          "maxLength": 5000,
+          "maxLength": 20,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
         "logo_path": {
-          "maxLength": 5000,
-          "minLength": 1,
-          "pattern": "\\S",
-          "title": "Logo Path",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "const": "",
+              "type": "string"
+            }
+          ],
+          "default": "",
+          "title": "Logo Path"
         },
         "logo_provenance": {
           "$ref": "#/$defs/Provenance"
+        },
+        "require_logo": {
+          "default": false,
+          "title": "Require Logo",
+          "type": "boolean"
         },
         "palette": {
           "items": {
@@ -82,8 +96,6 @@
       "required": [
         "id",
         "name",
-        "logo_path",
-        "logo_provenance",
         "palette",
         "text_color"
       ],
@@ -104,7 +116,7 @@
           "type": "boolean"
         },
         "description": {
-          "maxLength": 5000,
+          "maxLength": 1000,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Description",
@@ -127,7 +139,7 @@
       "additionalProperties": false,
       "properties": {
         "message": {
-          "maxLength": 5000,
+          "maxLength": 120,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Message",
@@ -136,7 +148,7 @@
         "cta": {
           "anyOf": [
             {
-              "maxLength": 5000,
+              "maxLength": 60,
               "minLength": 1,
               "pattern": "\\S",
               "type": "string"
@@ -164,7 +176,7 @@
           "type": "string"
         },
         "path": {
-          "maxLength": 5000,
+          "maxLength": 4096,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Path",
@@ -314,6 +326,7 @@
               "items": {
                 "$ref": "#/$defs/PhraseRule"
               },
+              "maxItems": 32,
               "type": "array"
             },
             {
@@ -336,7 +349,7 @@
         "message": {
           "anyOf": [
             {
-              "maxLength": 5000,
+              "maxLength": 120,
               "minLength": 1,
               "pattern": "\\S",
               "type": "string"
@@ -351,7 +364,7 @@
         "cta": {
           "anyOf": [
             {
-              "maxLength": 5000,
+              "maxLength": 60,
               "minLength": 1,
               "pattern": "\\S",
               "type": "string"
@@ -376,7 +389,7 @@
           "type": "string"
         },
         "phrase": {
-          "maxLength": 5000,
+          "maxLength": 256,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Phrase",
@@ -413,7 +426,7 @@
           "type": "string"
         },
         "path": {
-          "maxLength": 5000,
+          "maxLength": 4096,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Path",
@@ -446,14 +459,14 @@
           "type": "string"
         },
         "name": {
-          "maxLength": 5000,
+          "maxLength": 80,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
         "description": {
-          "maxLength": 5000,
+          "maxLength": 1000,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Description",
@@ -531,14 +544,14 @@
       "additionalProperties": false,
       "properties": {
         "label": {
-          "maxLength": 5000,
+          "maxLength": 200,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
         "rights": {
-          "maxLength": 5000,
+          "maxLength": 1000,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Rights",
@@ -582,7 +595,7 @@
           "type": "integer"
         },
         "history": {
-          "maxLength": 5000,
+          "maxLength": 2000,
           "minLength": 1,
           "pattern": "\\S",
           "title": "History",
@@ -601,7 +614,7 @@
       "additionalProperties": false,
       "properties": {
         "path": {
-          "maxLength": 5000,
+          "maxLength": 4096,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Path",
@@ -613,7 +626,7 @@
           "type": "string"
         },
         "model": {
-          "maxLength": 5000,
+          "maxLength": 200,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Model",
@@ -713,21 +726,21 @@
       "type": "string"
     },
     "name": {
-      "maxLength": 5000,
+      "maxLength": 25,
       "minLength": 1,
       "pattern": "\\S",
       "title": "Name",
       "type": "string"
     },
     "audience": {
-      "maxLength": 5000,
+      "maxLength": 500,
       "minLength": 1,
       "pattern": "\\S",
       "title": "Audience",
       "type": "string"
     },
     "creative_direction": {
-      "maxLength": 5000,
+      "maxLength": 1000,
       "minLength": 1,
       "pattern": "\\S",
       "title": "Creative Direction",

@@ -15,17 +15,20 @@ from PIL import Image
 from pydantic import Field, ValidationError
 
 from campaign_studio.authored import AuthoredProjects, AuthoredSave
+from campaign_studio.brand_updates import BrandUpdate, BrandUpdates
 from campaign_studio.brief import Brief, CampaignID, Contract
 from campaign_studio.brief_preview import BriefPreview
-from campaign_studio.cleanup import Cleanup
+from campaign_studio.cleanup import Cleanup, require_campaign_available
 from campaign_studio.costing import estimate_requests
-from campaign_studio.exporting import wording_export_issue
+from campaign_studio.exporting import logo_export_issue, wording_export_issue
 from campaign_studio.imaging import FontProblem, require_font
 from campaign_studio.intake import BriefDraft, Intake
 from campaign_studio.planning import canonical_hash
 from campaign_studio.rendering import blocks_output
 from campaign_studio.review import RevisionTarget
+from campaign_studio.state import StateError
 from campaign_studio.storage import StorageError
+from campaign_studio.text_limits import LIMITS, browser_contract
 from campaign_studio.validation import field_issue
 from campaign_studio.workspace import ActionError, image_url, provider_notice
 
@@ -70,9 +73,9 @@ def workbench_outputs(workspace, campaign_id):
 
 
 class NewCampaign(Contract):
-    name: str = Field(min_length=1, max_length=5000)
-    brand: str = Field(default="", max_length=5000)
-    audience: str = Field(default="", max_length=5000)
+    name: str = Field(min_length=1, max_length=LIMITS["campaign_name"])
+    brand: str = Field(default="", max_length=LIMITS["brand_name"])
+    audience: str = Field(default="", max_length=LIMITS["audience"])
 
 
 class RuleRecheck(BriefDraft):
@@ -113,6 +116,80 @@ def document_for(workspace, campaign_id):
             "version": None,
         }
     return document, run
+
+
+def workbench_card(ws, entry):
+    document, run = document_for(ws, entry["id"])
+    brief = document.get("authored", {}).get("brief", document["value"])
+    products = brief.get("products")
+    products = [p for p in products if isinstance(p, dict)] if isinstance(products, list) else []
+    markets = brief.get("markets") if isinstance(brief.get("markets"), dict) else {}
+    brand = brief.get("brand") if isinstance(brief.get("brand"), dict) else {}
+    thumbnail = None
+    first_product = products[0] if products else None
+    source = first_product.get("source") if first_product else None
+    source = source if isinstance(source, dict) else {}
+    attempts = ws.state.attempts(run["id"]) if run else []
+    manifest, outputs, damaged = workbench_outputs(ws, entry["id"]) if run else (None, [], 0)
+    if manifest:
+        available = next(
+            (
+                item
+                for item in outputs
+                if first_product and item["product_id"] == first_product.get("id")
+            ),
+            None,
+        )
+        if available:
+            thumbnail = image_url(entry["id"], manifest["revision_id"], available)
+    if thumbnail is None and first_product:
+        reference = source.get("path", "")
+        if isinstance(reference, str) and "/Assets/Products/" in reference:
+            thumbnail = "/uploads/" + reference.rsplit("/", 1)[-1]
+    thumbnail_expected = False
+    if first_product:
+        product_id = first_product.get("id")
+        thumbnail_expected = bool(
+            thumbnail
+            or source.get("path")
+            or any(
+                item["product_id"] == product_id and item["file"]
+                for item in (manifest or {}).get("outputs", [])
+            )
+            or any(item["product_id"] == product_id and item["source_sha256"] for item in attempts)
+            or (run and f"masters/{product_id}" in ws.state.plan(run["id"]).assets)
+        )
+    status = run["state"] if run else "draft"
+    # Later edits invalidate readiness, not already produced results or active work.
+    if status in {"planned", "confirmed"} and _unplanned_draft(
+        document, run, ws.state.current_output(entry["id"])
+    ):
+        status = "draft"
+    return {
+        **entry,
+        "status": "damaged" if damaged else status,
+        "outcome_unknown": bool(
+            run and any(a["state"] in {"unknown", "dispatching"} for a in attempts)
+        ),
+        "planned_images": len(products) * len(markets) * 3,
+        "available_images": len(outputs),
+        "saved_expected_images": len(manifest["outputs"]) if manifest else 0,
+        "damaged_images": damaged,
+        "thumbnail": thumbnail,
+        "thumbnail_label": (
+            f"{first_product.get('name') or 'Product'} · source image"
+            if thumbnail and thumbnail.startswith("/uploads/")
+            else f"{brand.get('name') or 'Campaign'} campaign artwork"
+        ),
+        "thumbnail_expected": thumbnail_expected,
+        "output_expected": any(item.get("file") for item in (manifest or {}).get("outputs", [])),
+        "name": brief.get("name") or "Untitled campaign",
+        "brand": brand.get("name") or "",
+        "products": len(products),
+        "markets": len(markets),
+        "updated": ws.state.saved_activity(entry["id"], document.get("saved_at")),
+        "revision": (ws.state.revision_number(manifest["revision_id"]) if manifest else 0),
+    }
 
 
 def attempt_details(workspace, attempts):
@@ -427,6 +504,7 @@ def campaign_data(workspace, campaign_id):
             "saved_result": any(o.product_id in received for o in missing),
         }
     result["wording_issue"] = wording_export_issue(workspace.state, campaign_id)
+    result["logo_issue"] = logo_export_issue(workspace.state, campaign_id)
     return result
 
 
@@ -482,6 +560,7 @@ def routes(templates, settings):
             name="motif.html",
             context={
                 "csrf": request.app.state.csrf,
+                "text_limits": browser_contract(),
                 "campaign_id": campaign_id,
                 "page": {"studio": "review"}.get(page, page) if campaign_id else "library",
                 "cap": settings.product_limit,
@@ -494,8 +573,24 @@ def routes(templates, settings):
         entries = []
         for entry in ws.catalog():
             try:
-                document, run = document_for(ws, entry["id"])
-            except ActionError:
+                entries.append(workbench_card(ws, entry))
+            except (
+                ActionError,
+                StateError,
+                StorageError,
+                ValidationError,
+                OSError,
+                ValueError,
+                KeyError,
+                TypeError,
+                AttributeError,
+            ):
+                # A deletion can commit after the catalog identities were read.
+                # Skip that retired entry; keep genuine per-campaign damage visible.
+                try:
+                    require_campaign_available(ws.storage, entry["id"])
+                except StateError:
+                    continue
                 entries.append(
                     {
                         **entry,
@@ -504,93 +599,14 @@ def routes(templates, settings):
                         "markets": 0,
                         "updated": None,
                         "thumbnail": None,
+                        "recovery_message": "This campaign’s saved files could not be read. "
+                        "Restore its files, or delete the campaign from the Workbench.",
                     }
                 )
-                continue
-            brief = document.get("authored", {}).get("brief", document["value"])
-            products = brief.get("products")
-            products = (
-                [p for p in products if isinstance(p, dict)] if isinstance(products, list) else []
-            )
-            markets = brief.get("markets") if isinstance(brief.get("markets"), dict) else {}
-            brand = brief.get("brand") if isinstance(brief.get("brand"), dict) else {}
-            thumbnail = None
-            first_product = products[0] if products else None
-            source = first_product.get("source") if first_product else None
-            source = source if isinstance(source, dict) else {}
-            attempts = ws.state.attempts(run["id"]) if run else []
-            manifest, outputs, damaged = (
-                workbench_outputs(ws, entry["id"]) if run else (None, [], 0)
-            )
-            if manifest:
-                available = next(
-                    (
-                        item
-                        for item in outputs
-                        if first_product and item["product_id"] == first_product.get("id")
-                    ),
-                    None,
-                )
-                if available:
-                    thumbnail = image_url(entry["id"], manifest["revision_id"], available)
-            if thumbnail is None and first_product:
-                reference = source.get("path", "")
-                if isinstance(reference, str) and "/Assets/Products/" in reference:
-                    thumbnail = "/uploads/" + reference.rsplit("/", 1)[-1]
-            thumbnail_expected = False
-            if first_product:
-                product_id = first_product.get("id")
-                thumbnail_expected = bool(
-                    thumbnail
-                    or source.get("path")
-                    or any(
-                        item["product_id"] == product_id and item["file"]
-                        for item in (manifest or {}).get("outputs", [])
-                    )
-                    or any(
-                        item["product_id"] == product_id and item["source_sha256"]
-                        for item in attempts
-                    )
-                    or (run and f"masters/{product_id}" in ws.state.plan(run["id"]).assets)
-                )
-            status = run["state"] if run else "draft"
-            # Later edits invalidate readiness, not already produced results or active work.
-            if status in {"planned", "confirmed"} and _unplanned_draft(
-                document, run, ws.state.current_output(entry["id"])
-            ):
-                status = "draft"
-            entries.append(
-                {
-                    **entry,
-                    "status": "damaged" if damaged else status,
-                    "outcome_unknown": bool(
-                        run and any(a["state"] in {"unknown", "dispatching"} for a in attempts)
-                    ),
-                    "planned_images": len(products) * len(markets) * 3,
-                    "available_images": len(outputs),
-                    "saved_expected_images": len(manifest["outputs"]) if manifest else 0,
-                    "damaged_images": damaged,
-                    "thumbnail": thumbnail,
-                    "thumbnail_label": (
-                        f"{first_product.get('name') or 'Product'} · source image"
-                        if thumbnail and thumbnail.startswith("/uploads/")
-                        else f"{brand.get('name') or 'Campaign'} campaign artwork"
-                    ),
-                    "thumbnail_expected": thumbnail_expected,
-                    "output_expected": any(
-                        item.get("file") for item in (manifest or {}).get("outputs", [])
-                    ),
-                    "name": brief.get("name") or "Untitled campaign",
-                    "brand": brand.get("name") or "",
-                    "products": len(products),
-                    "markets": len(markets),
-                    "updated": ws.state.saved_activity(entry["id"], document.get("saved_at")),
-                    "revision": (
-                        ws.state.revision_number(manifest["revision_id"]) if manifest else 0
-                    ),
-                }
-            )
+        from campaign_studio.bundled import setup_notice
+
         return {
+            "setup_notice": setup_notice(ws),
             "campaigns": entries,
             "pending_cleanup": Cleanup(ws.state).pending(),
             "product_limit": settings.product_limit,
@@ -692,6 +708,29 @@ def routes(templates, settings):
         return await asyncio.to_thread(
             AuthoredProjects(workspace(request)).save, campaign_id, action
         )
+
+    @router.post("/api/motif/campaigns/{campaign_id}/brand/apply")
+    async def apply_brand(request: Request, campaign_id: CampaignID, action: BrandUpdate):
+        idle(request)
+        ws = workspace(request)
+
+        def apply():
+            # A retired editor preview may still be finishing. Match the existing
+            # delivery boundary's lock order before entering local publication.
+            with request.app.state.previews.lock:
+                brief, plan, impact = BrandUpdates(ws).prepare(campaign_id, action)
+                request.app.state.runner.revise(
+                    action.run_id,
+                    brief,
+                    action.revision_id,
+                    plan.digest,
+                    brand_edit=action,
+                )
+                result = campaign_data(ws, campaign_id)
+                result["brand_update_impact"] = impact
+                return result
+
+        return await asyncio.to_thread(apply)
 
     @router.post("/api/motif/campaigns/{campaign_id}/plan")
     async def plan(request: Request, campaign_id: CampaignID):

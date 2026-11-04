@@ -344,7 +344,7 @@ def fit_logo_placement(logo_size, size, placement: LogoPlacement) -> LogoPlaceme
 
 
 def logo_placement(
-    logo: Image.Image, size: tuple[int, int], placement: LogoPlacement | None = None
+    logo: Image.Image | None, size: tuple[int, int], placement: LogoPlacement | None = None
 ) -> tuple[Image.Image, tuple[int, int]]:
     width, height = size
     if placement is not None:
@@ -427,7 +427,7 @@ def product_shadow(output: Image.Image, product: Image.Image, position: tuple[in
 
 def compose(
     scene: Image.Image,
-    logo: Image.Image,
+    logo: Image.Image | None,
     copy: Copy,
     ratio: Ratio,
     color: str,
@@ -436,11 +436,12 @@ def compose(
 ) -> Image.Image:
     output = composition_base(scene, ratio, product, framing)
     # All compositions use one layer order: scene, logo, then printed wording.
-    artwork, position = logo_placement(
-        logo, output.size, framing.logo_placement if framing else None
-    )
-    output.alpha_composite(artwork, position)
-    artwork.close()
+    if logo is not None:
+        artwork, position = logo_placement(
+            logo, output.size, framing.logo_placement if framing else None
+        )
+        output.alpha_composite(artwork, position)
+        artwork.close()
     if framing and framing.text_placements:
         composite_text_blocks(output, text_blocks(copy, ratio, framing), color)
     else:
@@ -505,7 +506,7 @@ def wording_overlay(copy, ratio, color, framing=None):
 
 
 def creative_overlay(
-    logo: Image.Image,
+    logo: Image.Image | None,
     copy: Copy,
     ratio: Ratio,
     color: str,
@@ -514,8 +515,12 @@ def creative_overlay(
     """The renderer's exact wording/logo layer, also used for temporary client motion."""
     size = FORMATS[ratio]
     output = Image.new("RGBA", size)
-    logo_image, position = logo_placement(logo, size, framing.logo_placement if framing else None)
-    output.alpha_composite(logo_image, position)
+    if logo is not None:
+        logo_image, position = logo_placement(
+            logo, size, framing.logo_placement if framing else None
+        )
+        output.alpha_composite(logo_image, position)
+        logo_image.close()
     if framing and framing.text_placements:
         composite_text_blocks(output, text_blocks(copy, ratio, framing), color)
     else:
@@ -528,12 +533,12 @@ def creative_overlay(
                 fill=line.color or color,
                 anchor="lt",
             )
-    logo_image.close()
     return output
 
 
-def save_srgb(image: Image.Image, path: Path) -> None:
+def save_srgb(image: Image.Image, path: Path, *, compress_level: int | None = None) -> None:
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     with image.copy() as sanitized:
         sanitized.info.clear()
-        sanitized.save(path, format="PNG", icc_profile=profile)
+        encoding = {} if compress_level is None else {"compress_level": compress_level}
+        sanitized.save(path, format="PNG", icc_profile=profile, **encoding)

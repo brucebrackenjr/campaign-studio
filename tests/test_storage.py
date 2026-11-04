@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 import pytest
@@ -70,7 +71,8 @@ def test_sqlite_connections_commit_rollback_and_close(storage):
         raise RuntimeError("simulated local operation failure")
     with storage.connect() as connection:
         assert connection.execute("SELECT value FROM probe").fetchall() == [("saved",)]
-    assert storage.path("private/state.sqlite3").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert storage.path("private/state.sqlite3").stat().st_mode & 0o777 == 0o600
 
 
 def test_reinitializing_preserves_existing_files(storage):

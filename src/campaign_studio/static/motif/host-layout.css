@@ -7,8 +7,7 @@
 .mf-producer-shell .bf-layout{grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:24px}
 .mf-producer-shell .bf-head,.mf-producer-shell .page-head{width:100%;max-width:none;align-items:center;margin-left:0;margin-right:0}
 .mf-producer-shell .bf-head h1,.mf-producer-shell .page-head h1{font-family:Barlow;font-size:54px;line-height:1.05;letter-spacing:normal;margin:6px 0 9px}
-/* Use the shared heading markup in HOST_INTEGRATION.html: eyebrow, title,
-   then supporting line. Do not leave Campaign's eyebrow below its title. */
+/* brief-flow.js renders the Campaign heading: eyebrow, title, and supporting line. */
 .mf-producer-shell .mf-page-title-group .eyebrow{font-size:10px;letter-spacing:.13em;font-weight:750}
 .mf-producer-shell .mf-page-title-group>p{font-size:13px;line-height:1.5;margin:0;color:#64715f}
 .mf-producer-shell .bf-pair{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}

@@ -4,7 +4,7 @@
 
 Autumn Winds and Bridle & Bough are fictional demonstration brands. Their supplied product scenes and selected logos were prepared with built-in image generation outside Motif, then included as local input assets. They are not photographs of verified commercial products or evidence of an application provider request. Their brief provenance describes the supplied imagery, and the packaged campaign manifest binds the asset hashes.
 
-The initial Autumn campaign composes 30 outputs locally. Bridle has two supplied product images and one deliberately missing concept; its initial plan remains unconfirmed. Setup makes no provider request. The included content does not establish a commercial-product affiliation, exclusive rights claim, or publication approval.
+The initial Autumn campaign includes 30 locally composed PNGs and their editable inputs. Setup copies those prepared files without rendering them again. Bridle has two supplied product images and one deliberately missing concept; its initial plan remains unconfirmed. Setup makes no provider request. The included content does not establish a commercial-product affiliation, exclusive rights claim, or publication approval.
 
 The geometric assets in `examples/synthetic-2` and `examples/synthetic-3` are locally authored engineering fixtures. The separate CLI replay fixture retains the fictional HOLD campaign: one AI-created supplied chalk scene, a locally authored wordmark, and one genuine OpenAI-generated brush-roll concept master. Its [README](src/campaign_studio/resources/replay/README.md) and brief retain the actual origin, historical model/date, and exact master hash. Replaying it makes no new image request. Credentials, raw provider responses, and private preparation records are not included.
 

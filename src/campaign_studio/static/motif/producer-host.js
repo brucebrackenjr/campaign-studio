@@ -23,7 +23,8 @@ function productEditorView() {
     product: productPhotoView(modalProduct),
     existing: draft.products.some(product => product.id === modalProduct.id),
     origin: page,
-    busy: operation?.active,
+    busy: operation?.active || !!modalProduct.uploading,
+    uploading: !!modalProduct.uploading,
     error: modalProduct.error,
     invalidFields: modalProduct.invalidFields,
   }).replace('class="pr-button pr-close"', 'class="pr-button pr-close close"');
@@ -39,6 +40,7 @@ function captureProductInputs() {
 
 function setProductMode(concept, restore = false) {
   if (modal !== "product" || !modalProduct || operation?.active) return;
+  cancelProductUpload();
   captureProductInputs();
   if (restore || (!concept && !modalProduct.source.path)) {
     const retained = modalProduct.source.path

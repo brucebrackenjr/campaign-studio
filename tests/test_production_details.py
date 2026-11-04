@@ -208,7 +208,7 @@ def test_preflight_findings_map_logo_crop_and_copy_to_known_fields(sample):
     storage, value = sample
     storage.path(value["brand"]["logo_path"]).unlink()
     value["products"][1]["source"]["subject_box"] = {"left": 0, "top": 0, "right": 1, "bottom": 1}
-    value["markets"]["en-US"]["copy"]["message"] = "Long " * 300
+    value["markets"]["en-US"]["copy"]["message"] = "Longword" * 12
     plan = make_plan(Brief.model_validate(value), storage)
     logo = next(item for item in plan.findings if item.item == "logo")
     crop = next(item for item in plan.findings if item.rule == "subject_crop")

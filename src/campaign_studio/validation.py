@@ -4,7 +4,7 @@ import re
 
 from pydantic import ValidationError
 
-from campaign_studio.brief import Contract, Market
+from campaign_studio.brief import MAX_PHRASE_RULES, Contract, Market
 
 
 class FieldIssue(Contract):
@@ -41,8 +41,10 @@ _PRODUCT.update(
         for market in ("en-US", "es-MX")
     },
 )
-_BRAND = dict.fromkeys(("id", "name", "logo_path", "text_color"))
+_BRAND = dict.fromkeys(("id", "name", "logo_path", "text_color", "require_logo"))
 _BRAND.update(palette=[_TEXT], logo_provenance=_ORIGIN)
+_REPLAY_MASTER = dict.fromkeys(("path", "sha256", "model", "generated_on"))
+_REPLAY_MASTER["provenance"] = _ORIGIN
 _ROOT = dict.fromkeys(("schema_version", "campaign_id", "name", "audience", "creative_direction"))
 _ROOT.update(
     brand=_BRAND,
@@ -79,6 +81,7 @@ _LABELS = {
     "creative_direction": "Scene direction",
     "brand": "Brand",
     "logo_path": "Logo",
+    "require_logo": "Require logo",
     "logo_placement": "Logo position and size",
     "logo_provenance": "Logo origin",
     "palette": "Brand colors",
@@ -109,6 +112,8 @@ _LABELS = {
     "label": "Origin description",
     "replay": "Saved image sources",
     "sources": "Saved image sources",
+    "model": "Replay model",
+    "history": "Replay history",
     "opaque_nonreflective_product_confirmed": "Prepared product confirmation",
     "imagery_absent": "Missing product imagery",
     "version": "Saved draft version",
@@ -135,6 +140,16 @@ def safe_path(location) -> tuple[list[str | int], bool]:
     tree = {**_ROOT, **_ACTION}
     result = []
     for part in parts:
+        if result == ["brand", "logo_path"] and part in {"constrained-str", "literal['']"}:
+            continue  # Validation union branches are not additional fields.
+        if (
+            result == ["replay", "sources"]
+            and isinstance(part, str)
+            and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", part)
+        ):
+            result.append(part)
+            tree = _REPLAY_MASTER
+            continue
         if (
             result
             and result[-1] == "source"
@@ -235,8 +250,15 @@ def validation_issues(error, *, imported_fields: bool = False) -> list[dict]:
                 "path": "Attach a PNG or JPEG product image.",
                 "phrase": "Enter the phrase to check.",
             }.get(path[-1] if path else None, "Provide a nonempty value in the supported format.")
+        elif kind == "too_long" and path and path[-1] == "phrase_rules":
+            code, message = (
+                "too_many_rules",
+                f"Use up to {MAX_PHRASE_RULES} prohibited phrases per language.",
+            )
         elif kind == "string_too_long":
-            code, message = "text_too_long", "Use no more than 5,000 characters."
+            limit = item.get("ctx", {}).get("max_length")
+            code = "text_too_long"
+            message = f"Use no more than {limit:,} characters." if limit else "Shorten this field."
         elif path and path[-1] == "font_size" and kind in {"less_than_equal", "greater_than_equal"}:
             code, message = (
                 "text_size",

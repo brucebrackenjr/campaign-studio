@@ -1,4 +1,5 @@
 import json
+import os
 import signal
 import socket
 import subprocess
@@ -112,6 +113,8 @@ def test_nonempty_unknown_workspace_refuses_without_writing(tmp_path, capsys, mo
 
 @pytest.mark.parametrize("stop_signal", [signal.SIGTERM, signal.SIGINT], ids=["sigterm", "sigint"])
 def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, stop_signal):
+    if os.name == "nt" and stop_signal == signal.SIGTERM:
+        pytest.skip("Windows terminates a process on SIGTERM; Ctrl+C is tested separately")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -130,6 +133,7 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, st
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0,
     )
     try:
         # First launch installs and validates prepared examples before serving HTTP.
@@ -154,7 +158,26 @@ def test_real_server_starts_on_loopback_and_shuts_down(tmp_path, monkeypatch, st
                 f"{COLD_STARTUP_TIMEOUT_SECONDS} seconds."
             )
     finally:
-        process.send_signal(stop_signal)
+        if process.poll() is None:
+            if os.name == "nt":
+                try:
+                    interrupt = subprocess.run(
+                        [
+                            sys.executable,
+                            str(Path(__file__).with_name("windows_console.py")),
+                            str(process.pid),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
+                    if interrupt.returncode:
+                        shutdown_failed = True
+                        failure = interrupt.stderr
+                except subprocess.TimeoutExpired:
+                    shutdown_failed = True
+            else:
+                process.send_signal(stop_signal)
         try:
             stdout, stderr = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:

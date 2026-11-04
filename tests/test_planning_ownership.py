@@ -145,7 +145,7 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
         state.storage.path("Campaigns").joinpath(project_folder, "Assets", "Samples")
     )
     plan_file = tmp_path / "prepared-plan.json"
-    plan_file.write_text(plan.model_dump_json())
+    plan_file.write_text(plan.model_dump_json(), encoding="utf-8")
     env = os.environ.copy()
     env.pop("OPENAI_API_KEY", None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"

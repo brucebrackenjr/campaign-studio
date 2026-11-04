@@ -71,7 +71,7 @@ def test_launched_recovery_returns_measured_capacity_without_changing_saved_work
 def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, monkeypatch):
     state, _, run, brief = setup_case(tmp_path)
     saved = {
-        str(p.relative_to(state.storage.root)): p.read_bytes()
+        p.relative_to(state.storage.root).as_posix(): p.read_bytes()
         for p in state.storage.path(state.storage.project(brief.campaign_id).run(run)).rglob("*")
         if p.is_file()
     }

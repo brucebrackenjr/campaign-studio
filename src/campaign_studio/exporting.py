@@ -145,8 +145,29 @@ def wording_export_issue(state: State, campaign_id: str) -> dict | None:
     return None
 
 
-def require_export_wording(state: State, campaign_id: str) -> None:
-    issue = wording_export_issue(state, campaign_id)
+def logo_export_issue(state: State, campaign_id: str, revision_id: str | None = None):
+    current = state.current_output(campaign_id)
+    if current is None:
+        return None
+    accepted = state.revision_plan(state.revision(revision_id or current[1]))
+    required = accepted.brief.brand.require_logo
+    path = state.storage.path(state.storage.project(campaign_id).draft)
+    if path.is_file():
+        document = json.loads(path.read_bytes())
+        authored = document.get("authored") or {"brief": document["value"]}
+        required = authored.get("brief", {}).get("brand", {}).get("require_logo", False)
+    if required and "logo" not in accepted.assets:
+        return {
+            "code": "logo_presence",
+            "message": "A logo is required. Attach and apply a logo, or turn off the requirement.",
+        }
+    return None
+
+
+def require_export_rules(state: State, campaign_id: str, revision_id: str | None = None) -> None:
+    issue = wording_export_issue(state, campaign_id) or logo_export_issue(
+        state, campaign_id, revision_id
+    )
     if issue:
         raise StateError(issue["message"], code=issue["code"])
 
@@ -251,7 +272,7 @@ def package_payloads(
     """One snapshot and one allowlisted representation shared by folder and ZIP exports."""
     state.require_images(revision_id)
     revision = state.revision(revision_id)
-    require_export_wording(state, state.run(revision["run_id"])["campaign_id"])
+    require_export_rules(state, state.run(revision["run_id"])["campaign_id"], revision_id)
     manifest = public_manifest(state, revision_id)
     require_snapshot(manifest, expected_snapshot)
     if not manifest["complete"] and not allow_partial:

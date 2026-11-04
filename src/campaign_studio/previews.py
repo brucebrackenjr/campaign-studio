@@ -6,8 +6,6 @@ import time
 from collections import OrderedDict
 from uuid import uuid4
 
-from PIL import Image
-
 from campaign_studio.imaging import (
     compose,
     composition_base,
@@ -135,9 +133,9 @@ class DraftPreviews:
             )
             if can_render:
                 logo = (
-                    Image.new("RGBA", (1, 1))
-                    if missing_logo
-                    else load_image(self.state.storage.path(plan.assets["logo"].reference))[0]
+                    load_image(self.state.storage.path(plan.assets["logo"].reference))[0]
+                    if "logo" in plan.assets and not missing_logo
+                    else None
                 )
                 try:
                     for output in plan.outputs:
@@ -192,7 +190,11 @@ class DraftPreviews:
                                 else output.framing,
                             )
                             with io.BytesIO() as buffer:
-                                save_srgb(result, buffer)
+                                # Temporary logo previews favor encoding speed. Saved
+                                # revisions and exports retain their PNG defaults.
+                                save_srgb(
+                                    result, buffer, compress_level=3 if logo_preview else None
+                                )
                                 payload = buffer.getvalue()
                                 size += len(payload)
                                 if size > self.max_bytes:
@@ -204,11 +206,12 @@ class DraftPreviews:
                             result.close()
                             if text_preview:
                                 base = composition_base(scene, output.ratio, cutout, output.framing)
-                                artwork, position = logo_placement(
-                                    logo, base.size, output.framing.logo_placement
-                                )
-                                base.alpha_composite(artwork, position)
-                                artwork.close()
+                                if logo is not None:
+                                    artwork, position = logo_placement(
+                                        logo, base.size, output.framing.logo_placement
+                                    )
+                                    base.alpha_composite(artwork, position)
+                                    artwork.close()
                                 blocks = text_blocks(output.text, output.ratio, output.framing)
                                 geometry = {}
                                 for block in blocks:
@@ -249,39 +252,49 @@ class DraftPreviews:
                                         ("copy", text),
                                         ("logo", logo),
                                     ):
+                                        if layer is None:
+                                            continue
                                         with io.BytesIO() as buffer:
-                                            save_srgb(layer, buffer)
+                                            save_srgb(layer, buffer, compress_level=3)
                                             images[output.id + "-" + suffix] = buffer.getvalue()
                                 finally:
                                     base.close()
                                     text.close()
-                                placed, position = logo_placement(
-                                    logo,
-                                    (output.width, output.height),
-                                    output.framing.logo_placement,
-                                )
                                 layers[output.id] = {
-                                    "bounds": [
-                                        *position,
-                                        position[0] + placed.width,
-                                        position[1] + placed.height,
-                                    ],
-                                    "logo_size": list(logo.size),
+                                    "bounds": [0, 0, 0, 0],
+                                    "default_bounds": [0, 0, 0, 0],
+                                    "logo_size": None,
                                     "canvas_size": [output.width, output.height],
-                                    "placement": output.framing.logo_placement.model_dump()
-                                    if output.framing.logo_placement
-                                    else None,
+                                    "placement": None,
                                 }
-                                placed.close()
-                                default, position = logo_placement(
-                                    logo, (output.width, output.height)
-                                )
-                                layers[output.id]["default_bounds"] = [
-                                    *position,
-                                    position[0] + default.width,
-                                    position[1] + default.height,
-                                ]
-                                default.close()
+                                if logo is not None:
+                                    placed, position = logo_placement(
+                                        logo,
+                                        (output.width, output.height),
+                                        output.framing.logo_placement,
+                                    )
+                                    layers[output.id] = {
+                                        "bounds": [
+                                            *position,
+                                            position[0] + placed.width,
+                                            position[1] + placed.height,
+                                        ],
+                                        "logo_size": list(logo.size),
+                                        "canvas_size": [output.width, output.height],
+                                        "placement": output.framing.logo_placement.model_dump()
+                                        if output.framing.logo_placement
+                                        else None,
+                                    }
+                                    placed.close()
+                                    default, position = logo_placement(
+                                        logo, (output.width, output.height)
+                                    )
+                                    layers[output.id]["default_bounds"] = [
+                                        *position,
+                                        position[0] + default.width,
+                                        position[1] + default.height,
+                                    ]
+                                    default.close()
                             if framing_preview:
                                 overlay = creative_overlay(
                                     logo,
@@ -299,7 +312,8 @@ class DraftPreviews:
                             if cutout is not None:
                                 cutout.close()
                 finally:
-                    logo.close()
+                    if logo is not None:
+                        logo.close()
             size = sum(map(len, images.values()))
             if size > self.max_bytes:
                 raise StateError("This preview is too large. Shorten the draft and try again.")
@@ -331,7 +345,12 @@ class DraftPreviews:
                         }
                     else:
                         item["layers"].update(
-                            {suffix + "_url": url + "-" + suffix for suffix in ("copy", "logo")}
+                            {
+                                suffix + "_url": url + "-" + suffix
+                                if output.id + "-" + suffix in images
+                                else None
+                                for suffix in ("copy", "logo")
+                            }
                         )
                 result.append(item)
             return result

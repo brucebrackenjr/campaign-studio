@@ -1,10 +1,12 @@
 # Motif – Campaign Studio
 
+**Version 0.2.0** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 
 The central decision is to **generate source imagery only when needed, then compose exact supplied copy and branding locally**. One product source can support two markets and three formats. A wording, crop, logo, or text-style correction reuses that source instead of buying another image generation.
 
-![Motif Studio with combined text controls, the campaign image, and Square, Story, and Landscape formats.](docs/images/motif-studio.jpg)
+![Motif Studio with combined text controls, the campaign image, and Square, Story, and Landscape formats.](docs/images/motif-studio.png)
 
 ## Evaluation materials
 
@@ -139,9 +141,16 @@ Motif/
   Workspace/
     Campaigns/
       Autumn Winds-901f13e2/
+        Brief/
+        Assets/
+        Runs/
+        Exports/
     private/
       state.sqlite3
+    smoke/
 ```
+
+Campaign subfolders appear as their files are created. The `private` folder holds the shared database and application control files; `smoke` is reserved for installation checks and can be empty.
 
 Both installation methods find this workspace from the installed environment. On macOS and Linux, to start from another directory, use `uv run --project "/path/to/Motif" --locked campaign-studio serve` or invoke `"/path/to/Motif/.venv/bin/campaign-studio" serve`. If you move Motif, recreate its .venv at the new location using either install sequence. Back up the whole Workspace folder together while the server is stopped. On macOS and Linux, keep the installation’s private .env separately if you want to retain its settings. Deleting the extracted Motif folder removes its local installation and default workspace. Explicit external workspaces and exports you saved elsewhere remain at their chosen locations.
 
@@ -165,14 +174,14 @@ On its first launch into an absent or empty data directory, the official server 
 
 | Included campaign | Initial state | Useful evaluation path |
 | --- | --- | --- |
-| **Autumn Winds – Stay a little longer** | Five products, English (United States) and Spanish (Mexico), and **30 completed PNGs**. Zero application requests. | Choose **Continue working**, inspect the images in Studio, make a local correction, and use Handoff to export. |
-| **Bridle & Bough – Let winter run wild** | Three products and both markets; **18 planned outputs**. The **Brass sleigh-bell strap** concept is missing, and its one-request plan is unconfirmed. Zero application requests. | Open its Campaign or Production page to inspect the supplied assets and missing-image plan. Generating the missing concept requires your own key and separate explicit confirmation. |
+| **Autumn at Home** · Autumn Winds | Five products, English (United States) and Spanish (Mexico), and **30 completed PNGs**. Zero application requests. | Choose **Continue working**, inspect the images in Studio, make a local correction, and use Handoff to export. |
+| **Winter at the Ranch** · Bridle & Bough | Three products and both markets; **18 planned outputs**. The **Brass sleigh-bell strap** concept is missing, and its one-request plan is unconfirmed. Zero application requests. | Open its Campaign or Production page to inspect the supplied assets and missing-image plan. Generating the missing concept requires your own key and separate explicit confirmation. |
 
 The supplied seasonal imagery was prepared externally with built-in image generation. Autumn’s final PNGs were composed from those sources during package preparation. They remain editable through the normal Studio tools. Bridle does not start with 18 completed images.
 
-Setup is once per fresh workspace, not whenever the campaign count reaches zero. Existing workspaces are not automatically populated, and deleting a bundled campaign does not bring it back. If initial setup fails, startup stops; any ordinary campaign records already created remain, and the next launch opens that state without repeating setup or buying imagery.
+Setup is once per fresh workspace, not whenever the campaign count reaches zero. Existing workspaces are not automatically populated, and deleting a bundled campaign does not bring it back. If setup is interrupted, the next launch resumes unfinished examples. Motif preserves examples you edited or deleted.
 
-To work from your own inputs, use **Create campaign** or **Import brief** from Home. Supply finished product photographs, a logo, and the copy for each market. A plan with no new sources can compose and export locally.
+To work from your own inputs, use **Create campaign** or **Import brief** from Home. Supply product photographs and the copy for each market. Add a logo if the campaign uses one. A plan with no new sources can compose and export locally.
 
 For a repeatable installation check, use a separate data directory:
 
@@ -202,6 +211,8 @@ If a key is missing, use **Add your OpenAI API key**. On macOS and Linux, the ma
 
 Alternatively, configure `OPENAI_API_KEY` in the process environment before starting. On macOS and Linux you can also configure the installation’s private `.env`. An explicitly supplied environment value wins, including an empty value. In that case, update the launch environment and restart; the dialog explains that the environment manages the key. Manual edits to `.env` also require a restart. The launcher reads that one file, without parent-directory discovery.
 
+To remove a saved key, stop Motif first. On macOS or Linux, remove the `OPENAI_API_KEY` entry from `Motif/.env`; on Windows, delete `Workspace/private/openai-key.dpapi`. Remove any separately configured `OPENAI_API_KEY` environment value as well, then restart.
+
 No API key ships with the application. Keep credentials out of briefs, screenshots, exports, and source control. [`.env.example`](.env.example) documents the configuration names an evaluator may need. Missing or rejected credentials do not prevent working with intact saved imagery; ordinary validation and export rules still apply.
 
 ## The producer workflow
@@ -210,7 +221,9 @@ The four campaign pages are **Campaign → Production → Studio → Handoff**. 
 
 ### 1. Campaign – establish the campaign
 
-Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, logo, and brand palette. JSON briefs define the included markets; both bundled campaigns include English and Spanish. The subtabs are Brief, Products, Brand, and Copy & Rules. Campaign previews provide feedback while editing; they are not a claim that production has already happened. An imported brief opens here. In Products, attach each named photo when you have it. You can return to the Workbench and pick up the campaign later.
+Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, and brand palette. Attach a logo in Brand if you want it on the images. JSON briefs define the included markets; both bundled campaigns include English and Spanish. The subtabs are Brief, Products, Brand, and Copy & Rules. Campaign previews provide feedback while editing; they are not a claim that production has already happened. An imported brief opens here. In Products, attach each named photo when you have it. You can return to the Workbench and pick up the campaign later.
+
+After images exist, use **Update Images** in Brand to apply a logo or campaign color change to those images locally. This makes no AI request. Leaving Brand with unapplied changes offers **Update and continue**, **Discard and continue**, or **Stay on Brand**. The default text color applies to text that inherits it; custom colors chosen in Studio remain unchanged. When the preview uses custom colors, **Use default for this image** restores inheritance for that product, market, and format.
 
 Ordinary campaign fields autosave through the shared project queue, including unfinished values. Routine Save/Saved indicators are omitted; real save failures and conflicts still identify the problem and recovery action. Product-dialog changes commit through Add/Update, and image-editor changes through Apply. Saving authored work does not render new images or spend an API request.
 
@@ -254,7 +267,7 @@ The authoritative input contract is [the generated JSON Schema](docs/brief.schem
 | Input | Important behavior |
 | --- | --- |
 | Campaign | Lowercase hyphenated UUID string, editable name, audience, creative direction, brand, included markets, and one to five products. Create/import allocate a new campaign identity. Names need not be unique. |
-| Brand | Logo, palette of one to eight colors, and a text color from that palette. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
+| Brand | An optional logo, a palette of one to eight colors, and a text color from that palette. Select **Require a logo on final images** for campaigns that must carry one. Otherwise, Handoff flags its absence and lets you export. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
 | Market copy | Required `message` and optional `cta`, supplied independently for `en-US` and `es-MX`. No translation, language detection, or language certification. |
 | Product copy | Optional field-level `copy_overrides`. An omitted field inherits; `cta: null` deliberately clears the optional CTA. A required message cannot be cleared. |
 | Phrase rules | Optional configured phrases with literal or whole-word matching and optional case sensitivity. All matches block; there is no advisory severity. |
@@ -311,9 +324,7 @@ The overview labels these same formats Instagram post (Square, 1:1), Story (9:16
 
 Packages capture their image and description/metadata snapshot. A later change produces a new artifact instead of rewriting a previous download. An intact identical package can be reused; matching only the image revision is insufficient if its descriptions or report facts changed. Export rechecks named file hashes and current wording admission. The browser report uses a UUID address. Its saved image and metadata snapshot, internal fingerprint, and permitted files remain bound in the export registry; the fingerprint is not part of the browser URL.
 
-**Seasonal import alternatives.** The selected inputs are also packaged as `motif-autumn-winds-import.zip` and `motif-bridle-and-bough-import.zip`. Those standalone downloads are not publicly hosted yet. The same [Autumn brief and assets](src/campaign_studio/resources/campaigns/autumn-winds/) and [Bridle brief and assets](src/campaign_studio/resources/campaigns/bridle-and-bough/) are included in the source package. Autumn supplies all five product sources for 30 local outputs; Bridle supplies two product sources and leaves the third concept deliberately missing for an explicit generation journey. A final Bridle export does not exist until that work is performed.
-
-To use an import bundle, extract the ZIP, choose **Import brief**, select its `brief.json`, and attach the named logo and product files through the existing controls. Commit product changes with Add/Update, complete the required campaign fields, and review the resulting plan. **Motif imports JSON, not ZIP files.** Each import gets a fresh UUID, so importing the same company twice creates distinct campaigns even when their display names match. An Autumn export created from Handoff is an output package, not an import brief.
+**Import another seasonal campaign.** The [Autumn brief and assets](src/campaign_studio/resources/campaigns/autumn-winds/) and [Bridle brief and assets](src/campaign_studio/resources/campaigns/bridle-and-bough/) are included in the Motif folder. Choose **Import brief**, select the campaign’s `brief.json`, and attach its named product images and optional logo through their controls. Import opens Campaign so you can fill in the remaining details at your own pace. Each import receives a fresh identity, even when its display name matches another campaign. Motif imports JSON; a ZIP exported from Handoff contains finished outputs and is not an import brief.
 
 ## Architecture and data flow
 
@@ -348,7 +359,7 @@ Three states are deliberately distinct:
 
 This prevents an unfinished draft, a new unstarted plan, or a failed Apply from displacing useful accepted images. An explicit rule decision can legitimately withhold every output; preserved fallback pixels do not override that decision’s export restrictions.
 
-The server binds to loopback and checks allowed hosts, request origin, a per-process mutation token, file ownership, and expected versions. These protect the local workflow; they are not hosted authentication or isolation from another process running as the same operating-system user. Campaigns and supplied assets remain on the machine except for text deliberately sent in a confirmed concept-generation request.
+The server binds to loopback and checks allowed hosts, request origin, a per-process mutation token, file ownership, and expected versions. Motif assumes a trusted local computer and does not authenticate individual operating-system accounts. Campaigns and supplied assets remain on the machine except for text deliberately sent in a confirmed concept-generation request.
 
 The canonical campaign pages are `/campaigns/<uuid>/campaign`, `/production`, `/studio`, and `/handoff`, all beneath the same campaign prefix. A malformed, unknown, or deleted identity receives the Motif **Campaign not found** page. A registered draft can open before its first run. Old page aliases and old-schema migrations are not part of this prototype.
 
@@ -479,7 +490,7 @@ Then run the isolated smoke, synthetic, and saved-replay commands above. JavaScr
 
 Verification includes deterministic tests, controlled provider failures, actual desktop browser journeys, clean installations, and inspection of exported PNGs and offline reports. [Verification notes](docs/verification.md) distinguish what was run on the current package from unchanged evidence carried forward. Saved-source replay is not a new provider call, and test totals are not a quality score.
 
-The [GitHub Actions workflow](.github/workflows/checks.yml) runs the full application checks on Ubuntu. A Windows job checks native storage, encrypted credentials, the bundled campaigns, and installed sample commands. [Workflow runs](https://github.com/brucebrackenjr/campaign-studio/actions) show results for each commit.
+The [GitHub Actions workflow](.github/workflows/checks.yml) runs the full application checks on Ubuntu. A native Windows job runs the full Python suite, including storage, encrypted credentials, and bundled campaigns, followed by installed sample commands. [Workflow runs](https://github.com/brucebrackenjr/campaign-studio/actions) show results for each commit.
 
 Useful focused test groups include:
 
@@ -532,7 +543,7 @@ Useful focused test groups include:
 
 The application, tests, and documentation were developed with OpenAI Codex assistance. Claude Code was used for independent code and browser review, and AI-assisted design work informed the interface. Product scope, trade-offs, and acceptance remained human-directed. This disclosure describes the development process; Motif itself is not a multi-agent application.
 
-Generated or synthetic imagery must remain identified in its provenance. A saved image replay is not presented as a fresh generation, and an AI-generated product concept is not a photograph of a verified commercial product. The selected seasonal source images were prepared with built-in image generation outside Motif. Their application setup records remain zero-call; Bridle’s included starting plan still requires deliberate generation of its missing concept. The [third-party notices](THIRD_PARTY_NOTICES.md) identify the included imagery and font origins. External campaign download links are not yet available.
+Generated or synthetic imagery must remain identified in its provenance. A saved image replay is not presented as a fresh generation, and an AI-generated product concept is not a photograph of a verified commercial product. The selected seasonal source images were prepared with built-in image generation outside Motif. Their application setup records remain zero-call; Bridle’s included starting plan still requires deliberate generation of its missing concept. The [third-party notices](THIRD_PARTY_NOTICES.md) identify the included imagery and font origins.
 
 The bundled fonts retain their SIL Open Font License notices: [Noto Sans Regular](src/campaign_studio/resources/fonts/OFL.txt), [interface Noto Sans](src/campaign_studio/static/motif/assets/NotoSans-OFL.txt), and [Barlow Condensed](src/campaign_studio/static/motif/assets/Barlow-OFL.txt). Dependencies retain their own licenses. [Third-party notices](THIRD_PARTY_NOTICES.md) must accompany distribution.
 

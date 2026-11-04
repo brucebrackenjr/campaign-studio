@@ -133,7 +133,7 @@ def test_known_crop_and_copy_defects_block_before_dispatch(sample):
         for item in make_plan(wide_subject, storage).findings
     )
     long_copy = changed(
-        brief, lambda value: value["markets"]["en-US"]["copy"].update(message="Long " * 300)
+        brief, lambda value: value["markets"]["en-US"]["copy"].update(message="Longword" * 12)
     )
     assert any(item.rule == "text_fit" for item in make_plan(long_copy, storage).findings)
     missing_glyph = changed(
@@ -193,6 +193,44 @@ def test_prepared_boundary_ignores_one_alpha_unit_but_blocks_visible_clipping(sa
             item.rule == "prepared_product" and item.severity == "blocking"
             for item in make_plan(prepared, storage).findings
         )
+
+
+def test_local_edits_retain_original_request_when_generation_instructions_change(
+    sample, monkeypatch
+):
+    from campaign_studio.generation import GenerationRequest
+    from campaign_studio.planning import make_local_plan
+
+    storage, brief = sample
+    value = brief.model_dump()
+    value["products"][0]["source"] = {
+        "role": "concept",
+        "imagery_absent": True,
+        "description": "A wool blanket draped over a chair.",
+        "provenance": {"label": "Test fixture", "rights": "Local fixture", "synthetic": True},
+    }
+    concept = Brief.model_validate(value)
+    original = make_plan(concept, storage)
+    pid = concept.products[0].id
+    changed_request = GenerationRequest(prompt="Updated instructions for future photographs.")
+    monkeypatch.setattr("campaign_studio.planning.request_for", lambda *_: changed_request)
+    value["markets"]["en-US"]["copy"]["message"] = "A fresh headline."
+    edited = Brief.model_validate(value)
+    local = make_local_plan(original, edited, storage)
+    assert local.generation_requests[pid] == original.generation_requests[pid]
+    assert compare_plans(original, local).generation_products == []
+    assert compare_plans(original, local).render_outputs
+    fresh = make_plan(edited, storage)
+    assert fresh.generation_requests[pid] == changed_request
+    assert compare_plans(original, fresh).generation_products == [pid]
+    for field in ("source", "audience", "creative_direction"):
+        changed = edited.model_dump()
+        if field == "source":
+            changed["products"][0]["source"]["description"] = "A different product."
+        else:
+            changed[field] = "A different creative brief."
+        revised = make_local_plan(original, Brief.model_validate(changed), storage)
+        assert pid in compare_plans(original, revised).generation_products
 
 
 def test_background_request_excludes_product_description_and_concept_keeps_its_subject(sample):

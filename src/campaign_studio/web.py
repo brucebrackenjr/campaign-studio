@@ -16,7 +16,7 @@ from campaign_studio.brief import FORMATS, CampaignID
 from campaign_studio.capacity import production_bytes
 from campaign_studio.cleanup import Cleanup
 from campaign_studio.credentials import invalid_key
-from campaign_studio.exporting import delivery_paths, public_manifest, require_export_wording
+from campaign_studio.exporting import delivery_paths, public_manifest, require_export_rules
 from campaign_studio.handoff import Handoff, MetadataAction, PackageAction
 from campaign_studio.imaging import (
     FontProblem,
@@ -76,6 +76,13 @@ def routes() -> APIRouter:
 
     def services(request):
         return request.app.state.workspace
+
+    def export_after_previews(request, operation, *args):
+        # Leaving an editor can retire its UI before its server preview finishes.
+        # Take the preview mutex before the operation's runner and authored locks,
+        # and keep it held so another preview cannot slip ahead of the export.
+        with request.app.state.previews.lock:
+            return operation(*args)
 
     def busy(request):
         return any(not task.done() for task in request.app.state.operations.values())
@@ -307,7 +314,11 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="current"
         )
         result = await asyncio.to_thread(
-            Handoff(services(request).state).create_zip, target, action
+            export_after_previews,
+            request,
+            Handoff(services(request).state).create_zip,
+            target,
+            action,
         )
         result["url"] = (
             f"/api/campaigns/{campaign_id}/runs/{run_id}/revisions/{revision_id}"
@@ -325,7 +336,11 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="saved_version"
         )
         payload = await asyncio.to_thread(
-            Handoff(services(request).state).download, target, artifact_id
+            export_after_previews,
+            request,
+            Handoff(services(request).state).download,
+            target,
+            artifact_id,
         )
         with ZipFile(io.BytesIO(payload)) as archive:
             filename = archive.namelist()[0].split("/", 1)[0] + ".zip"
@@ -649,6 +664,8 @@ def routes() -> APIRouter:
             or workspace.state.metadata_snapshot(manifest["revision_id"])["snapshot_id"]
         )
         return await asyncio.to_thread(
+            export_after_previews,
+            request,
             Handoff(workspace.state).create_folder,
             RevisionTarget(
                 campaign_id=campaign_id,
@@ -659,8 +676,7 @@ def routes() -> APIRouter:
             PackageAction(snapshot_id=snapshot, allow_partial=body.get("allow_partial") is True),
         )
 
-    @router.get("/campaigns/{campaign_id}/images/{revision_id}/{product_id}/{market}/{ratio}")
-    async def image(
+    def image_response(
         request: Request,
         campaign_id: CampaignID,
         revision_id: str,
@@ -683,7 +699,7 @@ def routes() -> APIRouter:
                         mode="current",
                     )
                 )
-                require_export_wording(workspace.state, campaign_id)
+                require_export_rules(workspace.state, campaign_id, revision_id)
             with workspace.storage.connect() as db:
                 retired = db.execute(
                     "SELECT r.images_retired FROM revisions r JOIN runs ON runs.id=r.run_id "
@@ -748,6 +764,21 @@ def routes() -> APIRouter:
                 )
             return FileResponse(path, media_type="image/png")
 
+    @router.get("/campaigns/{campaign_id}/images/{revision_id}/{product_id}/{market}/{ratio}")
+    async def image(
+        request: Request,
+        campaign_id: CampaignID,
+        revision_id: str,
+        product_id: str,
+        market: str,
+        ratio: str,
+        download: bool = False,
+    ):
+        args = (request, campaign_id, revision_id, product_id, market, ratio, download)
+        if download:
+            return await asyncio.to_thread(export_after_previews, request, image_response, *args)
+        return image_response(*args)
+
     @router.get("/campaigns/{campaign_id}/sources/{product_id}/{ratio}")
     async def source_preview(
         request: Request,
@@ -788,9 +819,13 @@ def routes() -> APIRouter:
 
     @router.get("/reports/{report_id}/{reference:path}")
     async def report_file(request: Request, report_id: str, reference: str):
-        # Keep these short reads serial on the event loop, as with image delivery;
-        # parallel report assets must not compete for the nonblocking run lock.
-        payload = Handoff(services(request).state).report_file(report_id, reference)
+        payload = await asyncio.to_thread(
+            export_after_previews,
+            request,
+            Handoff(services(request).state).report_file,
+            report_id,
+            reference,
+        )
         return Response(payload, media_type=guess_type(reference)[0] or "application/octet-stream")
 
     return router

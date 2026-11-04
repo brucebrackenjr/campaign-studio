@@ -3,7 +3,48 @@
 .motif-descriptor { border-left: 1px solid #cccfc4; padding-left: 18px; min-height: 24px; display: flex; align-items: center; font-size: 10px; line-height: 1.4; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .mark { flex: none; clip-path: polygon(0 100%, 0 0, 23.077% 0, 50% 42.308%, 76.923% 0, 100% 0, 100% 100%, 76.923% 100%, 76.923% 38.462%, 50% 76.923%, 23.077% 38.462%, 23.077% 100%); }
 .motif-brand .wordmark { white-space: nowrap; }
+.topbar:has(.campaign-heading) { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 2fr) minmax(max-content, 1fr); height: auto; min-height: 64px; padding-top: 10px; padding-bottom: 10px; }
+.topbar:has(.campaign-heading) .mf-workspace-actions { justify-self: end; }
+.topbar .top-context:has(.campaign-heading) { min-width: 0; justify-content: center; }
+.topbar .top-context > .campaign-heading { --identity-brand-size: 28px; --identity-name-size: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-width: 0; min-height: 44px; padding: 4px 2px; text-align: center; font-family: Georgia, "Times New Roman", serif; font-size: var(--identity-brand-size); font-style: italic; font-weight: 700; line-height: 1.16; letter-spacing: -.65px; color: #294438; }
+.mf-save-shell .top-context > .campaign-heading { max-width: 100%; overflow: visible; white-space: nowrap; text-overflow: clip; }
+.campaign-heading-text { display: grid; min-width: 0; gap: 4px; }
+.campaign-heading-brand { min-width: 0; white-space: nowrap; height: calc(var(--identity-brand-size) * 1.16); line-height: calc(var(--identity-brand-size) * 1.16); }
+.campaign-heading-name { min-width: 0; white-space: nowrap; height: calc(var(--identity-name-size) * 1.25); font: 600 var(--identity-name-size)/calc(var(--identity-name-size) * 1.25) Noto, Arial, sans-serif; letter-spacing: .1px; }
+.campaign-heading-brand[hidden] { display: none; }
+.campaign-heading-caret { flex: none; width: 9px; height: 9px; border-right: 2px solid #ce3825; border-bottom: 2px solid #ce3825; transform: rotate(45deg); margin: -5px 2px 0 0; }
+.campaign-heading:hover .campaign-heading-name { text-decoration: underline; text-decoration-color: #ce3825; text-decoration-thickness: 1px; text-underline-offset: 5px; }
+@media (max-width: 800px) {
+  .topbar:has(.campaign-heading) { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+  .topbar:has(.campaign-heading) .top-context { grid-column: 1 / -1; grid-row: 2; }
+  .topbar:has(.campaign-heading) .mf-workspace-actions { grid-column: 2; grid-row: 1; }
+  .topbar .top-context > .campaign-heading { --identity-brand-size: clamp(16px, 3.45vw, 28px); }
+}
 @media (max-width: 800px) {
   .motif-brand { gap: 12px; }
   .motif-descriptor { padding-left: 12px; font-size: 9px; letter-spacing: 1.1px; }
 }
+@media (max-width: 640px) {
+  .topbar .top-context > .campaign-heading { --identity-name-size: 16px; }
+}
+@media (max-width: 480px) {
+  .mf-producer-shell .topbar:has(.campaign-heading) { padding-left: 12px; padding-right: 12px; }
+  .topbar .top-context > .campaign-heading { --identity-name-size: 18px; gap: 6px; letter-spacing: -.8px; }
+  .campaign-heading-name { font-family: Barlow, Arial, sans-serif; }
+  .campaign-heading-caret { width: 7px; height: 7px; margin: -4px 0 0; }
+}
+@media (max-width: 380px) {
+  .topbar .top-context > .campaign-heading { --identity-brand-size: 15px; }
+}
+
+.mf-limited-input { position: relative; display: block; min-width: 0; }
+.mf-limited-input > :is(input, textarea) { display: block; }
+.mf-limited-input > :is(input, textarea)[data-length-invalid][id] { padding-right: calc(var(--mf-limit-width) + 28px); }
+.mf-limited-input > .mf-text-limit { position: absolute; right: 18px; bottom: 6px; color: #a83222; text-align: right; font: 12px/1.4 Noto, Arial, sans-serif; margin: 0; pointer-events: none; }
+.mf-text-limit[hidden] { display: none; }
+.mf-text-limit-live { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+input[data-length-invalid], textarea[data-length-invalid] { border-color: #b43b29; }
+
+/* Both identity fields can contain long unbroken names. */
+.campaign-identity-dialog .modal-head > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.campaign-identity-dialog .modal-body { min-width: 0; overflow-wrap: anywhere; }

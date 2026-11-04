@@ -1,14 +1,14 @@
 # JSON brief contract
 
-[brief.schema.json](brief.schema.json) is generated from the application's Pydantic models. Unknown fields are rejected. Import a JSON file with the ordinary file picker, then edit the same campaign, product, brand, and wording fields used for a new campaign. Imported file references are descriptions only – attach the corresponding image and logo through their controls. The application assigns fresh identities and never reads an arbitrary path from an imported document.
+[brief.schema.json](brief.schema.json) is generated from the application's Pydantic models. Unknown fields are rejected. Import a JSON file with the ordinary file picker, then edit the same campaign, product, brand, and wording fields used for a new campaign. Imported file references are descriptions only – attach the product photos and any logo you want to use through their controls. The application assigns fresh identities and never reads an arbitrary path from an imported document.
 
 The interface supports one to five products and either `en-US`, `es-MX`, or both. Each selected language produces three formats per product: 1080 × 1080, 1080 × 1920, and 1920 × 1080. That is three outputs per product for one language, or six for both. New campaigns default to both languages; imported briefs retain their selected languages.
 
 ## Campaign and copy
 
-A brief uses a lowercase hyphenated UUID string for `campaign_id`. Create and import allocate a new UUID; duplicate names are allowed, and renaming keeps the same identity. A brief includes a campaign name, audience, creative direction, brand name, logo, palette, permitted text color, copy provenance, products, and market-specific copy. Origin and rights descriptions are producer-supplied assertions; leaving them unspecified does not invent an ownership claim.
+A brief uses a lowercase hyphenated UUID string for `campaign_id`. Create and import allocate a new UUID; duplicate names are allowed, and renaming keeps the same identity. A brief includes a campaign name, audience, creative direction, brand name, palette, permitted text color, copy provenance, products, and market-specific copy. The logo is optional. Set `brand.require_logo` to `true` to require it on final images. A product with a photo can be previewed before a logo is attached. Origin and rights descriptions are producer-supplied assertions; leaving them unspecified does not invent an ownership claim.
 
-Each market supplies a required message, optional nullable CTA, and optional prohibited phrase rules. Missing, `null`, and empty `phrase_rules` all mean no configured rules. Every configured match blocks production for its output and blocks all current campaign exports until corrected or the rule is deliberately edited or removed. There is no advisory severity. Rules use literal or whole-word matching with Unicode NFC normalization and optional case sensitivity. Only printed headlines and CTAs are scanned; descriptions, generation instructions, and rule definitions are excluded. Structured matches identify the product, language, field, and configured phrase so the correction action opens the right control. Valid campaign content can be imported, opened, edited, and saved even when prohibited wording prevents production or export.
+Each market supplies a required message, optional nullable CTA, and up to 32 prohibited phrase rules. Each phrase may contain up to 256 characters. Missing, `null`, and empty `phrase_rules` all mean no configured rules. Every configured match blocks production for its output and blocks all current campaign exports until corrected or the rule is deliberately edited or removed. There is no advisory severity. Rules use literal or whole-word matching with Unicode NFC normalization and optional case sensitivity. Only printed headlines and CTAs are scanned; descriptions, generation instructions, and rule definitions are excluded. Structured matches identify the product, language, field, and configured phrase so the correction action opens the right control. Valid campaign content can be imported, opened, edited, and saved even when prohibited wording prevents production or export.
 
 Product `copy_overrides` replace only fields present in the object. An omitted field inherits. Explicit `null` clears an optional field; it cannot clear a message. No language fallback, translation, truncation, or implicit rewrite occurs.
 
@@ -38,7 +38,7 @@ Product-dialog edits are temporary until Add/Update and do not join background c
 
 ## Saved imagery and examples
 
-The official launcher’s two included seasonal campaigns use ordinary briefs and owned attachments. [Autumn Winds](../src/campaign_studio/resources/campaigns/autumn-winds/brief.json) has five finished-scene products and both markets; setup copies its 30 prepared PNGs and their editable inputs. [Bridle & Bough](../src/campaign_studio/resources/campaigns/bridle-and-bough/brief.json) has two finished scenes and one missing concept, with 18 planned outputs. Its generation plan remains unconfirmed. Both start with zero application attempts; externally prepared imagery is identified in provenance.
+The official launcher’s two included seasonal campaigns use ordinary briefs and owned attachments. [Autumn at Home (Autumn Winds)](../src/campaign_studio/resources/campaigns/autumn-winds/brief.json) has five finished-scene products and both markets; setup copies its 30 prepared PNGs and their editable inputs. [Winter at the Ranch (Bridle & Bough)](../src/campaign_studio/resources/campaigns/bridle-and-bough/brief.json) has two finished scenes and one missing concept, with 18 planned outputs. Its generation plan remains unconfirmed. Both start with zero application attempts; externally prepared imagery is identified in provenance.
 
 To import those inputs separately, choose the extracted `brief.json` and attach its named logo and image files. There is no ZIP importer. Import allocates a fresh UUID even when another campaign has the same name. The initial bundled installation and a later ordinary import are separate campaign records.
 
@@ -49,3 +49,25 @@ For a concept, `imagery_absent: true` describes its original state before the hi
 The separate [HOLD CLI replay fixture](../src/campaign_studio/resources/replay/README.md) contains one genuine saved brush-roll concept master and one supplied chalk scene. Its historical request count is one; every replay makes zero new requests and creates no fabricated attempt records. Exported provenance omits private source paths and raw responses.
 
 [Two-product](../examples/synthetic-2/brief.json) and [three-product](../examples/synthetic-3/brief.json) geometric examples support repeatable service checks. Their relative references are resolved by the sample commands inside the configured runtime; they are not photographic or generation-quality evidence.
+
+## Text field limits
+
+The brand name identifies the company; the campaign name identifies its project. For example, the bundled Autumn Winds brand has a campaign named **Autumn at Home**.
+
+| Field | Maximum characters |
+| --- | ---: |
+| Campaign name | 25 |
+| Brand name | 20 |
+| Product name | 80 |
+| Headline | 120 |
+| Call to action | 60 |
+| Audience | 500 |
+| Creative direction, product description, or concept description | 1,000 |
+| Origin label | 200 |
+| Usage rights | 1,000 |
+| Prohibited phrase | 256 |
+| File reference | 4,096 |
+| Replay model identifier | 200 |
+| Replay history | 2,000 |
+
+Motif counts Unicode code points consistently in the browser and server. An emoji such as 🦊 counts as one; a letter followed by a combining accent counts as two. Over-limit text is retained in the open form for correction and is not saved or applied until shortened. Incomplete fields can still be saved as drafts. Text is never automatically truncated.

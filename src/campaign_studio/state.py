@@ -466,9 +466,9 @@ class State:
     ) -> bool:
         """Check a local composition bundle without recovering, reserving, or dispatching."""
         product = next((p for p in plan.brief.products if p.id == product_id), None)
-        if product is None or (include_logo and "logo" not in plan.assets):
+        if product is None:
             return False
-        keys = ["logo"] if include_logo else []
+        keys = ["logo"] if include_logo and plan.brief.brand.logo_path else []
         if product.source.role != "concept":
             keys.append(f"products/{product_id}")
         if product.source.role != "finished_scene":
@@ -756,6 +756,16 @@ class State:
             if not self.storage.path(manifest_ref).is_file():
                 raise StateError("A revision cannot be committed before its manifest exists.")
             manifest = json.loads(self.storage.path(manifest_ref).read_bytes())
+            brand_update = manifest.get("edit_receipt", {}).get("brand_update")
+            if brand_update:
+                from campaign_studio.brand_updates import BrandUpdate, BrandUpdates
+                from campaign_studio.workspace import Workspace
+
+                # Rendering does not hold the authored lock. Reject a newer Save
+                # at the same atomic boundary that admits this revision.
+                BrandUpdates(Workspace(self)).require_base(
+                    project.campaign_id, BrandUpdate.model_validate(brand_update)
+                )
             if any(item["file"] for item in manifest["outputs"]):
                 campaign_id = self.run(run_id)["campaign_id"]
                 cleanup = Cleanup(self)

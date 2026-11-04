@@ -3,14 +3,20 @@
 let stopTarget = null;
 let importFile = null;
 let importErrorMessage = "";
+let importedCampaignId = null;
 let navigationError = "";
 let productUploadSequence = 0;
+let pendingProductUpload = null;
 let productRemovalFromEditor = false;
 
 function hasPendingNavigationWork() {
   return !!projectQueue?.isDirty();
 }
 function guardNavigation(destination) {
+  if (typeof briefLogoUploadPending === "function" && briefLogoUploadPending()) {
+    toast("Wait for the logo upload to finish, or cancel the upload in Brand.");
+    return true;
+  }
   if (!hasPendingNavigationWork()) return false;
   pendingNav = destination;
   navigationError = "";
@@ -30,6 +36,23 @@ async function savePendingNavigation() {
     navigationError = error.message;
   }
   if (pendingNav && modal === "unsaved") openModal("unsaved");
+}
+
+async function openImportedCampaign() {
+  // A returned campaign ID is a committed import. Opening it must never send
+  // the file again, even if the following page or Workbench refresh fails.
+  try {
+    await openCampaign(importedCampaignId, "campaign");
+  } catch (error) {
+    importErrorMessage = error.message;
+    openModal("import-open-failed");
+    return;
+  }
+  try {
+    await refreshCatalog();
+  } catch {
+    toast("Your brief was imported. The Workbench could not refresh; try opening it again later.");
+  }
 }
 
 async function confirmStop() {
@@ -154,10 +177,21 @@ function openModal(name) {
     throw error;
   }
   $("#overlay").innerHTML = content;
-  if (modal === "import" && importFile) {
-    const selected = new DataTransfer();
-    selected.items.add(importFile);
-    $("#json-file").files = selected.files;
+  if (modal === "import") {
+    const input = $("#json-file");
+    if (importFile) {
+      const selected = new DataTransfer();
+      selected.items.add(importFile);
+      input.files = selected.files;
+    }
+    const showFile = () => {
+      const file = input.files[0];
+      $("#import-file-label").textContent = file ? "Selected brief" : "JSON brief";
+      $("#import-file-name").textContent = file ? file.name : "Choose a JSON brief";
+      $("#import-file-change").textContent = file ? "Change file" : "Choose file";
+    };
+    input.addEventListener("change", showFile);
+    showFile();
   }
   $("#app").inert = true;
   $(".skip").inert = true;
@@ -172,7 +206,8 @@ function openModal(name) {
     if (!focusStorageDialog()) (modal === "remove-product" ? $('[data-pr-action="cancel-remove"]') : $("#overlay button.close") || $("#overlay button"))?.focus();
   }, 0);
 }
-function closeModal({ cancel = false, retain = true } = {}) {
+function closeModal({ cancel = false, retain = true, restoreFocus = true } = {}) {
+  if (modal === "brand-navigation" && typeof brandUpdating !== "undefined" && brandUpdating) return;
   if (studioWorkspace && ["text", "frame", "logo", "inspect"].includes(modal)) return cancelStudioTool();
   if (modal === "remove-product" && retain) return cancelProductRemoval();
   const closingKind = modal;
@@ -180,7 +215,7 @@ function closeModal({ cancel = false, retain = true } = {}) {
   const navigationChoice = modal === "unsaved";
   const authoring = ["rule", "rename", "inspect"].includes(modal);
   // Product edits are local until Add/Update. Every dismissal discards them.
-  if (modal === "product") { cancel = false; retain = false; }
+  if (modal === "product") { cancelProductUpload(); cancel = false; retain = false; }
   if (
     modal === "storage" &&
     (deletionSubmitting || storageView?.state === "delete-pending")
@@ -211,8 +246,10 @@ function closeModal({ cancel = false, retain = true } = {}) {
         );
     target?.focus();
   };
-  restore();
-  queueMicrotask(restore);
+  if (restoreFocus) {
+    restore();
+    queueMicrotask(restore);
+  }
   mountProjectViews();
   if (navigationChoice) projectQueue?.resumeAutosave();
   if (cancel) projectChanged();
@@ -236,12 +273,14 @@ async function finishPendingNavigation() {
 
 async function navigate(target) {
   if (studioWorkspace && !await leaveStudioWorkspace()) return;
+  if (target !== "campaign" && typeof guardBrandNavigation === "function" &&
+      guardBrandNavigation({ kind: "page", target })) return;
   if (guardNavigation(target)) return;
   // Workbench order comes from successful server saves, including image review.
   // Opening a campaign does not write or advance that activity timestamp.
   if (target === "library") await refreshCatalog();
-  page = target === "products" ? "production" : target === "copy" ? "campaign" : target;
-  if (target === "copy") tab = "copy";
+  page = target === "products" ? "production" : ["copy", "brand"].includes(target) ? "campaign" : target;
+  if (target === "copy" || target === "brand") tab = target;
   if (target === "review") {
     reviewTab = "products";
   }
@@ -254,6 +293,7 @@ const originalModalView = modalView;
 // Add service-backed recovery dialogs to the existing presentation entry point.
 // Keep one modal renderer so shared focus and Save lifecycle hooks apply to both.
 modalView = function () {
+  if (modal === "brand-navigation") return brandNavigationDialog();
   if (modal === "storage") return storageDialog();
   if (modal === "stop")
     return dialog(
@@ -265,8 +305,20 @@ modalView = function () {
   if (modal === "import")
     return dialog(
       "Bring your brief.",
-      `<p class="muted" style="margin-bottom:18px">Import a documented JSON brief into the same editable fields. You can attach images later.</p><div class="upload"><strong>Choose a JSON brief</strong><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></div><div id="import-error" role="alert"></div>`,
-      `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import into a new draft", "doImport", "primary")}`,
+      `<p class="muted" style="margin-bottom:18px">Import a JSON brief. You can attach images later.</p><div class="import-file"><div class="import-file-details" aria-live="polite"><span id="import-file-label" class="small muted">JSON brief</span><strong id="import-file-name">Choose a JSON brief</strong></div><label class="btn import-file-picker"><span id="import-file-change">Choose file</span><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></label></div><div id="import-error" role="alert"></div>`,
+      `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import", "doImport", "primary")}`,
+    );
+  if (modal === "import-open-failed")
+    return dialog(
+      "Your brief was imported.",
+      `<p>Its campaign is saved, but could not open yet.</p>${notice(importErrorMessage, "", "block")}`,
+      btn("Close", "close") + btn("Open imported campaign", "openImported", "primary"),
+    );
+  if (modal === "import-busy")
+    return dialog(
+      "Another operation is finishing.",
+      `<p>Wait for it to finish, then try importing your brief again.</p>${notice(importErrorMessage, "", "block")}`,
+      btn("Close", "close") + btn("Return to import", "returnImport", "primary"),
     );
   if (modal === "invalid-import")
     return dialog(
@@ -278,7 +330,7 @@ modalView = function () {
   if (modal === "campaigns")
     return dialog(
       "Back to the workbench.",
-      `<div class="menu-popover">${saved.map((c) => `<button data-action="openCampaign" data-campaign-id="${esc(c.id)}"><strong>${esc(c.name)}</strong><br><span class="small muted">${campaignContext(c) ? esc(campaignContext(c)) + " · " : ""}${c.products} ${c.products === 1 ? "product" : "products"} · ${workbenchCounts(c)} · ${esc(activityLabel(c.updated))}</span></button>`).join("")}</div>`,
+      `<div class="menu-popover">${saved.map((c) => `<button data-action="openCampaign" data-campaign-id="${esc(c.id)}"><strong>${esc(c.name)}</strong><br><span class="small muted">${c.brand ? esc(c.brand) + " · " : ""}${c.products} ${c.products === 1 ? "product" : "products"} · ${workbenchCounts(c)} · ${esc(activityLabel(c.updated))}</span></button>`).join("")}</div>`,
       btn("All campaigns", "library") + btn("New campaign", "new", "primary"),
     );
   if (modal === "remove-product")
@@ -421,8 +473,10 @@ function cancelProductRemoval() {
   productRemovalFromEditor = false;
 }
 function saveProductDraft() {
+  if (modalProduct?.uploading) return;
   const name = $("#product-name").value,
     description = $("#product-description").value;
+  if (!MotifTextLimits.guardFields(["product-name", "product-description", "product-origin", "product-rights"])) return;
   const invalidFields = [];
   if (!name.trim()) invalidFields.push("name");
   if (!description.trim()) invalidFields.push("description");
@@ -514,37 +568,68 @@ function openInputField(field) {
   }[path.at(-1)];
   if (control) $(`#${control}`)?.focus();
 }
-async function upload(file, owner = draft, target = modalProduct) {
-  if (!file) return;
-  const sequence = ++productUploadSequence;
-  const result = await withBriefPreviewPaused(() => api("/api/uploads", undefined, {
-    method: "POST",
-    headers: {
-      "Content-Type": file.type || "application/octet-stream",
-      "X-Campaign-Token": $('meta[name="campaign-token"]').content,
-      "X-Campaign-Id": owner.campaign_id,
-    },
-    body: file,
-  }), () => draft === owner && modalProduct === target);
-  if (!result || draft !== owner || sequence !== productUploadSequence) return;
-  if (!target || target !== modalProduct) {
-    toast("Image uploaded. The closed product draft was not changed.");
-    return;
-  }
-  target.source.path = result.reference;
-  target.image = result.url;
-  if (target.treatment !== "concept") target.treatment = "reuse";
-  if (modal === "product") {
-    captureProductInputs();
-    openModal("product");
-  }
-  if ($("#asset-result"))
-    $("#asset-result").innerHTML = notice(
-      file.name,
-      `${result.width} × ${result.height} · save this product to attach the image`,
-      "info",
-    );
+function cancelProductUpload() {
+  const pending = pendingProductUpload;
+  if (!pending) return;
+  pendingProductUpload = null;
+  pending.target.uploading = false;
+  clearTimeout(pending.timer);
+  pending.controller.abort();
 }
+async function upload(file, owner = draft, target = modalProduct) {
+  if (!file || !target) return;
+  cancelProductUpload();
+  const sequence = ++productUploadSequence;
+  const pending = { target, controller: new AbortController(), timer: null };
+  pendingProductUpload = pending;
+  target.uploading = true;
+  captureProductInputs();
+  if (modal === "product") openModal("product");
+  pending.timer = setTimeout(() => pending.controller.abort(), 30000);
+  const current = () => draft === owner && modalProduct === target &&
+    pendingProductUpload === pending && sequence === productUploadSequence;
+  try {
+    const result = await withBriefPreviewPaused(() => api("/api/uploads", undefined, {
+      method: "POST",
+      signal: pending.controller.signal,
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Campaign-Token": $('meta[name="campaign-token"]').content,
+        "X-Campaign-Id": owner.campaign_id,
+      },
+      body: file,
+    }), () => current() && !pending.controller.signal.aborted);
+    if (!current()) return;
+    if (!result) {
+      if (pending.controller.signal.aborted)
+        target.error = "The photo upload took too long. Choose the image again.";
+      return;
+    }
+    target.source.path = result.reference;
+    target.image = result.url;
+    target.error = "";
+    target.invalidFields = [];
+    if (target.treatment !== "concept") target.treatment = "reuse";
+  } catch (error) {
+    if (!current()) return;
+    if (pending.controller.signal.aborted) {
+      target.error = "The photo upload took too long. Choose the image again.";
+      return;
+    }
+    throw error;
+  } finally {
+    clearTimeout(pending.timer);
+    if (current()) {
+      target.uploading = false;
+      pendingProductUpload = null;
+      if (modal === "product") {
+        captureProductInputs();
+        openModal("product");
+      }
+    }
+  }
+}
+
 function picker(logo = false) {
   if (logo) {
     $('#brief-root [data-bf-action="upload-logo"]')?.click();
@@ -745,7 +830,9 @@ document.addEventListener("keydown", (event) => {
   controls[next].focus();
 });
 window.addEventListener("beforeunload", (event) => {
-  if (projectQueue?.isDirty()) {
+  if (projectQueue?.isDirty() || pendingProductUpload ||
+      (typeof brandChangesPending === "function" && brandChangesPending()) ||
+      (typeof briefLogoUploadPending === "function" && briefLogoUploadPending())) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -765,6 +852,21 @@ async function dispatchAction(data) {
     return;
   }
   const [action, index, second, third] = data.action.split(":");
+  if (["openCampaign", "new", "import"].includes(action) &&
+      typeof guardBrandNavigation === "function" && guardBrandNavigation(data)) return;
+  if (action === "tab" && index !== "brand" && typeof guardBrandNavigation === "function" &&
+      guardBrandNavigation({ kind: "tab", target: index })) return;
+  const lengthFields = {
+    create: ["new-name", "new-brand", "new-audience"],
+    saveName: ["rename-name"], saveRule: ["mw-rule-phrase"],
+    saveDescription: ["image-description"],
+    applyText: ["mf-word-message", "mf-word-cta"],
+    applyDraftWording: ["draft-wording-value"],
+  }[action];
+  if (lengthFields && !MotifTextLimits.guardFields(lengthFields)) return;
+  if (["campaigns", "setup", "tab"].includes(action) &&
+      typeof briefLogoUploadPending === "function" && briefLogoUploadPending() &&
+      guardNavigation(data)) return;
   if (
     ["openCampaign", "new", "import"].includes(action) &&
     guardNavigation({ action, index, campaignId: data.campaignId })
@@ -774,6 +876,12 @@ async function dispatchAction(data) {
   try {
     busy = true;
     switch (action) {
+      case "brandContinue":
+        await finishBrandNavigation();
+        break;
+      case "brandDiscard":
+        await finishBrandNavigation(true);
+        break;
       case "storage":
         await dispatchStorage(index, second);
         break;
@@ -825,6 +933,7 @@ async function dispatchAction(data) {
         break;
       case "import":
         importFile = null;
+        importedCampaignId = null;
         importErrorMessage = "";
         openModal("import");
         break;
@@ -857,7 +966,14 @@ async function dispatchAction(data) {
       case "workbench":
         moveWorkbench(index === "next" ? 1 : -1);
         break;
+      case "openImported":
+        await openImportedCampaign();
+        break;
       case "doImport": {
+        if (importedCampaignId) {
+          await openImportedCampaign();
+          break;
+        }
         const file = $("#json-file").files[0];
         importFile = file || importFile;
         if (!file || file.size > 131072)
@@ -871,8 +987,9 @@ async function dispatchAction(data) {
           );
         }
         const result = await api("/api/motif/import", value, { body: file });
-        await refreshCatalog();
-        await openCampaign(result.campaign_id, "campaign");
+        importedCampaignId = result.campaign_id;
+        importFile = null;
+        await openImportedCampaign();
         break;
       }
       case "saveDraft":
@@ -1132,14 +1249,19 @@ async function dispatchAction(data) {
       case "retryExport":
         await retryExport();
         break;
-      case "exportOverview":
-        closeModal();
+      case "exportOverview": {
+        closeModal({ restoreFocus: false });
         page = "handoff";
         render();
-        document
-          .querySelector(".handoff-grid, .overview-table")
-          ?.scrollIntoView({ block: "start" });
+        const overview = document.querySelector(".overview-grid");
+        if (overview) {
+          const target = overview.querySelector('button[data-action^="download:"]:not(:disabled)') || overview;
+          if (target === overview) overview.tabIndex = -1;
+          target.focus({ preventScroll: true });
+          overview.scrollIntoView({ block: "start" });
+        }
         break;
+      }
       case "confirmPartial":
         if (pendingExport === "zip") await downloadZIP(true);
         else await createFolder(pendingExport === "report", true);
@@ -1181,7 +1303,7 @@ async function dispatchAction(data) {
       guardImageCleanup(data.action);
     } else if (action === "doImport") {
       importErrorMessage = error.message;
-      openModal("invalid-import");
+      openModal(error.code === "busy" ? "import-busy" : "invalid-import");
     } else if (
       ["start", "startRetry"].includes(action) &&
       error.code === "missing_key"

@@ -88,8 +88,9 @@ def package(client, cid, rid, shown):
 
 
 @pytest.mark.parametrize("mixed_generation", [False, True])
+@pytest.mark.parametrize("instruction_change", [None, "before_prepare", "after_prepare"])
 def test_reused_generation_rules_after_applied_copy_and_authored_reopen(
-    tmp_path, monkeypatch, mixed_generation
+    tmp_path, monkeypatch, mixed_generation, instruction_change
 ):
     import httpx
     from test_provider_runner import generated_case
@@ -108,6 +109,10 @@ def test_reused_generation_rules_after_applied_copy_and_authored_reopen(
 
     provider = OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport))
     first = asyncio.run(runner.execute(original_run, provider))
+    if instruction_change == "before_prepare":
+        monkeypatch.setattr(
+            "campaign_studio.generation.CONCEPT_FRAMING", "Updated composition instructions."
+        )
     ws, intake = Workspace(state), Intake(state.storage)
     projects = AuthoredProjects(ws)
     cid = first["campaign_id"]
@@ -135,6 +140,10 @@ def test_reused_generation_rules_after_applied_copy_and_authored_reopen(
     assert plan.brief.replay.partial is mixed_generation
     state.confirm(run_id, plan.digest)
     result = asyncio.run(runner.execute(run_id, provider))
+    if instruction_change == "after_prepare":
+        monkeypatch.setattr(
+            "campaign_studio.generation.CONCEPT_FRAMING", "Updated composition instructions."
+        )
     for field, scope, text in (
         ("message", "all_products", "Applied shared message."),
         ("cta", "product", "Applied product CTA."),
@@ -295,7 +304,7 @@ def test_unstarted_plan_keeps_current_result_and_package_admission(
         accepted = client.get(url).json()
         revision = accepted["manifest"]["revision_id"]
         project = client.get(url + "/authored").json()
-        project["authored"]["brief"]["name"] = "Next plan; current images remain"
+        project["authored"]["brief"]["name"] = "Next plan; images remain"
         project["authored"]["brief"]["markets"]["en-US"]["phrase_rules"] = []
         saved = client.post(
             url + "/authored", json={key: project[key] for key in ("version", "base", "authored")}

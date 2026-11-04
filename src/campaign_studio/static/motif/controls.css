@@ -20,12 +20,15 @@
 .framing-control input[type=range] { width: 100%; padding: 0; height: 24px; margin: 0; accent-color: #d8422b; cursor: ew-resize; }
 .framing-control input[type=range]:disabled { accent-color: #a6afa0; cursor: not-allowed; opacity: .48; }
 .framing-control.is-locked label,.framing-control.is-locked output { color: #8c9487; }
-.framing-hint { color: #65715e; font-size: 10px; line-height: 1.4; min-height: 14px; }
+.framing-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .framing-placement { display: grid; gap: 6px; }
 .framing-placement select { min-height: 36px; padding: 7px 9px; border: 1px solid #c2cbb8; border-radius: 4px; background: #fffefa; font-size: 12px; }
 .framing-protection { border-top: 1px solid #cfd6c5; padding-top: 12px; }
 #frame-subject-state { font-size: 10px; color: #65715e; }
-.framing-protection p { font-size: 11px; line-height: 1.5; margin: 7px 0 10px; }
+.framing-protection p { font-size: 11px; line-height: 1.5; margin: 7px 0; }
+.framing-protection p:empty { display: none; }
+.framing-safety-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.framing-safety-row .framing-safety-toggle { flex: 1; min-width: 0; margin: 0; }
 .framing-protection .btn { min-height: 34px; padding: 7px 10px; font-size: 11px; }
 .framing-preview { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .framing-preview-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 16px; }
@@ -43,10 +46,9 @@
 #frame-subject-box span { background: #c7f387; top: auto; bottom: -19px; }
 #frame-source.is-invalid #frame-subject-box { border-color: #da4c34; background: #da4c341c; }
 #frame-source.is-invalid #frame-subject-box span { background: #f3b29e; }
-.framing-status { padding: 9px 12px; background: #eef0e7; color: #64705d; font-size: 11px; line-height: 1.5; border-radius: 3px; min-height: 36px; }
-.framing-status.is-safe { background: #e3ecd6; color: #456038; }
-.framing-status.is-invalid { background: #f6dfd4; color: #993b29; }
-@media(min-width:1101px) and (max-height:820px){.framing-tools{gap:11px}.framing-visual{height:436px}.framing-protection p{margin:6px 0 8px}.framing-protection{padding-top:10px}.framing-status{padding:8px 11px}.modal:has(.framing-editor) .modal-head{padding-top:16px;padding-bottom:12px}.modal:has(.framing-editor) .modal-body{padding-top:16px;padding-bottom:16px}}
+.framing-status { color: #64705d; font-size: 11px; line-height: 1.5; border-radius: 3px; }
+.framing-status.is-invalid { padding: 8px 10px; background: #f6dfd4; color: #993b29; }
+@media(min-width:1101px) and (max-height:820px){.framing-tools{gap:11px}.framing-visual{height:436px}.framing-protection p{margin:6px 0 8px}.framing-protection{padding-top:10px}.modal:has(.framing-editor) .modal-head{padding-top:16px;padding-bottom:12px}.modal:has(.framing-editor) .modal-body{padding-top:16px;padding-bottom:16px}}
 @media(max-width:900px){.framing-editor{grid-template-columns:1fr}.framing-visual{height:420px}.compare-guidance{align-items:start;flex-direction:column}.framing-preview-label{flex-wrap:wrap}}
 
 /* Optional safety guide on the composed image. Visibility does not disable crop protection. */

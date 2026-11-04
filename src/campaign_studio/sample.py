@@ -78,8 +78,7 @@ def write_sample(
     brief = Brief.model_validate(
         {
             "campaign_id": campaign_id,
-            "name": f"Synthetic sample – {product_count} products"
-            + (" – US only" if one_market else ""),
+            "name": f"Synthetic sample {product_count}" + (" – US" if one_market else ""),
             "audience": "People evaluating the local workflow using synthetic fixtures.",
             "creative_direction": "Geometric shapes for behavior checks. Not photography.",
             "brand": {

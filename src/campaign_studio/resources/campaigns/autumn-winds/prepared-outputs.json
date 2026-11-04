@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "brief_sha256": "303007eb6be3c516df40a246765e9fb60d07d61311c7e6d55cad21af0aa802b3",
+  "brief_sha256": "28bd3e8d55d5c3b94a61f37f8bf380e6265c97ede44ac0c8369dcbabcfe6d417",
   "assets": {
     "assets/botanical-leaf-press.png": "6f7ca60f4e4610ce6e70da5be622a5b93293a42f09bfca7590631897e4bb44cc",
     "assets/copperleaf-sculpture.png": "ce60637606c7903e9a7f7fa4a4f7b6ac8d83569f8f7903132119834efe3907bc",
@@ -15,7 +15,7 @@
   },
   "text_color": "#FFF4DC",
   "rendered_with": {
-    "application": "0.1.2",
+    "application": "0.2.0",
     "pillow": "13.0.0"
   },
   "outputs": [
@@ -50,7 +50,7 @@
               "width": 0.88,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -58,14 +58,14 @@
               "width": 0.88,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/1x1/en-US.png",
-      "bytes": 1512776,
-      "sha256": "0741097b23ae42d30e8becfabd2274b5b4cc8f39c247cd035b4cf3533c5cf738",
+      "bytes": 1512778,
+      "sha256": "239d966091bdc2e2fe31b8a28a5a45fb939c03d8b39e158944634a35d8bf8311",
       "pixel_sha256": "3616c51f5631abe28b7291ca59aaadf745ea74fb1b09dbfce504c32af7f72232",
       "findings": [
         {
@@ -201,7 +201,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -209,14 +209,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/9x16/en-US.png",
-      "bytes": 2138212,
-      "sha256": "f49a10534b19281299d64b4baa0632454b4d1e1aa56a0a5640a125438e8982d4",
+      "bytes": 2138214,
+      "sha256": "4e5352ee7723d70ee25cbf46235efe55946edb009cc3c46df6c6405d990257f4",
       "pixel_sha256": "fb90ce43fd90ffb7d387daf7767cb4c21c62afe254fa5c6cfd69326b062c56f7",
       "findings": [
         {
@@ -352,7 +352,7 @@
               "width": 0.57,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.055,
@@ -360,14 +360,14 @@
               "width": 0.57,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/16x9/en-US.png",
-      "bytes": 2325475,
-      "sha256": "4fed4742c3a3204020b5120542dee1260a6ef9a2e2d60dae7d117fd55682f658",
+      "bytes": 2325477,
+      "sha256": "c0d1f1f4bcdec10ef75f11ca3de19b28af8d2bb27c0ceac8a5cccfb0aa4a52b7",
       "pixel_sha256": "3a55a27059f513ce5f225987bc09f71ed5de906397052e9bdc862075e7ea8c95",
       "findings": [
         {
@@ -503,7 +503,7 @@
               "width": 0.88,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -511,14 +511,14 @@
               "width": 0.88,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/1x1/es-MX.png",
-      "bytes": 1514056,
-      "sha256": "513bd74cca3aa46a945ad74ef5bf1128eedb9ff8500dba5c8137bec29a8a4d2a",
+      "bytes": 1514058,
+      "sha256": "fd7e21fc4db9ab6f4a6ce3a6b728fc1a2f8ef0c51d729b7821668cc0fe69fbec",
       "pixel_sha256": "c1b0b14cfbc1a7bb143b8c2e28239492c90b083cf350bb5f77d183e7679b9e97",
       "findings": [
         {
@@ -654,7 +654,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -662,14 +662,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/9x16/es-MX.png",
-      "bytes": 2140811,
-      "sha256": "4de46ca1f3e27ffb10229ef01de719a544ea4e3766366ac402d2402cada0c65a",
+      "bytes": 2140813,
+      "sha256": "290a61d1a8d49c4df96c157120e8cf8e8a44029742915d150def53468b583cfe",
       "pixel_sha256": "881728c2ab606f2e114f6a6a56dbf0cae930ee371875c34b12dc960833a3fbe5",
       "findings": [
         {
@@ -805,7 +805,7 @@
               "width": 0.57,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.055,
@@ -813,14 +813,14 @@
               "width": 0.57,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-8a7435d0d0835754b45f3faa7363ee5f/16x9/es-MX.png",
-      "bytes": 2327731,
-      "sha256": "a9024815917038cdb6796b8e5c47fa58a8a24bbb3caea771e45f50ee6b4abcf4",
+      "bytes": 2327732,
+      "sha256": "0b088b67f3ce16d6aa78803f52c0433bbb4cbe9379350f200bdc5bbb5f62393e",
       "pixel_sha256": "4557090545dfba1fc1c096c5257314331a5bcf16a4bdbae2a8eac3ee3defd1c4",
       "findings": [
         {
@@ -956,7 +956,7 @@
               "width": 0.88,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -964,14 +964,14 @@
               "width": 0.88,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/1x1/en-US.png",
-      "bytes": 2032316,
-      "sha256": "8bb4959df4ee0daaf514b2edbce40c7b60ebcc7052ff293a03d1b2194a1b7b3a",
+      "bytes": 2032317,
+      "sha256": "005ddcb194ba6ce4865d74ac5cade79ba070988fd1f3b566ba1ca85ac1f76296",
       "pixel_sha256": "e4bfc76c5a6e965fb183d7c1dc66d41474bc53753f40d8b89230e8d5b58a5adb",
       "findings": [
         {
@@ -1107,7 +1107,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -1115,14 +1115,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/9x16/en-US.png",
-      "bytes": 2662019,
-      "sha256": "3ed771a1a25677bd705f83069b0c4e9a6460dba23dd4e86995f2834f89e5510e",
+      "bytes": 2662020,
+      "sha256": "7f86c95f36978923f1629a16a1fb43ecddeeb0ac78de1bef546696134aebbb5a",
       "pixel_sha256": "74ff7f93c77e23b100746822f629609ec5225da93639b9f5f12bdc52a6e0858b",
       "findings": [
         {
@@ -1258,7 +1258,7 @@
               "width": 0.57,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.055,
@@ -1266,14 +1266,14 @@
               "width": 0.57,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/16x9/en-US.png",
-      "bytes": 3041696,
-      "sha256": "022bbccbe84266b23d47412bb309882b04381303a8ed7e285ada2c426881343d",
+      "bytes": 3041697,
+      "sha256": "1c9942f86f8b32c92910dce01e8d9d68c4a6046fcd8ee39cedc9386e84f956e2",
       "pixel_sha256": "8542a11e291d24407c90279810f90ff2bad7c6c58f5f6bed37bd95e392c900de",
       "findings": [
         {
@@ -1409,7 +1409,7 @@
               "width": 0.88,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -1417,14 +1417,14 @@
               "width": 0.88,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/1x1/es-MX.png",
-      "bytes": 2033605,
-      "sha256": "edb40a93730b0536b4639ff9d3842a36cc0377dda902ed6f135764cb50711af6",
+      "bytes": 2033607,
+      "sha256": "2f81dad1558b8d1de6c3f55f90070b5faaad5644c02a6ecc73e824880e5a8f54",
       "pixel_sha256": "6bf582e361c50f9f6c70ec59c7b5ffd16af612579ac203ecfbd81facb10a464e",
       "findings": [
         {
@@ -1560,7 +1560,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -1568,14 +1568,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/9x16/es-MX.png",
-      "bytes": 2664001,
-      "sha256": "c29dbf6bbe8102afdd94e352066d36bc2983086b530d1070f3a1ad25c61d4156",
+      "bytes": 2664003,
+      "sha256": "636e668758bc7997ccce413b49599f9874338b6c1cbfdeba9910fb2e2c63b6c9",
       "pixel_sha256": "5f0333fa3ae26cfc88a9a29d35d071cdb1b4ddc96e1b8b491163b571cbb84643",
       "findings": [
         {
@@ -1711,7 +1711,7 @@
               "width": 0.57,
               "font_size": 72,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.055,
@@ -1719,14 +1719,14 @@
               "width": 0.57,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-55fc083d0ff1503987de64345e58373b/16x9/es-MX.png",
-      "bytes": 3044532,
-      "sha256": "b79c6ce574bd6c1cb02d811c850bd10d21c38c077afab0ed80f34e2ceb831140",
+      "bytes": 3044533,
+      "sha256": "85a67d3e4c426d6dd29b83d6e8c13da4d429a9abe27bf4012284bb269156d7a1",
       "pixel_sha256": "a40ba0da4fd94f022fa211ea99a81bd735dbcc489d88610d80b2dadffa8414c1",
       "findings": [
         {
@@ -1862,7 +1862,7 @@
               "width": 0.42,
               "font_size": 54,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -1870,14 +1870,14 @@
               "width": 0.42,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/1x1/en-US.png",
-      "bytes": 1902527,
-      "sha256": "fa4e35613e9ead32282d5323326f6e7f5d7abc037eca37eb4e67a3a02f3b2b3c",
+      "bytes": 1902528,
+      "sha256": "e096bac55088e7a8c5d1a9ca1b7596909bc356dfeab6faa63e20a5d6e2abbd3b",
       "pixel_sha256": "2da6fc08c0ef07e249c164068154b12ba99c66fc9430fc8ad4e2dca79b8c763f",
       "findings": [
         {
@@ -2013,7 +2013,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -2021,14 +2021,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/9x16/en-US.png",
-      "bytes": 2294519,
-      "sha256": "3b1a840a6ee10c16c1af3e3ba5b2c554d584493f92c8022a2d59923b4e80529d",
+      "bytes": 2294520,
+      "sha256": "a2f1cb83de98f8fb84ecbfd9946b12a0189824b063cdf6a9a54a17268111bc3e",
       "pixel_sha256": "3b6489ef2922b82f0621ab2be0750e2907a85dfaffd1d36d99b8bf7c1f9c32d9",
       "findings": [
         {
@@ -2164,7 +2164,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -2172,14 +2172,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/16x9/en-US.png",
-      "bytes": 2855769,
-      "sha256": "43d15ec71c2ddb555f746aa1c70d6dfe5a1b9cb2b49606b4949b31aabd006ea3",
+      "bytes": 2855770,
+      "sha256": "7ee931716895a4dcaac16a34c6a3ea0d26b00bd25c10a7b2faf03548d03a6c2d",
       "pixel_sha256": "c417646de8a43d3b1e5fdd30841f5bad9a7116bb53fe86fd77c166f0971318f4",
       "findings": [
         {
@@ -2315,7 +2315,7 @@
               "width": 0.42,
               "font_size": 54,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -2323,14 +2323,14 @@
               "width": 0.42,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/1x1/es-MX.png",
-      "bytes": 1904410,
-      "sha256": "05aaf41b094eac84c2e2f0a5e2e2284ea5b0ae68b2150977bbb0df3d51430419",
+      "bytes": 1904412,
+      "sha256": "3b9ea2c4d8a3f6659af256afad20ae77cee8e9308c2e02d9769356b6c02b820a",
       "pixel_sha256": "7e15faef052441e23adfe44cad0bc3348c57cbd466dc52de5a60f13af9938ad2",
       "findings": [
         {
@@ -2466,7 +2466,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -2474,14 +2474,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/9x16/es-MX.png",
-      "bytes": 2296175,
-      "sha256": "3488c789004760a75acbe89e634a0e99b599b133652482ff19bdadb3012845f4",
+      "bytes": 2296177,
+      "sha256": "c482cc69333c9693270ecf03234ae049bffc7a6a8522679f2c848f17b4312346",
       "pixel_sha256": "c9646cc7f5228f0ce664ec594146b3bbab070afe5f6cbdbfed341043bb60acd9",
       "findings": [
         {
@@ -2617,7 +2617,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -2625,14 +2625,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-fd4aa30fe75c5ea7ba8f6bf232bc6ca5/16x9/es-MX.png",
-      "bytes": 2857771,
-      "sha256": "6e85046008fe251d4eb2cadbe04f4e95e131f02ac8db3e7b211485a9daa9c273",
+      "bytes": 2857773,
+      "sha256": "495fdda8cf93660db3b741969f0362465a5ccdb19b052fb5515fc3da4e81ab4b",
       "pixel_sha256": "85daa64153739086f34af768db347e27e49c7f9aa2fd2b21e4c5f79e6ce24f3e",
       "findings": [
         {
@@ -2768,7 +2768,7 @@
               "width": 0.42,
               "font_size": 54,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -2776,14 +2776,14 @@
               "width": 0.42,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/1x1/en-US.png",
-      "bytes": 1829130,
-      "sha256": "b8fe0042bb43c5b08c2692298f54de23e572b41ff943ed4e58414f147fcb08d9",
+      "bytes": 1829131,
+      "sha256": "1f6b564fdc05603e21701360779933ff0d6521158bad8b420dacfabfff4d50e5",
       "pixel_sha256": "b06b1a73c63432f58b745f7186a1dd6abb76ad8fbc050080ad9b6601fdb44942",
       "findings": [
         {
@@ -2919,7 +2919,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -2927,14 +2927,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/9x16/en-US.png",
-      "bytes": 2387414,
-      "sha256": "1e0a87b974dd7caeba3704b30425110e7327a71081806e42615efa28ed9abd84",
+      "bytes": 2387415,
+      "sha256": "b0dd9a0f35186256fefc7a7cb280bbb31a29a557be7a09891387a799729f9530",
       "pixel_sha256": "256ba3d32c18010d2aead5142277e564ac0041a9d1ae7079b88bafdfe0faa9b2",
       "findings": [
         {
@@ -3070,7 +3070,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -3078,14 +3078,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/16x9/en-US.png",
-      "bytes": 2882020,
-      "sha256": "df6c2d95e0efe6730bafd7bfa069555e0128418977005f5216d8799e3ad6f49e",
+      "bytes": 2882021,
+      "sha256": "a8fa45e9437916f6923d1ef16ded6a5e2f3110374a26f50784df15918b6bc2d9",
       "pixel_sha256": "6436acf16216907d54b1787cbd1d872f8c0a70d285effd5b3abb291d0491221c",
       "findings": [
         {
@@ -3221,7 +3221,7 @@
               "width": 0.42,
               "font_size": 54,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -3229,14 +3229,14 @@
               "width": 0.42,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/1x1/es-MX.png",
-      "bytes": 1830560,
-      "sha256": "3e0257235b97f66b64622ca455fdbc0912c7697789df952299e24948ca697945",
+      "bytes": 1830561,
+      "sha256": "2c9b774bb8669e350c3f888265719967cecce24e802168e0571215445b15cfb2",
       "pixel_sha256": "24b37a043a6c728cb7fe2576eb10f813435a43f7532f2709b54bd40fbe0cfd04",
       "findings": [
         {
@@ -3372,7 +3372,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -3380,14 +3380,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/9x16/es-MX.png",
-      "bytes": 2389448,
-      "sha256": "6623e0fc857c3a74a57c3a3d82b38da8b758526675bd1fb5a4e0c26a7a7a40f3",
+      "bytes": 2389449,
+      "sha256": "5e6c1c63c9862185c701f1cf85c6417305b2a22bb101dac58ad186fb0e7c81d1",
       "pixel_sha256": "0068867ca0e8296cf9d0725dbeb0b852d9bf7781a6bd0e9a98caaa3a02cee1e7",
       "findings": [
         {
@@ -3523,7 +3523,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -3531,14 +3531,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-af2be177f2cd5f8f9ed7b441ff4a8b75/16x9/es-MX.png",
-      "bytes": 2884565,
-      "sha256": "f8b1ed9dffed6b84813e3438b41d0b2e0576d07a8d0455557dc3d1f30332ee78",
+      "bytes": 2884566,
+      "sha256": "0e106ffaf59baa2ca82470a8559bb6f3bae11996531aed9f53febd8e257f4780",
       "pixel_sha256": "ccbf7c6ad582882dcceffaed365b05013772760a2250db283fe53efd29b3350a",
       "findings": [
         {
@@ -3674,7 +3674,7 @@
               "width": 0.7,
               "font_size": 66,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.25,
@@ -3682,14 +3682,14 @@
               "width": 0.65,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/1x1/en-US.png",
-      "bytes": 1788666,
-      "sha256": "3d3f86b2a0ff3cb5e707e517e66d67fa0be768e23f6255dcc562026072f551a1",
+      "bytes": 1788667,
+      "sha256": "adac53160b6707b6f064772c345172e1817613e2f5ffe5af2dc28700a0f9d6ab",
       "pixel_sha256": "24893b4fed92dc6480ba04e21e6e70751740d653f34758f0e8da1eb1172b94b7",
       "findings": [
         {
@@ -3825,7 +3825,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -3833,14 +3833,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/9x16/en-US.png",
-      "bytes": 2337519,
-      "sha256": "259ed8a7e072dc8dcea597d1256453c7d8e5dee6cf4b7919b36614c10802c44a",
+      "bytes": 2337520,
+      "sha256": "0193e5a30298851d2bf085a0666d79dc1d7edae73be22a7033ddaa9b0076636f",
       "pixel_sha256": "7e1ff57f51d238008600f2fe3ee23b01d9f437b96b9e7ac2ae78ebe501e45da7",
       "findings": [
         {
@@ -3976,7 +3976,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -3984,14 +3984,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/16x9/en-US.png",
-      "bytes": 2766741,
-      "sha256": "855a0d898a0f607853c03260034fa61caf29165ea9bb80543e40ccd8c81050d6",
+      "bytes": 2766742,
+      "sha256": "78ee5f575b15f76fe119969f5fdc25fb1266a3e8db6d3dde14e3df1d061c1f63",
       "pixel_sha256": "4bb6a1e05cbe4662d45390b020eae523c1f3090bc31dc0aaa4e36f0e253ae72f",
       "findings": [
         {
@@ -4127,7 +4127,7 @@
               "width": 0.7,
               "font_size": 66,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.25,
@@ -4135,14 +4135,14 @@
               "width": 0.65,
               "font_size": 32,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/1x1/es-MX.png",
-      "bytes": 1790013,
-      "sha256": "36bb66f1b6fbee8a8b7b8358fb374022a0f20c6606b0528241b33c34e60d8848",
+      "bytes": 1790014,
+      "sha256": "2732a7ca9b1257bc85f10867aa50af508e5ab17c3ccba93d281c0eb5446eb84f",
       "pixel_sha256": "3a3a35bc77f520de4b0e75a600190fb6386647e6f24bad4100a3f75e731cc370",
       "findings": [
         {
@@ -4278,7 +4278,7 @@
               "width": 0.88,
               "font_size": 84,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.06,
@@ -4286,14 +4286,14 @@
               "width": 0.88,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/9x16/es-MX.png",
       "bytes": 2339328,
-      "sha256": "ed3c2635e04a6c4bfb22cbc77422fe7e24c9f36985f468b574cb8fe5786a146b",
+      "sha256": "2f0f420931b9594be27059d0f24e64e2fe81fb349e1e71d94aecc787b45f1c4f",
       "pixel_sha256": "013755db736c05e4196a95759a75304736d687f9ff20f0271eb350263ea80bae",
       "findings": [
         {
@@ -4429,7 +4429,7 @@
               "width": 0.42,
               "font_size": 60,
               "font_id": "barlow_condensed",
-              "color": "#FFF4DC"
+              "color": null
             },
             "cta": {
               "left": 0.34,
@@ -4437,14 +4437,14 @@
               "width": 0.42,
               "font_size": 36,
               "font_id": "noto_sans",
-              "color": "#FFF4DC"
+              "color": null
             }
           }
         }
       },
       "file": "autumn-winds/outputs/p-4e0606e87af95766bbddf23f50e02798/16x9/es-MX.png",
       "bytes": 2769216,
-      "sha256": "617cacf1ece3038f86c13e5289221d892c7e4adf89769ece2fd43351348edbc6",
+      "sha256": "62db8e866a171e99acd04c1ac24fd4576a94c05891a8dd3e0210c43a43fa93c1",
       "pixel_sha256": "9dce648469d2e1f4369b7fbcc92e02bb0ae0f13f19bb7173605e3b975a0cf7ee",
       "findings": [
         {

@@ -2,7 +2,7 @@
 
 // One queue for both manual and automatic project saves. Image Apply operations
 // remain separate; this controller only persists authored state.
-function projectSaveQueue({ capture, restore, send, read, changed, autosave, acknowledged: onAcknowledged, delay = 1200 }) {
+function projectSaveQueue({ capture, restore, send, read, changed, autosave, acknowledged: onAcknowledged, validate, delay = 1200 }) {
   let record = null,
     acknowledged = "",
     acknowledgedContext = "",
@@ -17,7 +17,8 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     autosaveSuspended = false,
     phase = "saved",
     message = "",
-    problem = null;
+    problem = null,
+    validationMessage = "";
   const listeners = new Set();
   const serialize = (value) => {
     const { ui_context, ...work } = value;
@@ -31,7 +32,12 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     message,
     busy: !!held,
     problem,
+    validationMessage,
   });
+  function validateCurrent() {
+    validationMessage = validate?.(capture()) || "";
+    return validationMessage;
+  }
   function publish(next, text = "") {
     phase = next;
     message = text;
@@ -58,6 +64,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     paused = false;
     held = false;
     autosaveSuspended = false;
+    validationMessage = "";
     if (restoreState) restore(structuredClone(saved.authored));
     publish("saved");
   }
@@ -69,6 +76,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     record = pending = observed = null;
     contextRequested = false;
     held = paused = autosaveSuspended = false;
+    validationMessage = "";
     publish("saved");
     return true;
   }
@@ -87,10 +95,11 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     // not new edits and must not retry a failed Save behind a recovery choice.
     if (current === lastSeen && !reschedule) return;
     lastSeen = current;
+    validateCurrent();
     cancelTimer();
     if (paused) return publish("conflict", message);
     if (!flight) publish(isDirty() ? "dirty" : "saved");
-    if (isDirty() && !held && !autosaveSuspended)
+    if (isDirty() && !held && !autosaveSuspended && !validationMessage)
       timer = setTimeout(() => (autosave || saveCurrent)().catch(() => {}), delay);
   }
   function retainContext() {
@@ -111,6 +120,10 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     if (!record) return false;
     if (flight) return flight;
     if (paused || held) return false;
+    if (validateCurrent()) {
+      if (!paused && !flight) publish("dirty");
+      return false;
+    }
     if (!pending && !isDirty()) return true;
     const owner = record;
     lastSeen = observedWork(capture());
@@ -120,7 +133,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
       authored: structuredClone(capture()),
     };
     const request = pending;
-    let succeeded = false;
+    let succeeded = false, rejected = false;
     publish("saving");
     flight = (async () => {
       try {
@@ -155,7 +168,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
         } else {
           // A transport/lost-response failure retains the exact last request for
           // its bounded acknowledgement retry. Known refusals did not commit.
-          if (error.status && error.status < 500) pending = null;
+          if (error.status && error.status < 500) { pending = null; rejected = true; }
           publish("error", error.status ? error.message : "");
         }
         throw error;
@@ -164,7 +177,11 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
         // A debounce may have fired while this request owned the queue. Drain
         // newer work after success, including a newly opened campaign, but do
         // not turn a failed request into an automatic retry loop.
-        if ((succeeded || record !== owner) && record && !paused && isDirty())
+        // A known refusal did not commit. If the user corrected its fields
+        // while it was in flight, save that newer work without replaying the
+        // rejected payload. Unchanged invalid input never starts a retry loop.
+        const corrected = rejected && record === owner && serialize(capture()) !== serialize(request.authored);
+        if ((succeeded || corrected || record !== owner) && record && !paused && isDirty())
           markChanged(true);
       }
     })();
@@ -176,6 +193,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     // treating an older in-flight acknowledgement as the latest Saved state.
     do {
       if (!owner || record !== owner || paused || held) return false;
+      if (validateCurrent()) { publish("dirty"); return false; }
       if (await save()) return record === owner && !isDirty();
     } while (record === owner && !paused && !held && isDirty());
     return false;
@@ -443,6 +461,7 @@ function initializeProject(saved) {
     read: (id) => api(`/api/motif/campaigns/${encodeURIComponent(id)}/authored`),
     changed: publishProjectState,
     autosave: saveProject,
+    validate: authored => MotifTextLimits.authoredIssue(authored),
     acknowledged(ack, id, submitted, current) {
       if (draft?.campaign_id !== id) return;
       if (current) {
@@ -453,7 +472,7 @@ function initializeProject(saved) {
       model.version = ack.version;
       Object.assign(model.project, ack);
       model.project.authored = copy(current?.authored || submitted);
-      refreshCampaignIdentity(model.project.authored.brief.name);
+      refreshCampaignIdentity(model.project.authored.brief.name, model.project.authored.brief.brand?.name || "");
       // Save changes plan readiness, never the accepted image selection.
       if (model.plan_brief) model.unplanned_draft = !sameProjectInputs(submitted.brief, model.plan_brief)
         // A Save receipt does not re-admit a pending request. Only the server's
@@ -528,6 +547,18 @@ function receiveProject(data, previous, { applied = false, reset = false } = {})
   }
 }
 function reconcileAppliedForms(previous, current) {
+  const resets = projectBuffers.form_drafts.brand_color_defaults;
+  if (Array.isArray(resets)) {
+    const identity = target => target && ["product_id", "market", "ratio"].every(key => typeof target[key] === "string")
+      ? JSON.stringify([target.product_id, target.market, target.ratio]) : null;
+    const targets = authored => Array.isArray(authored.form_drafts?.brand_color_defaults)
+      ? authored.form_drafts.brand_color_defaults : [];
+    const retained = new Set(targets(current).map(identity));
+    const retired = new Set(targets(previous).map(identity).filter(key => key !== null && !retained.has(key)));
+    // An accepted Studio color can retire an earlier Brand reset. Remove that
+    // old intent from this tab too, so its next Save cannot bring it back.
+    projectBuffers.form_drafts.brand_color_defaults = resets.filter(target => !retired.has(identity(target)));
+  }
   const before = previous.form_drafts?.fields || {}, after = current.form_drafts?.fields || {};
   for (const [name, values] of Object.entries(projectBuffers.form_drafts.fields || {})) {
     if (!name.startsWith("brief/")) continue;
@@ -595,7 +626,7 @@ function clearProjectTarget(kind = modal) {
 }
 async function withProjectApply(operation) {
   const owner = await saveProject() && projectQueue.hold();
-  if (!owner) throw new Error("Keep this tab open and finish saving the current work before applying images.");
+  if (!owner) throw new Error(projectQueue?.getSaveState().validationMessage || "Keep this tab open and finish saving the current work before applying images.");
   try { return await operation(); }
   finally { projectQueue.release(owner); }
 }

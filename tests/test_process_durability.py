@@ -170,7 +170,7 @@ def test_killed_during_composition_recovers_and_reopens_draft_revision_metadata(
             },
         )
         assert notes.status_code == 200, notes.text
-        data["value"]["name"] = "Saved draft after recovery"
+        data["value"]["name"] = "Draft after recovery"
         action = authored_edit(client, data["value"]["campaign_id"])
         action["authored"]["brief"] = data["value"]
         saved = client.post(

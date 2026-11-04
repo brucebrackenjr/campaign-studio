@@ -79,7 +79,7 @@ def test_genuine_replay_corrects_six_reopens_after_move_and_exports_without_atte
     shutil.move(
         reopened.storage.path(export_ref(reopened, third["revision_id"], "replay")), package
     )
-    html = (package / Path(index).name).read_text()
+    html = (package / Path(index).name).read_text(encoding="utf-8")
     assert "Campaign spend estimate" in html
     assert "No generation attempts in this campaign." in html
     assert (

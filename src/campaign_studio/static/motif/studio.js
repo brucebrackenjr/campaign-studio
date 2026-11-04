@@ -2,27 +2,6 @@
 
 // Studio selections are navigation state. Saved pixels and descriptions come
 // from the server’s current accepted output.
-function campaignDistinction(campaign) {
-  // A presentation ordinal within the current same-title group, never a title edit.
-  // Hidden immutable identities break ties without depending on activity ordering.
-  const titleKey = (name) => String(name ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  const matches = saved
-    .filter((item) => titleKey(item.name) === titleKey(campaign.name))
-    .slice()
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (matches.length < 2) return "";
-  const index = matches.findIndex((item) => item.id === campaign.id);
-  return index < 0 ? "" : `Same name · ${index + 1} of ${matches.length}`;
-}
-function campaignContext(campaign) {
-  return [campaignDistinction(campaign), campaign.brand].filter(Boolean).join(" · ");
-}
-function campaignDistinctionTag(campaign) {
-  const label = campaignDistinction(campaign);
-  return label
-    ? `<span class="tag neutral" style="top:8px;left:8px;right:8px;white-space:normal;text-align:center;justify-content:center" title="More than one campaign has this name.">${esc(label).replace(" · ", "<br>")}</span>`
-    : "";
-}
 function workbenchEmptyImage(campaign) {
   return campaign.saved_expected_images === 0 && campaign.output_expected === false && !campaign.damaged_images
     ? "Images not produced yet"
@@ -53,7 +32,7 @@ function activityLabel(value) {
     : "Saved on this device";
 }
 function workbenchStatus(campaign) {
-  if (campaign.damaged_images) return "Needs recovery";
+  if (campaign.status === "damaged" || campaign.damaged_images) return "Needs recovery";
   if (campaign.outcome_unknown) return "Result not confirmed";
   return (
     {
