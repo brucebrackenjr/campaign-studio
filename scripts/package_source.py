@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -13,6 +14,11 @@ def build(destination: Path):
     top = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True)
     if Path(top.strip()).resolve() != ROOT:
         raise ValueError("Build the source ZIP from Motif’s own Git checkout.")
+    committed_at = subprocess.check_output(
+        ["git", "show", "-s", "--format=%ct", "HEAD"], cwd=ROOT, text=True
+    )
+    # Keep repeated packages stable while showing the source commit's actual date.
+    archive_date = datetime.fromtimestamp(int(committed_at.strip()), UTC).timetuple()[:6]
     names = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).split(b"\0")
     with ZipFile(destination, "x") as archive:
         for name in sorted(n.decode("utf-8") for n in names if n):
@@ -36,7 +42,7 @@ def build(destination: Path):
                 or path.suffix.lower() in {".dpapi", ".sqlite3", ".db", ".pem", ".key"}
             ):
                 raise ValueError(f"Private file is outside the distribution: {name}")
-            entry = ZipInfo(f"Motif/{name}", (1980, 1, 1, 0, 0, 0))
+            entry = ZipInfo(f"Motif/{name}", archive_date)
             entry.create_system = 3
             entry.external_attr = 0o100644 << 16
             archive.writestr(entry, path.read_bytes(), compress_type=ZIP_DEFLATED)
