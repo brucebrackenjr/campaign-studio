@@ -47,6 +47,8 @@ function storageDialog() {
     html = html
       .replace('aria-modal="true"', 'aria-modal="true" aria-busy="true"')
       .replace('class="close"', 'class="close" disabled');
+  if (storageView.state.startsWith("image-"))
+    html = html.replace('class="modal ', 'class="modal image-input-warning ');
   if (deletionSubmitting && !view.pending)
     html = html.replaceAll(
       '<button type="button"',
@@ -320,6 +322,7 @@ function imageInputFailure(error, file, logo, owner, resolveFocus) {
     decode_failure: "image-corrupt",
     color_profile: "image-color-profile",
     no_visible_pixels: "image-empty",
+    transparent_scene: "image-transparent",
   };
   const d = error.input_image;
   if (!kinds[d?.kind] || (d.kind === "pixel_count" && !(d.width && d.height))) {
@@ -419,7 +422,7 @@ async function dispatchStorage(action, identity) {
     case "new":
       if (typeof guardBrandNavigation === "function" && guardBrandNavigation({ action: "new" }))
         return;
-      if (!guardNavigation({ action: "new" })) {
+      if (await flushCurrentWork()) {
         clearStorageContext();
         openModal("new");
       }

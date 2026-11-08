@@ -10,7 +10,7 @@ function fixture() {
     MotifTextLimits: {issue: () => null, guardFields: () => true},
     document: { addEventListener() {} },
     $: () => ({ getBoundingClientRect: () => ({ left: 10, top: 20, width: 540, height: 540 }) }),
-    listeners,
+    listeners, scheduleStudioSave(){},
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/campaign_studio/static/motif/text.js'), 'utf8'), context);
   vm.runInContext(`
@@ -83,14 +83,14 @@ function keyboardFixture() {
   const context = vm.createContext({
     MotifTextLimits: {issue: () => null, guardFields: () => true},
     document: {addEventListener(type, fn) { const prior = events[type]; events[type] = e => { prior?.(e); fn(e); }; }},
-    $: node, structuredClone, copy: structuredClone, AbortController,
+    $: node, structuredClone, copy: structuredClone, AbortController, scheduleStudioSave(){},
     setTimeout(fn) {timers.push(fn); return timers.length;}, clearTimeout() {},
     requestAnimationFrame() {return 1;}, cancelAnimationFrame() {},
     ResizeObserver: class {observe() {} disconnect() {}},
-    MotifEditorControls: {copy: {previewing: 'Preparing preview'}},
     C: {id: '292e9e84-eb00-5fdb-87e8-423f5e51fac4'}, modal: 'text',
   });
   const run = code => vm.runInContext(code, context);
+  run(fs.readFileSync('src/campaign_studio/static/motif/editor-controls.js', 'utf8'));
   run(fs.readFileSync('src/campaign_studio/static/motif/direct-manipulation.js', 'utf8'));
   run(fs.readFileSync('src/campaign_studio/static/motif/text.js', 'utf8'));
   run(`textEditor = {
@@ -138,6 +138,28 @@ test('pending move keys stay bound to the measured block and retired editor owne
   assert.equal(f.run('textEditor.geometry.text_blocks.message.bounds[0]'),101);
 });
 
+test('a color click paints decoded glyphs immediately and preserves the other block before any preview request',()=>{
+ const f=keyboardFixture(),draws=[],fills=[],masks=[];
+ const canvas={hidden:true,getContext:()=>({clearRect(){},drawImage:(...args)=>draws.push(args)})},image={hidden:false};
+ f.context.$=selector=>selector==='#text-canvas'?canvas:image;
+ f.context.document.createElement=()=>{const mask={getContext:()=>({drawImage(){},set globalCompositeOperation(value){assert.equal(value,'source-in')},set fillStyle(color){fills.push(color)},fillRect(){}})};masks.push(mask);return mask};
+ f.run("textEditor.brand={text_color:'#ffffff'};textEditor.layers={base:{id:'base'},blocks:{message:{image:{id:'message'},fontSize:60,color:'#ffffff',bounds:[100,100,400,160]},cta:{image:{id:'cta'},fontSize:40,color:'#123456',bounds:[100,200,300,240]}}};textEditor.geometry.text_blocks.cta.placement.color='#123456'");
+ f.run("changeTextStyle({color:'#8C3035'})");
+ assert.equal(canvas.hidden,false);assert.equal(image.hidden,true);
+ assert.deepEqual(fills,['#8C3035']);assert.equal(draws.length,3);
+ assert.equal(draws[0][0].id,'base');assert.equal(draws[1][0],masks[0]);assert.equal(draws[2][0].id,'cta');
+ assert.equal(f.run('textEditor.sequence'),1);assert.equal(f.run('textEditor.pending'),false,'color is visible without a completed or even started server preview');
+ f.run("changeTextStyle({color:null})");
+ assert.equal(draws[4][0].id,'message','returning to campaign default uses the original glyph colors');
+ assert.equal(draws[5][0].id,'cta','the individual CTA choice remains intact');
+ f.run('textEditor.pending=true');
+ f.key('ArrowRight');
+ assert.equal(f.run('textEditor.geometry.text_blocks.message.bounds[0]'),101,'a color-only preview does not disable the next direct movement');
+ f.run("changeTextStyle({font_id:'barlow_condensed'})");
+ f.key('ArrowRight');
+ assert.equal(f.run('textEditor.geometry.text_blocks.message.bounds[0]'),101,'a font change still requires newly measured glyphs before moving');
+});
+
 test('fractional text origins stay valid at each canvas edge without changing measured shape', () => {
   const f = keyboardFixture();
   for (const [id, placement, bounds] of [
@@ -163,7 +185,7 @@ test('fractional text origins stay valid at each canvas edge without changing me
   }
 });
 
-test('unaccepted text layout preserves placement and offers preview retry without finishing', async () => {
+test('unaccepted text layout preserves placement and offers an explicit Apply retry', async () => {
   const f = keyboardFixture();
   f.context.imageCleanupReady = async () => true;
   f.context.imageCapacity = async () => false;
@@ -172,7 +194,7 @@ test('unaccepted text layout preserves placement and offers preview retry withou
     textEditor.placements.message={left:0.2};`);
   assert.equal(await f.run('applyText()'),false);
   assert.equal(f.run('textEditor.placements.message.left'),0.2);
-  assert.equal(f.run('textEditor.recovery'),'retry');
+  assert.equal(f.run('textEditor.recovery'),'apply');
   assert.equal(f.context.modal,'text');
 });
 

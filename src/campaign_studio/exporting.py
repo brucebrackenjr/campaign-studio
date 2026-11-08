@@ -2,21 +2,23 @@
 
 import hashlib
 import json
-import os
 import re
+import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.resources import files
-from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from typing import BinaryIO
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from jinja2 import Environment, select_autoescape
 from pydantic import ValidationError
 
 from campaign_studio.brief import Copy, PhraseRule
 from campaign_studio.costing import campaign_metric_display, compact_usd, incomplete_reason
-from campaign_studio.local_files import is_link, publish_file
 from campaign_studio.planning import contextualize_findings, copy_findings
-from campaign_studio.state import State, StateError, timestamp
+from campaign_studio.projects import matches_output_file
+from campaign_studio.state import State, StateError
 from campaign_studio.storage import delivery_component
 
 PRIVATE_METADATA = re.compile(
@@ -60,11 +62,6 @@ def delivery_paths(manifest: dict) -> dict[str, str]:
     }
 
 
-def zipped_payloads(payloads: dict) -> dict:
-    root = json.loads(payloads["manifest.json"])["package_name"]
-    return {f"{root}/{name}": data for name, data in payloads.items()}
-
-
 def wording_export_issue(state: State, campaign_id: str) -> dict | None:
     """Check accepted printed text and saved rule intent, never unfinished copy.
 
@@ -76,14 +73,15 @@ def wording_export_issue(state: State, campaign_id: str) -> dict | None:
         return None
     revision = state.revision(current[1])
     plan = state.revision_plan(revision)
-    manifest = json.loads(state.storage.path(revision["manifest_ref"]).read_bytes())
+    manifest = state.revision_manifest(revision)
     accepted = {
         market: list(content.phrase_rules or []) for market, content in plan.brief.markets.items()
     }
     pending = []
-    path = state.storage.path(state.storage.project(campaign_id).draft)
-    if path.is_file():
-        document = json.loads(path.read_bytes())
+    from campaign_studio.campaign_drafts import read as read_draft
+
+    document = read_draft(state.storage, campaign_id)
+    if document is not None:
         authored = document.get("authored") or {"brief": document["value"]}
         markets = authored.get("brief", {}).get("markets")
         for market, rules in accepted.items():
@@ -151,9 +149,10 @@ def logo_export_issue(state: State, campaign_id: str, revision_id: str | None = 
         return None
     accepted = state.revision_plan(state.revision(revision_id or current[1]))
     required = accepted.brief.brand.require_logo
-    path = state.storage.path(state.storage.project(campaign_id).draft)
-    if path.is_file():
-        document = json.loads(path.read_bytes())
+    from campaign_studio.campaign_drafts import read as read_draft
+
+    document = read_draft(state.storage, campaign_id)
+    if document is not None:
         authored = document.get("authored") or {"brief": document["value"]}
         required = authored.get("brief", {}).get("brand", {}).get("require_logo", False)
     if required and "logo" not in accepted.assets:
@@ -174,7 +173,7 @@ def require_export_rules(state: State, campaign_id: str, revision_id: str | None
 
 def public_manifest(state: State, revision_id: str) -> dict:
     revision = state.revision(revision_id)
-    manifest = json.loads(state.storage.path(revision["manifest_ref"]).read_bytes())
+    manifest = state.revision_manifest(revision)
     # Lost-response reconciliation belongs to the local editor, not its handoff.
     manifest.pop("edit_receipt", None)
     plan = state.revision_plan(revision)
@@ -199,61 +198,6 @@ def public_manifest(state: State, revision_id: str) -> dict:
     return manifest
 
 
-def folder_matches(state, destination, payloads):
-    try:
-        root = state.storage.path(destination)
-        actual = set()
-
-        def unreadable(error):
-            raise error
-
-        for directory, names, filenames in os.walk(root, onerror=unreadable):
-            base = Path(directory)
-            if any(is_link((base / name).lstat()) for name in (*names, *filenames)):
-                return False
-            actual.update((base / name).relative_to(root).as_posix() for name in filenames)
-        return actual == set(payloads) and all(
-            state.storage.path(f"{destination}/{name}").read_bytes() == data
-            for name, data in payloads.items()
-        )
-    except OSError, ValueError:
-        return False
-
-
-def export_package(
-    state: State,
-    revision_id: str,
-    destination: str,
-    *,
-    allow_partial: bool = False,
-    expected_snapshot: str | None = None,
-    payloads: dict | None = None,
-) -> str:
-    project = state.storage.project(state.run(state.revision(revision_id)["run_id"])["campaign_id"])
-    if not destination.startswith(project.ref("Exports") + "/"):
-        raise StateError("Choose an export location inside this campaign’s Exports folder.")
-    target = state.storage.path(project.check(destination))
-    if target.exists():
-        raise StateError("Choose a new export directory; existing packages are preserved.")
-    payloads = (
-        payloads
-        if payloads is not None
-        else package_payloads(
-            state, revision_id, allow_partial=allow_partial, expected_snapshot=expected_snapshot
-        )
-    )
-    if "report_created_at" not in json.loads(payloads["manifest.json"]):
-        payloads = dated_payloads(state, revision_id, payloads)
-    state.storage.require_capacity(
-        sum(map(len, payloads.values())) + max(map(len, payloads.values()), default=0) + 1_000_000
-    )
-    project.claim(destination)
-    target.mkdir(parents=True, mode=0o700)
-    for reference, payload in payloads.items():
-        project.write(f"{destination}/{reference}", payload)
-    return f"{destination}/index.html"
-
-
 def require_snapshot(manifest: dict, expected_snapshot: str | None) -> None:
     if (
         expected_snapshot is not None
@@ -262,14 +206,14 @@ def require_snapshot(manifest: dict, expected_snapshot: str | None) -> None:
         raise StateError("This version changed in another tab. Reload it before exporting.")
 
 
-def package_payloads(
+def package_plan(
     state: State,
     revision_id: str,
     *,
     allow_partial: bool = False,
     expected_snapshot: str | None = None,
-) -> dict:
-    """One snapshot and one allowlisted representation shared by folder and ZIP exports."""
+):
+    """Shared contents for the browser preview and the downloadable ZIP."""
     state.require_images(revision_id)
     revision = state.revision(revision_id)
     require_export_rules(state, state.run(revision["run_id"])["campaign_id"], revision_id)
@@ -286,48 +230,122 @@ def package_payloads(
         )
     source_prefix = revision["manifest_ref"].rsplit("/", 1)[0]
     plan = state.revision_plan(revision)
-    expected = {
-        item.id: f"images/{item.product_id}/{item.ratio.replace(':', 'x')}/{item.market}.png"
-        for item in plan.outputs
-    }
+    expected = {item.id: item for item in plan.outputs}
     if sorted(item["id"] for item in manifest["outputs"]) != sorted(expected):
         raise StateError("The saved manifest does not match its planned creative set.")
-    payloads = {}
+    images = []
     delivered = delivery_paths(manifest)
     for item in manifest["outputs"]:
         if item["file"]:
-            if item["file"] != expected[item["id"]]:
+            output = expected[item["id"]]
+            if not matches_output_file(
+                item["file"], output.product_id, output.ratio, output.market
+            ):
                 raise StateError("A saved image has an unsafe or unexpected package path.")
-            payload = state.storage.path(f"{source_prefix}/{item['file']}").read_bytes()
-            if hashlib.sha256(payload).hexdigest() != item["sha256"]:
-                raise StateError("A saved output changed; recover the revision before exporting.")
+            reference = f"{source_prefix}/{item['file']}"
             item["file"] = delivered[item["id"]]
-            payloads[item["file"]] = payload
+            images.append((item["file"], reference, item["sha256"]))
     signature = hashlib.sha256(
         json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()[:8]
     manifest["package_name"] = f"{delivery_component(plan.brief.brand.name, 'Brand')}-{signature}"
-    payloads["manifest.json"] = json.dumps(manifest, indent=2, ensure_ascii=False).encode()
-    # Publishing index last avoids a complete-looking overview after a partial local write.
-    payloads["index.html"] = render_report(state, revision, manifest)
-    return payloads
+    return revision, manifest, images
+
+
+def verify_image(storage, reference, expected_digest, *, copy_to=None):
+    """Check the saved PNG in bounded chunks, optionally copying it into the handoff."""
+    digest = hashlib.sha256()
+    try:
+        with storage.path(reference).open("rb") as source:
+            while chunk := source.read(256 * 1024):
+                digest.update(chunk)
+                if copy_to is not None:
+                    copy_to.write(chunk)
+    except FileNotFoundError as error:
+        raise StateError(
+            "A saved output is missing; recover the revision before exporting."
+        ) from error
+    if digest.hexdigest() != expected_digest:
+        raise StateError("A saved output changed; recover the revision before exporting.")
+
+
+@dataclass
+class ZipDownload:
+    filename: str
+    stream: BinaryIO
+    size: int
+    on_close: Callable[[], None] | None = None
+
+    def close(self):
+        try:
+            self.stream.close()
+        finally:
+            if self.on_close:
+                self.on_close()
+                self.on_close = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+
+def prepare_zip_download(state, revision_id, *, allow_partial=False, expected_snapshot=None):
+    """Build and verify a complete attachment before any of its bytes are sent."""
+    revision, manifest, images = package_plan(
+        state, revision_id, allow_partial=allow_partial, expected_snapshot=expected_snapshot
+    )
+    root = manifest["package_name"]
+    created = datetime.now(UTC)
+    manifest["report_created_at"] = created.isoformat()
+    zip_date = created.astimezone().timetuple()[:6]
+    # The browser can take its time downloading after the save locks are released.
+    # Large downloads spill to an OS temporary file, which closes with this response.
+    stream = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")  # noqa: SIM115
+    try:
+        with ZipFile(stream, "w", compression=ZIP_DEFLATED) as archive:
+            for name, reference, digest in images:
+                # PNG is already compressed. Give the entry its real local creation time.
+                with archive.open(ZipInfo(f"{root}/{name}", zip_date), "w") as entry:
+                    verify_image(state.storage, reference, digest, copy_to=entry)
+            for name in ("manifest.json", "index.html"):
+                entry = ZipInfo(f"{root}/{name}", zip_date)
+                archive.writestr(
+                    entry,
+                    report_document(state, revision, manifest, name),
+                    compress_type=ZIP_DEFLATED,
+                )
+        size = stream.tell()
+        stream.seek(0)
+        return ZipDownload(f"{root}.zip", stream, size)
+    except BaseException:
+        stream.close()
+        raise
+
+
+def report_document(state, revision, manifest, name):
+    if name == "manifest.json":
+        return json.dumps(manifest, indent=2, ensure_ascii=False).encode()
+    if name == "index.html":
+        return render_report(state, revision, manifest)
+    raise ValueError("Unknown report document")
 
 
 def render_report(state, revision, manifest):
-    """Render the same safe report for fresh exports and exact snapshot reuse."""
-    revision_id = manifest["revision_id"]
+    """Render a legacy saved package with its original revision identity."""
     plan = state.revision_plan(revision)
+    return render_manifest_report(
+        plan.brief.brand.name, manifest, state.revision_number(manifest["revision_id"])
+    )
+
+
+def render_manifest_report(brand_name, manifest, revision_number=None):
+    """One report layout for captured current compositions and legacy deliveries."""
     template = (
         files("campaign_studio").joinpath("templates/offline.html").read_text(encoding="utf-8")
     )
-    with state.storage.connect() as db:
-        revision_number = db.execute(
-            "SELECT COUNT(*) FROM revisions r JOIN runs ON runs.id=r.run_id "
-            "WHERE runs.campaign_id=? AND r.rowid <= "
-            "(SELECT rowid FROM revisions WHERE id=?)",
-            (manifest["campaign_id"], revision_id),
-        ).fetchone()[0]
-    html = (
+    return (
         Environment(autoescape=select_autoescape(default_for_string=True))
         .from_string(template)
         .render(
@@ -342,80 +360,10 @@ def render_report(state, revision, manifest):
                 if manifest.get("report_created_at")
                 else None
             ),
-            brand_name=plan.brief.brand.name,
+            brand_name=brand_name,
             revision_number=revision_number,
             languages={"en-US": "English (United States)", "es-MX": "Spanish (Mexico)"},
             sizes={"1:1": "Instagram post", "9:16": "Story", "16:9": "Facebook post"},
         )
+        .encode()
     )
-    return html.encode()
-
-
-def dated_payloads(state, revision_id, payloads, created_at=None):
-    """Reuse verified image bytes; only the report and manifest carry creation time."""
-    created_at = created_at or timestamp()
-    if datetime.fromisoformat(created_at).tzinfo is None:
-        raise ValueError("A report creation time must include its timezone.")
-    manifest = json.loads(payloads["manifest.json"])
-    manifest["report_created_at"] = created_at
-    return {
-        **payloads,
-        "manifest.json": json.dumps(manifest, indent=2, ensure_ascii=False).encode(),
-        "index.html": render_report(state, state.revision(revision_id), manifest),
-    }
-
-
-def export_zip(
-    state: State,
-    revision_id: str,
-    destination: str,
-    *,
-    allow_partial: bool = False,
-    expected_snapshot: str | None = None,
-    payloads: dict | None = None,
-) -> str:
-    """Publish a new ZIP atomically. No directory traversal or recursive collection."""
-    project = state.storage.project(state.run(state.revision(revision_id)["run_id"])["campaign_id"])
-    if not destination.startswith(project.ref("Exports") + "/"):
-        raise StateError("Choose an export location inside this campaign’s Exports folder.")
-    target = state.storage.path(project.check(destination))
-    if target.suffix != ".zip":
-        raise StateError("Choose a ZIP filename.")
-    if target.exists():
-        raise StateError("Choose a new ZIP filename; existing packages are preserved.")
-    payloads = (
-        payloads
-        if payloads is not None
-        else package_payloads(
-            state, revision_id, allow_partial=allow_partial, expected_snapshot=expected_snapshot
-        )
-    )
-    if "report_created_at" not in json.loads(payloads["manifest.json"]):
-        payloads = dated_payloads(state, revision_id, payloads)
-    state.storage.require_capacity(
-        sum(map(len, payloads.values())) + max(map(len, payloads.values()), default=0) + 1_000_000
-    )
-    project.claim(destination)
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary, registered = state.storage.temporary_file(destination)
-    created = False
-    try:
-        with temporary.open("xb") as stream:
-            created = True
-            os.chmod(temporary, 0o600)
-            with ZipFile(stream, "w", compression=ZIP_DEFLATED) as archive:
-                for reference, payload in zipped_payloads(payloads).items():
-                    archive.writestr(reference, payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        try:
-            publish_file(temporary, target, replace=False)
-        except FileExistsError as error:
-            raise StateError(
-                "Choose a new ZIP filename; existing packages are preserved."
-            ) from error
-    finally:
-        if created:
-            temporary.unlink(missing_ok=True)
-        state.storage.finish_temporary(temporary, registered)
-    return destination

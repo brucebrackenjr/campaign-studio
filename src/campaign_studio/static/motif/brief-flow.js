@@ -45,7 +45,7 @@
     return `<div class="bf-color-control"><input type="color" value="${normalized || "#FFFFFF"}" data-bf-picker="${esc(key)}" aria-label="Choose ${esc(label)}"><input type="text" id="bf-${esc(key)}" data-bf-field="${esc(key)}" value="${esc(value)}" aria-label="${esc(label)} hex value" maxlength="24" spellcheck="false" autocapitalize="characters" aria-invalid="${!normalized}">${defaultAction ? button("Use color", "use-default", "bf-small") : ""}</div>`;
   }
   function campaign(v) {
-    return `<div class="bf-layout"><section class="bf-panel"><h2>The brief</h2><div class="bf-pair">${field("Campaign name", "campaignName", v.name)}${field("Brand name", "brandName", v.brandName)}${field("Who is this for?", "audience", v.audience, { area: true })}${field("What should the photography feel like?", "direction", v.direction, { area: true })}${field("Copy origin", "copyOrigin", v.copyOrigin)}${field("Copy usage rights", "copyRights", v.copyRights, { hint: "Record only rights that are known." })}</div><p class="bf-note">Your brief saves as you work. Review a production plan before updating campaign images.</p></section><aside class="bf-panel"><div class="bf-kicker">THE DELIVERABLES</div><div class="bf-stat">${v.products.length * v.markets.length * 3} <small>planned images</small></div><p class="bf-hint">Every selected product and market gets all three formats.</p><div class="bf-rule"></div><h3>Markets</h3><div class="bf-language-facts">${v.markets.map((m) => `<span class="bf-chip">✓ ${languages[m]}</span>`).join("")}</div><div class="bf-rule"></div><div class="bf-deliverables">${[
+    return `<div class="bf-layout"><section class="bf-panel"><h2>The brief</h2><div class="bf-pair">${field("Campaign name", "campaignName", v.name)}${field("Brand name", "brandName", v.brandName)}${field("Who is this for?", "audience", v.audience, { area: true })}${field("What should the photography feel like?", "direction", v.direction, { area: true })}${field("Copy origin", "copyOrigin", v.copyOrigin)}${field("Copy usage rights", "copyRights", v.copyRights, { hint: "Record only rights that are known." })}</div></section><aside class="bf-panel"><div class="bf-kicker">THE DELIVERABLES</div><div class="bf-stat">${v.products.length * v.markets.length * 3} <small>planned images</small></div><p class="bf-hint">Every selected product and market gets all three formats.</p><div class="bf-rule"></div><h3>Markets</h3><div class="bf-language-facts">${v.markets.map((m) => `<span class="bf-chip">✓ ${languages[m]}</span>`).join("")}</div><div class="bf-rule"></div><div class="bf-deliverables">${[
       ["Instagram post", "1:1", "1080 × 1080"],
       ["Story", "9:16", "1080 × 1920"],
       ["Facebook post", "16:9", "1920 × 1080"],
@@ -108,7 +108,7 @@
       : "";
   }
   function brand(v) {
-    return `<div class="bf-layout bf-brand-layout"><section class="bf-panel"><div class="bf-brand-heading"><h2>One recognizable signature.</h2>${v.hasSavedImages ? button(v.brandUpdating ? "Updating…" : "Update Images", "update-images", "bf-primary", !v.brandPending || v.brandUpdating || v.brandColorProblem || v.logoStatus === "pending" ? "disabled" : "") : ""}</div>${v.hasSavedImages && v.brandPending ? '<p class="bf-hint">Update Images to apply these Brand changes to Studio, Handoff, and exports.</p>' : ""}<div class="bf-brand-grid"><div>${field("Brand name", "brandName", v.brandName)}<div class="bf-field"><span class="bf-label">Brand logo</span><div class="bf-logo-card"><div class="bf-logo-art">${v.logo?.url ? `<img src="${esc(v.logo.url)}" alt="Selected logo">` : v.hasLogo ? '<span class="bf-hint">Logo attached</span>' : '<span class="bf-hint">No logo attached</span>'}</div>${button(v.logoStatus === "pending" ? "Checking logo…" : v.hasLogo ? "Replace logo" : "Attach logo", "upload-logo", "bf-small", v.logoStatus === "pending" ? "disabled" : "")}${v.logoStatus === "pending" ? button("Cancel upload", "cancel-logo-upload", "bf-small bf-quiet") : v.hasLogo ? button("Remove logo", "remove-logo", "bf-small bf-quiet") : ""}<input type="file" accept="image/png,image/jpeg" data-bf-upload hidden><p class="bf-hint">PNG or JPEG · up to 20 MiB / 40 MP<br>Transparency is optional.</p></div>${v.logo ? `<p class="bf-logo-facts">${esc(v.logo.filename)}<br>${esc(v.logo.type)} · ${v.logo.width} × ${v.logo.height}${v.logo.opaque ? " · original background kept" : ""}</p>` : ""}</div><label class="bf-logo-policy"><input type="checkbox" data-bf-field="requireLogo" ${v.requireLogo ? "checked" : ""}> Require a logo on final images</label></div><div><div class="bf-field"><label for="bf-defaultColor">Default text color</label>${colorControl("defaultColor", "default text color", v.defaultDraft ?? v.color, { defaultAction: true })}<p class="bf-hint">Applies across the campaign. Colors chosen for individual images in Studio stay unchanged.</p></div>${inlineMessage(v.colorMessage, v.colorAction ? "info" : "error", v.colorAction)}<div class="bf-palette-head"><h3>Brand palette</h3><div class="bf-row"><span>${v.palette.length} / 8 colors</span>${v.palette.length < 8 ? button("＋ Add color", "add-color", "bf-small bf-quiet") : ""}</div></div><div class="bf-palette">${v.palette.map((c, i) => `<div class="bf-palette-cell">${colorControl("palette-" + i, "palette color " + (i + 1), c, { compact: true })}<div class="bf-palette-meta">${normalizeHex(c) === v.color ? '<span class="bf-default">● Default</span>' : `<button type="button" data-bf-action="make-default:${i}">Make default</button>`}<button type="button" data-bf-action="remove-color:${i}" aria-label="Remove palette color ${i + 1}">×</button></div></div>`).join("")}</div><p class="bf-palette-hint">Six hex digits, with or without #. Matching colors are kept once.</p>${inlineMessage(v.paletteMessage, "error", v.paletteAction)}<p class="bf-font-note"><strong>Noto Sans by default.</strong> Choose Noto Sans or Barlow Condensed per Message and CTA in Studio. Existing custom styles stay.</p>${inlineMessage(v.logoMessage, v.logoStatus === "accepted" ? "info" : "error")}${v.fitted ? `<div class="bf-inline-message info">${esc(v.fitted)}</div>` : ""}</div></div></section>${preview(v)}</div>`;
+    return `<div class="bf-layout bf-brand-layout"><section class="bf-panel"><div class="bf-brand-heading"><h2>One recognizable signature.</h2></div><div class="bf-brand-grid"><div>${field("Brand name", "brandName", v.brandName)}<div class="bf-field"><span class="bf-label">Brand logo</span><div class="bf-logo-card"><div class="bf-logo-art">${v.logo?.url ? `<img src="${esc(v.logo.url)}" alt="Selected logo">` : v.hasLogo ? '<span class="bf-hint">Logo attached</span>' : '<span class="bf-hint">No logo attached</span>'}</div>${button(v.logoStatus === "pending" ? "Checking logo…" : v.hasLogo ? "Replace logo" : "Attach logo", "upload-logo", "bf-small", v.logoStatus === "pending" ? "disabled" : "")}${v.logoStatus === "pending" ? button("Cancel upload", "cancel-logo-upload", "bf-small bf-quiet") : v.hasLogo ? button("Remove logo", "remove-logo", "bf-small bf-quiet") : ""}<input type="file" accept="image/png,image/jpeg" data-bf-upload hidden><p class="bf-hint">PNG or JPEG · up to 20 MiB / 40 MP<br>Transparency is optional.</p></div>${v.logo ? `<p class="bf-logo-facts">${esc(v.logo.filename)}<br>${esc(v.logo.type)} · ${v.logo.width} × ${v.logo.height}${v.logo.opaque ? " · original background kept" : ""}</p>` : ""}</div><label class="bf-logo-policy"><input type="checkbox" data-bf-field="requireLogo" ${v.requireLogo ? "checked" : ""}> Require a logo on final images</label></div><div><div class="bf-field"><label for="bf-defaultColor">Default text color</label>${colorControl("defaultColor", "default text color", v.defaultDraft ?? v.color)}<p class="bf-hint">Applies across the campaign. Colors chosen for individual images in Studio stay unchanged.</p></div>${inlineMessage(v.colorMessage, v.colorAction ? "info" : "error", v.colorAction)}<div class="bf-palette-head"><h3>Brand palette</h3><div class="bf-row"><span>${v.palette.length} / 8 colors</span>${v.palette.length < 8 ? button("＋ Add color", "add-color", "bf-small bf-quiet") : ""}</div></div><div class="bf-palette">${v.palette.map((c, i) => `<div class="bf-palette-cell">${colorControl("palette-" + i, "palette color " + (i + 1), c, { compact: true })}<div class="bf-palette-meta">${normalizeHex(c) === v.color ? '<span class="bf-default">● Default</span>' : `<button type="button" data-bf-action="make-default:${i}">Make default</button>`}<button type="button" data-bf-action="remove-color:${i}" aria-label="Remove palette color ${i + 1}">×</button></div></div>`).join("")}</div><p class="bf-palette-hint">Six hex digits, with or without #. Matching colors are kept once.</p>${inlineMessage(v.paletteMessage, "error", v.paletteAction)}<p class="bf-font-note"><strong>Noto Sans by default.</strong> Choose Noto Sans or Barlow Condensed per Message and CTA in Studio. Existing custom styles stay.</p>${inlineMessage(v.logoMessage, v.logoStatus === "accepted" ? "info" : "error")}${v.fitted ? `<div class="bf-inline-message info">${esc(v.fitted)}</div>` : ""}</div></div></section>${preview(v)}</div>`;
   }
   function copyView(v) {
     const cc = v.copy[v.language],
@@ -132,7 +132,8 @@
       blurDestination = null,
       fileSelection = null,
       renderPending = false,
-      renderTimer = null;
+      renderTimer = null,
+      paintedLayers = null;
     const controller = new AbortController(),
       opts = { signal: controller.signal };
     function clearFileSelection() {
@@ -162,6 +163,13 @@
     }
     function render(v) {
       sequence++;
+      const previous = value;
+      const target = x => x && JSON.stringify([x.id, x.productId, x.language, x.ratio]);
+      const oldStage = root.querySelector("[data-bf-preview-stage]");
+      const oldVisual = oldStage?.firstElementChild;
+      const keepVisual = target(previous) === target(v) &&
+        ["pending", "ready"].includes(v.preview?.phase) &&
+        ["IMG", "CANVAS"].includes(oldVisual?.tagName);
       value = v;
       // Detaching a pressed checkbox cancels its native click, even if the
       // same node is restored. Keep it mounted until activation or release.
@@ -180,6 +188,10 @@
         activeAction = !destination && root.contains(active) ? active?.dataset?.bfAction : null,
         selection = active?.selectionStart;
       root.innerHTML = renderBrief(v);
+      const stage = root.querySelector("[data-bf-preview-stage]");
+      if (keepVisual && stage?.replaceChildren) stage.replaceChildren(oldVisual);
+      if (stage && v.preview?.phase === "pending" && paintedLayers?.key === v.previewLayerKey)
+        paintLocalColor(stage, v.color);
       if (destination) {
         const attribute = destination.dataset.bfField != null ? "bfField" : "bfPicker",
           selector = attribute === "bfField" ? "data-bf-field" : "data-bf-picker",
@@ -347,23 +359,67 @@
       },
       opts,
     );
+    function paintLocalColor(stage, color) {
+      if (!paintedLayers || !/^#[0-9A-F]{6}$/i.test(color || "")) return;
+      const canvas = document.createElement("canvas"), mask = document.createElement("canvas");
+      canvas.width = mask.width = paintedLayers.base.naturalWidth;
+      canvas.height = mask.height = paintedLayers.base.naturalHeight;
+      const context = canvas.getContext("2d"), tint = mask.getContext("2d");
+      context.drawImage(paintedLayers.base, 0, 0);
+      for (const block of paintedLayers.blocks) {
+        tint.clearRect(0, 0, mask.width, mask.height);
+        tint.globalCompositeOperation = "source-over";
+        tint.drawImage(block.image, 0, 0);
+        tint.globalCompositeOperation = "source-in";
+        tint.fillStyle = block.color || color;
+        tint.fillRect(0, 0, mask.width, mask.height);
+        context.drawImage(mask, 0, 0);
+      }
+      canvas.setAttribute("role", "img"); canvas.setAttribute("aria-label", "Current campaign preview");
+      stage.replaceChildren(canvas);
+    }
+    async function decodePreview(url) {
+      const image = new Image(); image.src = url; await image.decode(); return image;
+    }
     async function previewRequest(request) {
       const mine = ++sequence,
         identity = request.identity;
       const stage = root.querySelector("[data-bf-preview-stage]");
       if (!stage || !onPreview) return;
-      stage.innerHTML = previewStage({ phase: "pending" });
+      if (!["IMG", "CANVAS"].includes(stage.firstElementChild?.tagName)) stage.innerHTML = previewStage({ phase: "pending" });
       try {
-        const result = await onPreview(request);
-        if (dead || mine !== sequence) return;
-        if (result.identity !== identity)
-          throw Error("Preview identity mismatch");
-        const im = new Image();
-        im.src = result.url;
-        await im.decode();
+        let result = await onPreview(request), im, layers;
+        for (let attempt = 0; ; attempt++) {
+          if (dead || mine !== sequence) return;
+          if (result.identity !== identity) throw Error("Preview identity mismatch");
+          try {
+            im = await decodePreview(result.url);
+            layers = null;
+            if (result.layers) {
+              const [base, blocks] = await Promise.all([
+                decodePreview(result.layers.base_url),
+                Promise.all(Object.values(result.layers.text_blocks).map(async block =>
+                  ({ color: block.color, image: await decodePreview(block.url) }))),
+              ]);
+              layers = { key: result.layerKey, base, blocks };
+            }
+            break;
+          } catch (error) {
+            if (dead || mine !== sequence) return;
+            if (attempt || result.version === undefined) throw error;
+            // Keep the current visual mounted. The host permits this single
+            // retry only if our own save expired the first image's URL.
+            result = await onPreview({ ...request, expiredVersion: result.version });
+          }
+        }
         if (dead || mine !== sequence) return;
         value.preview = { ...result, phase: "ready" };
-        stage.innerHTML = previewStage(value.preview);
+        paintedLayers = layers;
+        if (stage.replaceChildren) {
+          im.alt = result.alt || "Current campaign preview";
+          if (result.kind === "typography") im.className = "bf-typography-preview";
+          stage.replaceChildren(im);
+        } else stage.innerHTML = previewStage(value.preview);
         root.querySelector("[data-bf-preview-caption]").innerHTML =
           previewCaption(value);
       } catch {

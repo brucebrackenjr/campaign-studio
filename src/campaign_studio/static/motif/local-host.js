@@ -40,12 +40,18 @@ function localDialogFlow(state, handlers = {}) {
 async function openKeySetup(rejected = false, reason = null) {
   const source = await api("/api/openai-key");
   keyAvailable = source.available;
+  keySavedAt = source.saved_at || null;
   let saved = false;
-  const phase = source.managed_by_environment ? "environment" : !source.can_save ? "unavailable" : rejected ? "rejected" : "missing";
-  return localDialogFlow({ kind: "key", phase, reason: phase === "rejected" ? reason : null }, {
+  const phase = source.managed_by_environment ? "environment" : !source.can_save ? "unavailable" : rejected ? "rejected" : source.available ? "configured" : "missing";
+  return localDialogFlow({ kind: "key", phase, available: source.available, canRemove: source.available && source.can_save, reason: phase === "rejected" ? reason : null }, {
     async onSubmit(api_key) {
       const result = await api("/api/openai-key", { api_key });
-      if (result.saved === true) { keyAvailable = result.available; saved = true; }
+      if (result.saved === true) { keyAvailable = result.available; keySavedAt = result.saved_at || Date.now() / 1000; saved = true; }
+      return result;
+    },
+    async onRemove() {
+      const result = await api("/api/openai-key", {}, { method: "DELETE" });
+      if (result.removed === true) { keyAvailable = false; keySavedAt = null; saved = true; }
       return result;
     },
     onGuardedRefusal: message => toast(message),

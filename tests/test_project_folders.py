@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,8 +13,6 @@ from campaign_studio.app import create_app
 from campaign_studio.bundled import load_campaigns
 from campaign_studio.cleanup import Cleanup
 from campaign_studio.config import Settings
-from campaign_studio.handoff import Handoff, PackageAction
-from campaign_studio.review import RevisionTarget
 from campaign_studio.state import State
 from campaign_studio.storage import WORKSPACE_SCHEMA, EarlierWorkspace, IncompleteWorkspace, Storage
 
@@ -46,20 +44,17 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
         project_dir, survivor = root / "Campaigns" / a.folder, root / "Campaigns" / b.folder
         assert a.folder == f"Autumn Winds-{autumn[:8]}"
         before = hashes(survivor)
-        run, revision = state.current_output(autumn)
-        target = RevisionTarget(
-            campaign_id=autumn, run_id=run, revision_id=revision, mode="current"
-        )
-        handoff = Handoff(state)
-        action = PackageAction(snapshot_id=handoff.metadata(target)["snapshot_id"])
-        archive = handoff.create_zip(target, action)
-        folder = Path(handoff.create_folder(target, action)["location"])
-        external = tmp_path / "Downloads" / archive["filename"]
-        external.parent.mkdir()
-        external.write_bytes(handoff.download(target, archive["artifact_id"]))
+        from campaign_studio.delivery import prepare_current_zip
+
+        snapshot = app.state.workspace.current_composition(autumn)
+        with prepare_current_zip(state, snapshot) as download:
+            external = tmp_path / "Downloads" / download.filename
+            external.parent.mkdir()
+            external.write_bytes(download.stream.read())
+        assert not list(project_dir.rglob("*.zip"))
+        assert not (project_dir / "Exports").exists()
+        assert not (project_dir / "Outputs").exists()
         external_hash = hashlib.sha256(external.read_bytes()).hexdigest()
-        assert folder.is_relative_to(project_dir / "Exports")
-        assert len(list(folder.rglob("*.png"))) == 30
         with app.state.storage.connect() as db:
             registered = {
                 row[0]
@@ -69,9 +64,7 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
             }
         actual = {p.relative_to(root).as_posix() for p in project_dir.rglob("*") if p.is_file()}
         assert actual <= registered
-        assert (folder / "index.html").relative_to(root).as_posix() in registered
-        assert (folder / "manifest.json").relative_to(root).as_posix() in registered
-        personal = folder / "producer notes.txt"
+        personal = project_dir / "producer notes.txt"
         personal.write_text("Keep these notes.")
         cleaner = Cleanup(state)
         preview = cleaner.preview_campaign(autumn)
@@ -89,6 +82,58 @@ def test_project_registry_covers_exports_and_preserves_user_files(tmp_path):
             == "complete"
         )
         assert not survivor.exists()
+
+
+@pytest.mark.parametrize("previous_schema", [9, 10])
+def test_upgrade_removes_only_old_empty_export_directories(tmp_path, previous_schema):
+    storage = Storage(tmp_path / "Workspace")
+    storage.initialize()
+    state = State(storage)
+
+    def exports():
+        cid = str(uuid4())
+        state.register_campaign(cid)
+        path = storage.path(storage.project(cid).ref("Exports"))
+        assert not path.exists()
+        return path
+
+    first, second, third, fourth = (exports() for _ in range(4))
+    (first / "archives").mkdir(parents=True)
+    (second / "archives").mkdir(parents=True)
+    (second / "producer folder").mkdir()
+    (third / "archives").mkdir(parents=True)
+    note = third / "archives" / "producer notes.txt"
+    note.write_bytes(b"Keep the original.")
+    fourth.mkdir()  # Legacy export directory with neither an archive nor a folder.
+    with storage.connect() as db:
+        db.execute(f"PRAGMA user_version={previous_schema}")
+    State(storage)
+    assert not first.exists() and not fourth.exists()
+    assert list(second.iterdir()) == [second / "producer folder"]
+    assert note.read_bytes() == b"Keep the original."
+    # A second open neither recreates old directories nor runs the migration again.
+    first.mkdir()
+    State(storage)
+    assert list(first.iterdir()) == [] and not fourth.exists()
+
+
+def test_upgrade_leaves_linked_export_directories_and_their_targets_untouched(tmp_path):
+    storage = Storage(tmp_path / "Workspace")
+    storage.initialize()
+    state = State(storage)
+    cid = str(uuid4())
+    state.register_campaign(cid)
+    export_dir = storage.path(storage.project(cid).ref("Exports"))
+    external = tmp_path / "outside"
+    (external / "archives").mkdir(parents=True)
+    try:
+        export_dir.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("Directory symlinks are unavailable on this host.")
+    with storage.connect() as db:
+        db.execute("PRAGMA user_version=10")
+    State(storage)
+    assert export_dir.is_symlink() and (external / "archives").is_dir()
 
 
 def test_startup_leaves_incoming_folder_alone(tmp_path):
@@ -122,19 +167,21 @@ def test_import_keeps_original_request_bytes_and_stable_folder_on_rename(tmp_pat
         original = project.ref("Brief/Imports/original.json")
         assert app.state.storage.path(project.require(original)).read_bytes() == data
         draft_path = app.state.storage.path(project.draft)
-        first_bytes = draft_path.read_bytes()
-        first_draft = json.loads(first_bytes)
-        assert first_draft["value"]["name"] == "Été – café"
-        expected = json.dumps(first_draft, ensure_ascii=False, indent=2).encode() + b"\n"
-        assert first_bytes == expected
+        assert not draft_path.exists()
+        with app.state.storage.connect() as db:
+            first_draft = json.loads(
+                db.execute(
+                    "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (cid,)
+                ).fetchone()[0]
+            )
+        assert first_draft["authored"]["brief"]["name"] == "Été – café"
+        assert "value" not in first_draft
         url = f"/api/motif/campaigns/{cid}/authored"
-    # A compact draft from an earlier installation still opens with its existing save token.
-    compact = json.dumps(first_draft, ensure_ascii=False).encode()
-    draft_path.write_bytes(compact)
+    # Reopening reads the current database record with its existing save token.
     with TestClient(app, base_url="http://127.0.0.1") as client:
         client.headers["X-Campaign-Token"] = app.state.csrf
         model = client.get(url).json()
-        assert model["version"] == first_draft["version"] and draft_path.read_bytes() == compact
+        assert model["version"] == first_draft["version"] and not draft_path.exists()
         model["authored"]["brief"]["name"] = "New title"
         assert (
             client.post(
@@ -142,10 +189,14 @@ def test_import_keeps_original_request_bytes_and_stable_folder_on_rename(tmp_pat
             ).status_code
             == 200
         )
-        saved_bytes = draft_path.read_bytes()
-        saved = json.loads(saved_bytes)
+        with app.state.storage.connect() as db:
+            saved = json.loads(
+                db.execute(
+                    "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (cid,)
+                ).fetchone()[0]
+            )
         assert saved["authored"]["brief"]["name"] == "New title"
-        assert saved_bytes == json.dumps(saved, ensure_ascii=False, indent=2).encode() + b"\n"
+        assert "value" not in saved and not draft_path.exists()
         assert app.state.storage.project(cid).folder == project.folder
         assert app.state.storage.path(original).read_bytes() == data
 
@@ -173,8 +224,9 @@ def test_incomplete_workspace_never_reindexes_existing_campaign_files(tmp_path, 
     storage = Storage(tmp_path / "Workspace")
     state = State(storage)
     campaign, _ = Intake(storage).new()
-    draft = storage.path(storage.project(campaign).draft)
-    assert draft.is_file() and state.storage.root == storage.root
+    project = storage.project(campaign)
+    project.write(project.ref("Brief/Imports/original.json"), b'{"name":"Original input"}')
+    assert not storage.path(project.draft).exists() and state.storage.root == storage.root
     database = storage.path("private/state.sqlite3")
     original = database.read_bytes()
     database.unlink()
@@ -264,10 +316,10 @@ def test_foreign_reference_cannot_be_saved_or_used_from_a_modified_snapshot(tmp_
             update={"brand": brief.brand.model_copy(update={"logo_path": reference})}
         )
         assert make_plan(bad, state.storage).blocked
-    plan_path = state.storage.path(state.run(run)["plan_ref"])
-    plan = json.loads(plan_path.read_bytes())
+    plan = json.loads(state.run(run)["plan_json"])
     plan["assets"]["logo"]["reference"] = foreign
-    plan_path.write_text(json.dumps(plan))
+    with state.storage.connect() as db:
+        db.execute("UPDATE runs SET plan_json=? WHERE id=?", (json.dumps(plan), run))
     with pytest.raises(StorageError, match="belonging to this campaign"):
         state.plan(run)
     assert state.storage.path(foreign).read_bytes() == original
@@ -283,6 +335,7 @@ def test_killed_import_retains_registered_original_and_deletes_only_its_project(
     snippet = """
 import os, sys
 from pathlib import Path
+from uuid import uuid4
 from campaign_studio.state import State
 from campaign_studio.storage import Storage
 from campaign_studio.intake import Intake
@@ -306,7 +359,12 @@ intake.create(sys.argv[2], brief, imported_bytes=b'{}')
     project = state.storage.project(cid)
     first = project.ref("Brief/Imports/original.json")
     assert state.storage.path(project.require(first)).read_bytes() == b"{}"
-    assert not state.storage.path(project.require(project.draft)).exists()
+    assert not state.storage.path(project.draft).exists()
+    with state.storage.connect() as db:
+        assert (
+            db.execute("SELECT 1 FROM campaign_drafts WHERE campaign_id=?", (cid,)).fetchone()
+            is None
+        )
     assert not state.attempts("nonexistent")
     cleaner = Cleanup(state)
     assert cleaner.preview_campaign(cid)["file_count"] == 1

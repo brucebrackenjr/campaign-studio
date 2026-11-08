@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import uvicorn
 
-from campaign_studio import rendering
+from campaign_studio import compositions
 from campaign_studio.app import create_app
 from campaign_studio.config import Settings
 from campaign_studio.provider import OpenAIImages
@@ -31,20 +31,14 @@ def serve(root: Path, port: int, mode: str):
             await asyncio.Event().wait()
         return httpx.Response(200, json=json.loads((root / "response.json").read_text()))
 
-    if mode == "composition":
-        original = rendering.compose
-        calls = 0
+    if mode == "source_commit":
 
-        def pause_after_first_output(*args, **kwargs):
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                (root / "checkpoint").write_text("one PNG saved; next composition entered")
-                while True:
-                    time.sleep(0.1)
-            return original(*args, **kwargs)
+        def pause_before_source_commit(*args, **kwargs):
+            (root / "checkpoint").write_text("source decoded; current document not committed")
+            while True:
+                time.sleep(0.1)
 
-        rendering.compose = pause_after_first_output
+        compositions.finish_sources = pause_before_source_commit
 
     app = create_app(
         Settings(data_dir=root / "runtime", port=port),

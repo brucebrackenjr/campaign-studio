@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test("Home distinguishes an unconfirmed request result from ordinary run readiness", () => {
-  const context = vm.createContext({
+  const context = vm.createContext({scheduleStudioSave(){},
     window: { addEventListener() {} },
     document: { addEventListener() {} },
   });
@@ -64,7 +64,7 @@ function framingHarness() {
     "#frame-layout",
     "[data-action=saveFrame]",
   ].map(get);
-  const context = vm.createContext({
+  const context = vm.createContext({scheduleStudioSave(){},
     $: get, studioWorkspace: null, imageEditorRoot: () => get("#overlay"),
     $$: () => controls,
     AbortController, structuredClone, clearTimeout,
@@ -91,6 +91,7 @@ function framingHarness() {
         requests.push({ url, body, resolve, reject }),
       ),
     copy: structuredClone,
+    withProjectApply: operation => operation(),
     projectChanged() {},
     imageCleanupReady: async (_campaign, current) => current(),
     imageCapacity: async () => false,
@@ -102,6 +103,10 @@ function framingHarness() {
     render() {},
     toast() {},
   });
+  context.window = context;
+  context.refreshes = 0;
+  context.location = {reload(){context.refreshes++;}};
+  vm.runInContext(readFileSync("src/campaign_studio/static/motif/save-state.js", "utf8"), context);
   vm.runInContext(readFileSync("src/campaign_studio/static/motif/direct-manipulation.js", "utf8"), context);
   vm.runInContext(readFileSync("src/campaign_studio/static/motif/editor-controls.js", "utf8"), context);
   vm.runInContext(
@@ -203,6 +208,77 @@ test("first framing image stays hidden until decoded and failure preserves the p
   assert.equal(h.get("[data-action=saveFrame]").dataset.action, "recoverFrame");
   assert.equal(h.get("[data-action=saveFrame]").disabled, false);
 });
+
+test("framing preview 409 while autosave is dirty keeps edits and updates the DOM status", async () => {
+  const h = framingHarness();
+  h.context.status = ""; // Browsers expose window.status as a string.
+  h.context.studioSave = {dirty:()=>true,conflict:()=>assert.fail("own pending save must not be an external conflict")};
+  h.get("#frame-image").src="/last-visible-preview";
+  h.run("framingDraft.zoom=1.4;framingDraft.focal=70");
+  const before=h.run("JSON.stringify(framingDraft)");
+  const preview=h.run("refreshFramePreview()");
+  h.requests.shift().reject(Object.assign(new Error("Newer saved work exists"), {status:409,code:"composition_conflict"}));
+  assert.equal(await preview,false);
+  assert.equal(h.get("#frame-status").textContent,"");
+  assert.equal(h.context.status,"");
+  assert.equal(h.run("JSON.stringify(framingDraft)"),before);
+  assert.equal(h.get("#frame-image").src,"/last-visible-preview");
+  assert.equal(h.run("framingRecovery"),null);
+  assert.equal(h.run("framePreview"),null);
+  assert.equal(h.requests.length,0,"a pending autosave does not trigger a stale-read or save retry");
+  // This window's acknowledged save advances its preview token normally.
+  h.context.studioSave.dirty=()=>false;
+  h.run("framingContext.revision_id='own-acknowledged-save'");
+  const current=h.run("refreshFramePreview()");
+  assert.equal(h.requests[0].body.revision_id,"own-acknowledged-save");
+  await h.finishPreview("/own-saved-preview"); await current;
+  assert.equal(h.run("framingRecovery"),null);
+  assert.equal(h.get("#frame-image").src,"/own-saved-preview");
+  assert.equal(h.context.refreshes,0);
+});
+
+test("framing preview does not start after its status element has been removed", async () => {
+  const h = framingHarness();
+  h.context.$=selector=>selector==="#frame-status"?null:h.get(selector);
+  h.run("framingDraft.zoom=1.4");
+  assert.equal(await h.run("refreshFramePreview()"),false);
+  assert.equal(h.requests.length,0);
+  assert.equal(h.run("framingDraft.zoom"),1.4);
+});
+
+for (const boundary of ["closed","reopened","newer preview"]) {
+  test(`a late dirty framing 409 cannot affect a ${boundary} editor`, async () => {
+    const h = framingHarness();
+    h.context.status="";
+    let dirtyChecks=0;
+    h.context.studioSave={dirty:()=>{dirtyChecks++;return true;}};
+    h.run("framingDraft.zoom=1.4");
+    const old=h.run("refreshFramePreview()");
+    const request=h.requests.shift();
+    let latest=null;
+    if(boundary==="newer preview") {
+      h.run("framingDraft.zoom=1.8");
+      latest=h.run("refreshFramePreview()");
+    } else {
+      h.run("endFraming();modal=''");
+      if(boundary==="reopened") h.run("modal='frame';beginFraming();framingDraft.zoom=1.8");
+    }
+    const status=h.get("#frame-status");
+    status.textContent="Current editor owns this message";
+    request.reject(Object.assign(new Error("Late conflict"),{status:409}));
+    assert.equal(await old,false);
+    assert.equal(status.textContent,"Current editor owns this message");
+    assert.equal(dirtyChecks,0,"ownership is checked before accessing the current save controller");
+    assert.equal(h.context.status,"");
+    assert.equal(h.run("framingDraft?.zoom ?? null"),boundary==="closed"?null:1.8);
+    if(latest) {
+      h.requests.shift().reject(Object.assign(new Error("Current conflict"),{status:409}));
+      assert.equal(await latest,false);
+      assert.equal(dirtyChecks,1);
+      assert.equal(status.textContent,"");
+    }
+  });
+}
 
 test("older responses, decode failures, and closing cannot approve stale framing", async () => {
   const h = framingHarness();
@@ -308,18 +384,18 @@ test("known precommit framing refusals restore ready status and retain the exact
       closeNotice(true);
     }
     assert.equal(await applying, false);
-    assert.equal(h.get("#frame-status").textContent, readyStatus);
+    assert.equal(h.get("#frame-status").textContent, boundary === "cleanup" ? readyStatus : h.context.MotifEditorControls.copy.applyFailed);
     assert.equal(h.get("#frame-primary").disabled, false);
     assert.equal(h.run("framePreview.signature"), signature);
     assert.equal(h.run("framingDraft.focal"), 60);
-    assert.equal(h.run("framingRecovery"), null);
+    assert.equal(h.run("framingRecovery"), boundary === "cleanup" ? null : "apply");
     assert.equal(h.run("frameSaving"), false);
     assert.equal(h.context.modal, "frame");
     assert.equal(h.requests.length, 0);
   }
 });
 
-test("an unaccepted framing candidate keeps its draft and offers a preview retry", async () => {
+test("an unaccepted framing candidate keeps its draft and offers Try again", async () => {
   const h = framingHarness();
   h.run("framingDraft.zoom=1.4; framingDraft.focal=60");
   const preview = h.run("refreshFramePreview()");
@@ -331,10 +407,16 @@ test("an unaccepted framing candidate keeps its draft and offers a preview retry
   assert.equal(await applying, false);
   assert.equal(h.run("framingDraft.focal"), 60);
   assert.equal(h.run("framingDraft.zoom"), 1.4);
-  assert.equal(h.run("framingRecovery"), "preview");
+  assert.equal(h.run("framingRecovery"), "apply");
   assert.equal(h.context.modal, "frame");
-  assert.equal(h.get("#frame-primary").textContent, "Retry preview");
+  assert.equal(h.get("#frame-primary").textContent, "Try again");
+  assert.match(h.get("#frame-status").textContent, /previous image is unchanged/);
   assert.equal(h.requests.length, 0);
+  const retry = h.run("recoverFraming()");await flush();
+  assert.match(h.requests[0].url, /framing\/apply$/);
+  assert.equal(h.requests[0].body.framing.zoom,1.4);
+  h.requests.shift().reject({status:409,code:"apply_not_accepted"});await retry;
+  assert.equal(h.run("framingRecovery"),"apply");
 });
 
 test("Clear persists an explicit opt-out from inherited protection; visibility is not a crop edit", async () => {
@@ -435,7 +517,7 @@ test("carousel focus reveals a clipped card without moving the page or unrelated
       },
       scrollBy: (move) => moves.push(move),
     };
-    const context = vm.createContext({
+    const context = vm.createContext({scheduleStudioSave(){},
       $: (selector) =>
         selector === "#workbench-track" ? track : { disabled: false },
       window: { addEventListener() {} },
@@ -481,7 +563,7 @@ test("failed workbench thumbnail preserves its campaign target", () => {
     },
   };
   artwork.children = [thumbnail];
-  const context = vm.createContext({
+  const context = vm.createContext({scheduleStudioSave(){},
     window: { addEventListener() {} },
     document: {
       addEventListener(name, handler, capture) {
@@ -518,74 +600,28 @@ function latestFrame(h, revision = 'new') {
   return current;
 }
 
-test('concurrent stale framing requires deliberate same-target adoption and keeps typing during the read', async () => {
-  const h = framingHarness();
-  staleFraming(h);
+test('stale framing offers Refresh without reading or adopting newer settings', async () => {
+  const h = framingHarness(); staleFraming(h);
   await h.run('requestFramePreview()');
   h.run('resetFrame();framingDraft.zoom=1.6;requestFramePreview()');
   assert.equal(h.requests.length, 0);
-  assert.equal(h.get('#frame-primary').textContent, 'Use latest image');
-  assert.equal(h.get('#frame-preview-label').textContent, 'LOCAL DRAFT · REVIEW REQUIRED');
-  const adoption = h.run('recoverFraming()');
-  const read = h.requests.shift();
-  assert.equal(read.body, undefined);
-  h.run('framingDraft.zoom=1.7;framingDraft.focal=65;requestFramePreview()');
-  const latest = latestFrame(h);
-  latest.output_brief.products[0].framing = {"es-MX": {"1:1": {
-    text_placements: {message: {left: .1, top: .1, width: .8, font_size: 60}},
-  }}};
-  read.resolve(latest); await flush();
-  h.decodes.shift().resolve({width:1000,height:1000,src:'/latest-source'}); await flush();
-  assert.equal(h.requests[0].body.revision_id, 'new');
-  assert.equal(h.requests[0].body.framing.zoom, 1.7);
-  assert.equal(h.requests[0].body.framing.focal_x, .65);
-  assert.equal(h.requests[0].body.framing.subject_box, null);
-  assert.equal(h.run('framingShowSafety'), true);
-  assert.equal(h.run('framingCustomText'), true);
-  assert.equal(h.get('#frame-layout').disabled, true);
-  assert.equal(h.get('#frame-layout').hidden, true);
-  assert.equal(h.get('#frame-custom-text').hidden, false);
-  assert.equal(h.run('framePreview'), null);
-  await h.finishPreview('/new-preview'); await adoption;
-  assert.equal(h.get('#frame-primary').textContent, 'Apply');
-  assert.match(h.get('#frame-status').textContent, /Latest image loaded with your pending framing/);
-  assert.equal(h.run('framingDraft.zoom'), 1.7);
-  assert.equal(h.run('framingInitial'), null);
-  assert.equal(h.requests.length, 0); // No Apply or authored write in the read controller.
-});
-
-test('framing latest-read failure and unavailable targets preserve the old base and pending values', async () => {
-  const h = framingHarness(); staleFraming(h);
-  const read = h.run('recoverFraming()'); h.requests.shift().reject(new Error('offline')); await read;
+  assert.equal(h.get('#frame-primary').textContent, 'Refresh');
+  assert.equal(h.get('#frame-status').textContent, h.context.MotifSave.conflictMessage);
+  await h.run('recoverFraming()');
+  assert.equal(h.context.refreshes, 1);
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.decodes.length, 0);
   assert.equal(h.run('framingContext.revision_id'), 'old');
-  assert.equal(h.run('framingDraft.zoom'), 1.4);
-  assert.match(h.get('#frame-status').textContent, /latest image could not be loaded/);
-  for (const kind of ['missing', 'unsupported']) {
-    h.run('framingRecovery="latest"');
-    const current = latestFrame(h);
-    if (kind === 'missing') current.manifest.outputs = [];
-    else current.output_brief.products[0].source.role = 'prepared_product';
-    const retry = h.run('recoverFraming()'); h.requests.shift().resolve(current); await retry;
-    assert.equal(h.run('framingRecovery'), kind);
-    assert.equal(h.get('#frame-primary').disabled, true);
-    assert.equal(h.run('framingContext.revision_id'), 'old');
-    assert.equal(h.run('framingDraft.zoom'), 1.4);
-    assert.equal(h.decodes.length, 0);
-  }
+  assert.equal(h.run('framingDraft.zoom'), 1.6);
 });
 
-test('late framing adoption cannot affect a closed or replacement editor', async () => {
+test('a removed framing editor cannot refresh or begin a stale read', async () => {
   const h = framingHarness(); staleFraming(h);
-  const read = h.run('recoverFraming()'), response = h.requests.shift();
-  h.run('endFraming(); modal=""'); response.resolve(latestFrame(h)); await read;
-  assert.equal(h.run('framingContext'), null); assert.equal(h.decodes.length, 0);
-  h.context.modal = 'frame'; staleFraming(h);
-  const retry = h.run('recoverFraming()'); h.requests.shift().resolve(latestFrame(h)); await flush();
-  const decode = h.decodes.shift();
-  h.run('endFraming();beginFraming();framingDraft.zoom=1.9');
-  decode.resolve({width:1000,height:1000,src:'/late'}); await retry;
-  assert.equal(h.run('framingContext.revision_id'), 'revision');
-  assert.equal(h.run('framingDraft.zoom'), 1.9); assert.equal(h.requests.length, 0);
+  h.run('endFraming(); modal=""');
+  await h.run('recoverFraming()');
+  assert.equal(h.context.refreshes, 0);
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.decodes.length, 0);
 });
 
 test('framing retries transient preview errors and confirms identity before classifying a 409', async () => {
@@ -763,4 +799,28 @@ test('drawing cancellation restores the previous safety box and keyboard edits p
   assert.ok(Math.abs(h.requests[0].body.framing.subject_box.bottom - .76) < 1e-12);
   await h.finishPreview('/resized');
   assert.equal(h.get('#frame-primary').disabled, false);
+});
+
+
+test("a failed read after accepted Framing Apply never claims that the prior image stayed unchanged", async()=>{
+ const h=framingHarness();h.run("framingDraft.zoom=1.4");
+ const preview=h.run("refreshFramePreview()");await h.finishPreview();await preview;
+ const saving=h.run("saveFraming()");await flush();h.requests.shift().resolve({revision_id:"new"});await flush();
+ h.requests.shift().reject({status:409,code:"apply_not_accepted"});await saving;
+ assert.equal(h.run("framingRecovery"),"uncertain");
+ assert.doesNotMatch(h.get("#frame-status").textContent,/previous image is unchanged/);
+});
+
+
+test('Something New precedes the existing campaigns without changing their recent order', () => {
+  const context=vm.createContext({
+    workbenchCampaigns:()=>[{id:'newest'},{id:'older'},{id:'oldest'}],
+    pendingDeletionControl:()=>'',btn:()=>'',head:()=>'',homeHero:()=>'',
+  });
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/presentation.js','utf8'),context);
+  vm.runInContext("head=()=>'';homeHero=()=>'';workbenchCard=c=>'<article data-card=\"'+c.id+'\"></article>'",context);
+  const html=vm.runInContext('library()',context);
+  assert.ok(html.indexOf('Something new?')<html.indexOf('data-card="newest"'));
+  assert.ok(html.indexOf('data-card="newest"')<html.indexOf('data-card="older"'));
+  assert.ok(html.indexOf('data-card="older"')<html.indexOf('data-card="oldest"'));
 });

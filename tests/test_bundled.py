@@ -14,11 +14,9 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
 
 from campaign_studio.app import create_app
-from campaign_studio.bundled import RECEIPT, install_campaigns, load_campaigns
-from campaign_studio.bundled_outputs import install_prepared_outputs
+from campaign_studio.bundled import RECEIPT, install_campaigns, load_campaigns, verify_ready_sources
 from campaign_studio.cleanup import Cleanup
 from campaign_studio.config import Settings
 from campaign_studio.intake import Intake
@@ -86,7 +84,7 @@ def test_install_claim_prepared_images_missing_plan_and_deleted_examples_stay_de
     tmp_path, bundle, monkeypatch
 ):
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
-    original_install = install_prepared_outputs
+    original_install = verify_ready_sources
 
     async def simultaneous_install():
         reached, release = threading.Event(), threading.Event()
@@ -96,7 +94,7 @@ def test_install_claim_prepared_images_missing_plan_and_deleted_examples_stay_de
             assert release.wait(10)
             return original_install(*args)
 
-        monkeypatch.setattr("campaign_studio.bundled.install_prepared_outputs", hold_local)
+        monkeypatch.setattr("campaign_studio.bundled.verify_ready_sources", hold_local)
         first = asyncio.create_task(install_campaigns(workspace, source=bundle))
         arrival = asyncio.create_task(asyncio.to_thread(reached.wait, 10))
         done, _ = await asyncio.wait({first, arrival}, return_when=asyncio.FIRST_COMPLETED)
@@ -116,14 +114,14 @@ def test_install_claim_prepared_images_missing_plan_and_deleted_examples_stay_de
     identities = [item["id"] for item in receipt["campaigns"]]
     assert len(set(identities)) == 2
     assert all(str(UUID(identity)) == identity for identity in identities)
-    supplied, missing = [workspace.run_for(identity) for identity in identities]
-    assert supplied["state"] == "complete"
-    revision = workspace.state.revision(supplied["current_revision"])
-    assert revision["image_count"] == 30
+    supplied = workspace.current_composition(identities[0])
+    missing = workspace.run_for(identities[1])
+    assert workspace.run_for(identities[0]) is None
+    assert len(supplied["plan"].outputs) == 30 and len(supplied["sources"]) == 5
     assert missing["state"] == "planned" and missing["current_revision"] is None
     assert len(workspace.state.plan(missing["id"]).generation_products) == 1
-    assert workspace.state.attempts(supplied["id"]) == []
     assert workspace.state.attempts(missing["id"]) == []
+    assert not list(workspace.storage.root.glob("Campaigns/*/Outputs"))
     assert receipt["state"] == "complete" and receipt["elapsed_seconds"] > 0
     cleanup = Cleanup(workspace.state)
     for identity in identities:
@@ -199,7 +197,8 @@ def test_interrupted_setup_resumes_untouched_owned_draft_on_next_start(
         assert client.get(f"/api/motif/campaigns/{identity}").status_code == 200
     after = Intake(state.storage).read(identity)
     assert after["value"]["name"] == before["value"]["name"]
-    assert Workspace(state).run_for(identity)["state"] == "complete"
+    assert Workspace(state).run_for(identity) is None
+    assert len(Workspace(state).current_composition(identity)["sources"]) == 5
     with state.storage.connect() as db:
         assert len(db.execute("SELECT id FROM campaigns").fetchall()) == 2
         assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
@@ -219,75 +218,48 @@ def test_prepared_import_cannot_authorize_missing_imagery(tmp_path, bundle, monk
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
     receipt = asyncio.run(install_campaigns(workspace, source=bundle))
     missing = workspace.run_for(receipt["campaigns"][1]["id"])
-    _, campaigns = load_campaigns(bundle)
-    _, original, _, prepared, _ = campaigns[0]
     with pytest.raises(StorageError, match="complete supplied-image plan"):
-        install_prepared_outputs(workspace.state, missing["id"], original, prepared)
+        verify_ready_sources(workspace, missing["campaign_id"], True)
     with workspace.storage.connect() as db:
         assert workspace.state.run(missing["id"])["state"] == "planned"
         assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
 
 
-def test_prepared_install_never_renders_and_rebinds_all_outputs_and_metadata(
+def test_prepared_install_keeps_sources_and_current_metadata_without_finished_pngs(
     tmp_path, bundle, monkeypatch
 ):
     def forbidden(*args, **kwargs):
-        pytest.fail("Installing prepared examples must not render or execute production")
+        pytest.fail("Installing examples must not render or execute production")
 
     monkeypatch.setattr(Runner, "execute", forbidden)
     monkeypatch.setattr("campaign_studio.rendering.compose", forbidden)
     _, definitions = load_campaigns(bundle)
     original = definitions[0][1]
-    prepared = definitions[0][3].descriptor
     identities = []
     for folder in ["first", "second"]:
         workspace = Workspace(State(Storage(tmp_path / folder)))
         receipt = asyncio.run(install_campaigns(workspace, source=bundle))
-        run = workspace.run_for(receipt["campaigns"][0]["id"])
-        plan = workspace.state.plan(run["id"])
-        revision = workspace.state.revision(run["current_revision"])
-        manifest = json.loads(workspace.storage.path(revision["manifest_ref"]).read_bytes())
-        assert run["state"] == "complete" and run["digest"] == plan.digest
-        assert manifest["evidence"] == "bundled_pre_rendered"
-        assert manifest["metrics"]["pre_rendered_images"] == 30
-        assert manifest["metrics"]["local_render_seconds"] == 0
-        assert manifest["metrics"]["attempted_requests"] == 0
-        assert manifest["metrics"]["cost_status"] == "no_requests"
-        assert manifest["metrics"]["completed_images"] == 30
-        assert len(manifest["outputs"]) == 30
+        cid = receipt["campaigns"][0]["id"]
+        current = workspace.current_composition(cid)
+        plan = current["plan"]
+        assert workspace.run_for(cid) is None
+        assert len(plan.outputs) == 30 and len(current["sources"]) == 5
         old_ids = {p["id"] for p in original["products"]}
         assert old_ids.isdisjoint(p.id for p in plan.brief.products)
-        assert all(old not in json.dumps(manifest) for old in old_ids)
-        for item, record in zip(manifest["outputs"], prepared["outputs"], strict=True):
-            path = workspace.storage.path(revision["manifest_ref"]).parent / item["file"]
-            assert path.read_bytes() == (bundle / record["file"]).read_bytes()
-            assert item["sha256"] == record["sha256"]
-            assert item["pixel_sha256"] == record["pixel_sha256"]
         for asset in plan.assets.values():
-            assert asset.reference.startswith(
-                workspace.storage.project(run["campaign_id"]).run(run["id"]) + "/Inputs/"
-            )
+            assert "/Assets/" in asset.reference
             assert (
                 hashlib.sha256(workspace.storage.path(asset.reference).read_bytes()).hexdigest()
                 == asset.sha256
             )
         with workspace.storage.connect() as db:
-            metadata = db.execute("SELECT creative_id,value_json FROM creative_metadata").fetchall()
-            assert len(metadata) == 30
-            assert {row[0] for row in metadata} == {o.id for o in plan.outputs}
-            assert all(json.loads(row[1])["_context"]["content"] for row in metadata)
+            assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
+            assert db.execute("SELECT count(*) FROM creative_metadata").fetchone()[0] == 0
             assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
             assert db.execute("SELECT count(*) FROM package_exports").fetchone()[0] == 0
-            assert (
-                db.execute(
-                    "SELECT count(*) FROM file_owners WHERE reference=?",
-                    (workspace.storage.project(run["campaign_id"]).run(run["id"]),),
-                ).fetchone()[0]
-                == 1
-            )
-        identities.append(
-            {run["campaign_id"], run["id"], revision["id"], *(p.id for p in plan.brief.products)}
-        )
+            assert db.execute("SELECT count(*) FROM campaign_drafts").fetchone()[0] == 2
+        assert not list(workspace.storage.root.glob("Campaigns/*/Outputs"))
+        identities.append({cid, *(p.id for p in plan.brief.products)})
     assert identities[0].isdisjoint(identities[1])
 
 
@@ -323,39 +295,33 @@ def test_prepared_contract_mismatch_cannot_publish_complete(tmp_path, bundle):
         asyncio.run(install_campaigns(workspace, source=bundle))
     with workspace.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
-        assert db.execute("SELECT state,current_revision FROM runs").fetchall() == [
-            ("planned", None)
-        ]
+        assert db.execute("SELECT state,current_revision FROM runs").fetchall() == []
+        assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
 
 
-def test_interrupted_prepared_copy_stays_owned_and_setup_resumes(tmp_path, bundle, monkeypatch):
+def test_interrupted_source_verification_keeps_owned_inputs_and_setup_resumes(
+    tmp_path, bundle, monkeypatch
+):
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
-    write = workspace.storage.write
-    copied = []
-
-    def interrupted(reference, payload):
-        if "/Revisions/" in reference and "/images/" in reference:
-            if copied:
-                raise OSError("controlled copy interruption")
-            copied.append(reference)
-        return write(reference, payload)
-
     with monkeypatch.context() as patch:
-        patch.setattr(workspace.storage, "write", interrupted)
-        with pytest.raises(OSError, match="controlled copy interruption"):
+        patch.setattr(
+            "campaign_studio.bundled.verify_ready_sources",
+            lambda *args: (_ for _ in ()).throw(OSError("controlled source check interruption")),
+        )
+        with pytest.raises(OSError, match="controlled source check interruption"):
             asyncio.run(install_campaigns(workspace, source=bundle))
     receipt = json.loads(workspace.storage.path(RECEIPT).read_bytes())
     campaign = receipt["campaigns"][0]["id"]
-    run = workspace.run_for(campaign)
-    assert run["state"] == "planned" and run["current_revision"] is None
-    assert workspace.storage.path(copied[0]).exists()
+    source_refs = [
+        asset.reference for asset in workspace.current_composition(campaign)["sources"].values()
+    ]
+    assert workspace.run_for(campaign) is None
     resumed = asyncio.run(install_campaigns(workspace, source=bundle))
     assert resumed["state"] == "complete"
-    assert workspace.run_for(campaign)["state"] == "complete"
+    assert len(workspace.current_composition(campaign)["sources"]) == 5
     cleanup = Cleanup(workspace.state)
-    preview = cleanup.preview_campaign(campaign)
-    cleanup.delete_campaign(campaign, preview["token"])
-    assert not workspace.storage.path(copied[0]).exists()
+    cleanup.delete_campaign(campaign, cleanup.preview_campaign(campaign)["token"])
+    assert all(not workspace.storage.path(ref).exists() for ref in source_refs)
     assert (bundle / "supplied/prepared-outputs.json").exists()
 
 
@@ -392,7 +358,7 @@ def test_seed_retries_each_interrupted_stage_without_duplicate_uploads_or_runs(
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
     import campaign_studio.bundled as bundled
 
-    owner, method = (bundled, "install_prepared_outputs") if after == "outputs" else (Intake, after)
+    owner, method = (bundled, "verify_ready_sources") if after == "outputs" else (Intake, after)
     original = getattr(owner, method)
     calls = 0
 
@@ -416,7 +382,7 @@ def test_seed_retries_each_interrupted_stage_without_duplicate_uploads_or_runs(
     assert all(item["stage"] == "complete" for item in result["campaigns"])
     with workspace.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0] == 2
-        assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
+        assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
         assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
         uploads = [row[0] for row in db.execute("SELECT reference FROM uploads")]
     signatures = [
@@ -427,16 +393,33 @@ def test_seed_retries_each_interrupted_stage_without_duplicate_uploads_or_runs(
         for ref in uploads
     ]
     assert len(signatures) == len(set(signatures))
-    assert Workspace(workspace.state).run_for(first_ids[0])["state"] == "complete"
+    assert Workspace(workspace.state).run_for(first_ids[0]) is None
+    assert len(workspace.current_composition(first_ids[0])["sources"]) == 5
 
 
 @pytest.mark.parametrize("change", ["authored", "deleted", "damaged"])
-def test_seed_recovery_preserves_user_changes_and_deletion(tmp_path, bundle, monkeypatch, change):
+@pytest.mark.parametrize("stage", ["attachments", "outputs"])
+def test_seed_recovery_preserves_user_changes_and_deletion(
+    tmp_path, bundle, monkeypatch, change, stage
+):
     workspace = Workspace(State(Storage(tmp_path / "workspace")))
     with monkeypatch.context() as patch:
-        patch.setattr(
-            Intake, "upload", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("Stop setup"))
-        )
+        if stage == "attachments":
+            patch.setattr(
+                Intake,
+                "upload",
+                lambda *args, **kwargs: (_ for _ in ()).throw(OSError("Stop setup")),
+            )
+        else:
+            import campaign_studio.bundled as bundled
+
+            original = bundled.verify_ready_sources
+
+            def interrupted(*args, **kwargs):
+                original(*args, **kwargs)
+                raise OSError("Stop setup after output publication")
+
+            patch.setattr(bundled, "verify_ready_sources", interrupted)
         with pytest.raises(OSError, match="Stop setup"):
             asyncio.run(install_campaigns(workspace, source=bundle))
     record = json.loads(workspace.storage.path(RECEIPT).read_bytes())["campaigns"][0]
@@ -448,7 +431,9 @@ def test_seed_recovery_preserves_user_changes_and_deletion(tmp_path, bundle, mon
         projects = AuthoredProjects(workspace)
         current = projects.read(cid)
         current["authored"]["brief"]["name"] = "My own renamed campaign"
-        current["authored"]["form_drafts"]["fields"] = {"brief/name": "Unfinished work"}
+        current["authored"].setdefault("form_drafts", {})["fields"] = {
+            "brief/name": "Unfinished work"
+        }
         projects.save(
             cid, AuthoredSave(**{key: current[key] for key in ("version", "base", "authored")})
         )
@@ -456,12 +441,23 @@ def test_seed_recovery_preserves_user_changes_and_deletion(tmp_path, bundle, mon
         cleanup = Cleanup(workspace.state)
         cleanup.delete_campaign(cid, cleanup.preview_campaign(cid)["token"])
     else:
-        path.write_bytes(b"{")
-    before = path.read_bytes() if path.exists() else None
+        with workspace.storage.connect() as db:
+            db.execute("UPDATE campaign_drafts SET document_json=? WHERE campaign_id=?", ("{", cid))
+    with workspace.storage.connect() as db:
+        before = db.execute(
+            "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (cid,)
+        ).fetchone()
     result = asyncio.run(install_campaigns(workspace, source=bundle))
     assert result["campaigns"][0]["stage"] == "preserved"
     assert result["campaigns"][1]["stage"] == "complete"
-    assert (path.read_bytes() if path.exists() else None) == before
+    with workspace.storage.connect() as db:
+        assert (
+            db.execute(
+                "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (cid,)
+            ).fetchone()
+            == before
+        )
+    assert not path.exists()
     from campaign_studio.bundled import setup_notice
 
     assert bool(setup_notice(workspace)) is (change != "deleted")
@@ -522,7 +518,13 @@ def interrupted_creation(root, checkpoint):
 
 @pytest.mark.parametrize(
     "checkpoint",
-    ["registered", "original-temporary", "original-written", "draft-temporary", "draft-written"],
+    [
+        "registered",
+        "original-temporary",
+        "original-written",
+        "draft-before-commit",
+        "draft-written",
+    ],
 )
 def test_process_exit_during_initial_draft_resumes_the_same_examples(tmp_path, checkpoint):
     workspace, receipt = interrupted_creation(tmp_path / "workspace", checkpoint)
@@ -537,26 +539,18 @@ def test_process_exit_during_initial_draft_resumes_the_same_examples(tmp_path, c
     assert len(cards) == 2
     assert all(card["status"] != "damaged" for card in cards)
     assert note.read_bytes() == b"Keep my note"
-    image_counts = []
+    source_counts = []
     for campaign in ids:
         assert Intake(workspace.storage).read(campaign)
         run = workspace.run_for(campaign)
-        assert workspace.state.attempts(run["id"]) == []
-        if not run["current_revision"]:
-            image_counts.append(0)
-            continue
-        revision = workspace.state.revision(run["current_revision"])
-        manifest_path = workspace.storage.path(revision["manifest_ref"])
-        manifest = json.loads(manifest_path.read_bytes())
-        image_counts.append(len(manifest["outputs"]))
-        for output in manifest["outputs"]:
-            with Image.open(manifest_path.parent / output["file"]) as image:
-                image.load()
-                assert image.format == "PNG"
-    assert sorted(image_counts) == [0, 30]
+        if run:
+            assert workspace.state.attempts(run["id"]) == []
+        source_counts.append(len(workspace.current_composition(campaign)["sources"]))
+    assert sorted(source_counts) == [2, 5]
+    assert not list(workspace.storage.root.glob("Campaigns/*/Outputs"))
     with workspace.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0] == 2
-        assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
+        assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
     assert asyncio.run(install_campaigns(workspace)) is None
 
@@ -577,7 +571,10 @@ def test_initial_draft_recovery_does_not_replace_changed_campaign_work(tmp_path,
         changed = workspace.storage.path(reference)
     else:
         with workspace.storage.connect() as db:
-            db.execute("DELETE FROM file_owners WHERE reference=?", (project.draft,))
+            db.execute(
+                "DELETE FROM file_owners WHERE reference=?",
+                (project.ref("Brief/Imports/original.json"),),
+            )
     resumed = asyncio.run(install_campaigns(workspace))
     assert resumed["campaigns"][0]["stage"] == "preserved"
     assert resumed["campaigns"][1]["stage"] == "complete"

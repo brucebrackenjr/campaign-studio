@@ -231,8 +231,19 @@
 
 @media(prefers-reduced-motion:reduce){.pr-surface *{scroll-behavior:auto!important;transition:none!important}}
 
-/* Both image-starting actions remain visible when no source is attached. */
+/* Offer both starting actions only while the source choice is undecided. */
 .pr-missing-art{padding:10px;gap:8px}
 .pr-missing-art>strong,.pr-product-board .pr-missing-art>strong{font-size:20px;line-height:1.1}
 .pr-missing-actions{display:flex;flex-direction:column;gap:6px;width:100%;max-width:220px}
 .pr-missing-actions .pr-button{min-height:30px;padding:4px 8px;font-size:11px!important}
+
+/* Keep genuine item completion separate from continuous request activity. */
+.pr-generation-elapsed{display:flex;align-items:center;gap:8px;margin:8px 0 0!important;font-size:12px!important;font-variant-numeric:tabular-nums;color:var(--pr-muted)}
+.pr-working-indicator{width:12px;height:12px;flex:0 0 12px;border:2px solid #c5d2ba;border-top-color:#54704b;border-radius:50%;animation:pr-working 1s linear infinite}
+.pr-source-wait{animation:pr-working 3s linear infinite}
+.pr-operation-progress.is-active{position:relative;overflow:hidden}
+.pr-operation-progress.is-active:after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,#ffffff80 45%,transparent 70%);background-size:60% 100%;background-repeat:no-repeat;animation:pr-request-activity 1.8s linear infinite}
+.pr-key-access{padding:0 18px 12px;display:flex;justify-content:flex-start}
+@keyframes pr-working{to{transform:rotate(360deg)}}
+@keyframes pr-request-activity{from{background-position:-150% 0}to{background-position:250% 0}}
+@media(prefers-reduced-motion:reduce){.pr-working-indicator,.pr-source-wait,.pr-operation-progress.is-active:after{animation:none}.pr-operation-progress.is-active:after{background-position:center}}

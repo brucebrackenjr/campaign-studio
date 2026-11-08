@@ -18,7 +18,7 @@ function logoTarget(data, productId, market, ratio) {
   );
   if (
     !product ||
-    !output?.url ||
+    !output ||
     !data.logo_editable_products?.[productId]
   )
     throw new Error("This saved image is not available for logo editing.");
@@ -171,6 +171,7 @@ async function selectLogoFile(file, target) {
       "X-Campaign-Token": $('meta[name="campaign-token"]').content,
       "X-Campaign-ID": target.campaignId,
       "X-Image-Role": "logo",
+      "X-Asset-Name": encodeURIComponent((draft.brand?.name || "Brand") + " logo"),
     },
     body: file,
   });
@@ -448,48 +449,6 @@ async function previewLogoEditor(body) {
   return result;
 }
 
-async function reviewLatestLogo(body) {
-  for (;;) {
-    let current, target, context, image;
-    try {
-      current = await api(`/api/motif/campaigns/${body.target.campaignId}`);
-      target = logoTarget(
-        current,
-        body.target.productId,
-        body.target.market,
-        body.target.ratio,
-      );
-      image = current.manifest.outputs.find(
-        (o) =>
-          o.product_id === target.productId &&
-          o.market === target.market &&
-          o.ratio === target.ratio,
-      );
-      await decodedImage(image.url);
-      context = await logoContext(current, target);
-    } catch {
-      const choice = await logoHostDialog(
-        "The latest image is unavailable.",
-        "<p>Your logo draft is still here. Try loading the current version again.</p>",
-        logoHostButton("Keep my work", "cancel") +
-          logoHostButton("Try again", "retry", true),
-      );
-      if (choice === "retry") continue;
-      return { reviewed: false };
-    }
-    const choice = await logoHostDialog(
-      "Review the latest image.",
-      `<p><strong>Your logo draft is still here.</strong> Review the newer saved image before using it as your editing base.</p><div style="background:#e3e6db;margin:16px 0"><img src="${esc(image.url)}" alt="${esc(target.productName)} · ${esc(target.marketLabel)} · ${esc(target.formatName)} · saved revision ${target.revisionNumber}" style="display:block;width:100%;max-height:${innerHeight <= 820 ? 210 : 260}px;object-fit:contain"></div><p><strong>Current image</strong></p><p>${esc(target.productName)} · ${esc(target.marketLabel)} · ${esc(target.formatName)} ${esc(target.ratio)}</p><div class="data-row"><span>Your draft started from</span><b>Revision ${body.target.revisionNumber}</b></div><p>Use this image keeps your pending logo edits and checks a fresh preview against the latest saved work. It does not save or replace anything.</p>`,
-      logoHostButton("Keep my work", "cancel") +
-        logoHostButton("Use this image", "adopt", true),
-    );
-    if (choice !== "adopt") return { reviewed: false };
-    refreshAfterLogo(current);
-    logoSession.target = target;
-    return { reviewed: true, ...context };
-  }
-}
-
 async function applyLogo(body) {
   const owner = logoSession;
   if (!(await imageCleanupReady(body.target.campaignId, () =>
@@ -506,7 +465,7 @@ async function applyLogo(body) {
   } catch (error) {
     if (error.status === 409 && ["no_changes", "apply_not_accepted"].includes(error.code)) throw error;
     if (error.code === "storage_capacity" && (await imageCapacity(error)))
-      throw { handled: true, commitState: "not_started" };
+      throw { ...error, handled: true, commitState: "not_started" };
     current = await api(
       `/api/motif/campaigns/${body.target.campaignId}`,
     ).catch(() => null);
@@ -526,7 +485,7 @@ async function applyLogo(body) {
       throw error;
     }
   }
-  current ||= await api(`/api/motif/campaigns/${body.target.campaignId}`);
+  current ||= await api(`/api/motif/campaigns/${body.target.campaignId}?after_edit=true`);
   if (current.manifest?.revision_id !== result.revision_id)
     throw { code: "conflict", latestRevisionNumber: current.revision_number };
   const target = logoTarget(
@@ -553,7 +512,7 @@ async function applyLogo(body) {
 }
 
 async function openLogo(product, format, { isCurrent = () => true, signal } = {}) {
-  if (!canEditLogo(product) || !outputFor(product, lang, format)?.url)
+  if (!canEditLogo(product))
     throw new Error("Choose an available current image.");
   const authored = JSON.stringify(model.project?.authored.brief || model.value);
   let target = logoTarget(
@@ -562,17 +521,6 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
     MARKET[lang],
     FMT[format].ratio,
   );
-  const context = await logoContext(model, target, signal);
-  if (!isCurrent()) return;
-  if (
-    C.id !== target.campaignId ||
-    model.manifest.revision_id !== target.revisionId
-  )
-    throw new Error("The campaign changed. Reopen Edit logo.");
-  // A viewing-context save may acknowledge while the initial layers decode.
-  // Advance that authored guard without changing the accepted image target.
-  if (JSON.stringify(model.project?.authored.brief || model.value) === authored)
-    target.draftVersion = model.version;
   lastFocus = document.activeElement;
   modal = "logo";
   logoSession = {
@@ -584,7 +532,11 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
   };
   const workspaceOwner = studioWorkspace;
   logoEditor = MotifLogo.mount({
-    ...context,
+    target,
+    loading: true,
+    embedded: true,
+    logoUrl: C.logo,
+    savedDisplay: { compositeUrl: (typeof studioRetainedImage === "function" && studioRetainedImage()?.src) || outputFor(product, lang, format)?.url },
     root: studioWorkspace.root,
     onMount: markup => {
       studioWorkspace.root.classList.add("mf-logo-modal");
@@ -593,11 +545,11 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
     onUnmount: () => {},
     onSelectFile: (file) => selectLogoFile(file, logoSession.target),
     onPreview: previewLogoEditor,
+    onChange: immediate => scheduleStudioSave(immediate),
     onSave: (body) => withProjectApply(() => applyLogo(body)),
-    onReviewLatest: reviewLatestLogo,
+    onConflict: () => studioSave?.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 })),
     onSaved: () => {
       refreshStudioTargets();
-      refreshCatalog();
     },
     onClose: () => {
       if (studioWorkspace !== workspaceOwner) return;
@@ -611,4 +563,17 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
       }),
   });
   mountProjectViews();
+  const openingEditor = logoEditor;
+  const context = await logoContext(model, target, signal);
+  if (!isCurrent() || studioWorkspace !== workspaceOwner || logoEditor !== openingEditor) return;
+  if (C.id !== target.campaignId || model.manifest.revision_id !== target.revisionId)
+    throw new Error("The campaign changed. Reopen Edit logo.");
+  // Viewing-context acknowledgements may advance while verified layers decode.
+  if (JSON.stringify(model.project?.authored.brief || model.value) === authored)
+    target.draftVersion = model.version;
+  logoSession.target = target;
+  openingEditor.acceptContext?.({ ...context, target });
+  const displayed = openingEditor.root?.querySelector(".mf-logo-composite");
+  if (displayed && !displayed.hidden) await displayed.decode();
+  if (isCurrent() && logoEditor === openingEditor && typeof studioPreviewReady === "function") studioPreviewReady();
 }

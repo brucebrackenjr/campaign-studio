@@ -1,14 +1,21 @@
 import asyncio
 import base64
 import json
+import re
+from pathlib import PurePosixPath
+from uuid import uuid4
 
 import httpx
 import pytest
 
+from campaign_studio.authored import AuthoredProjects, AuthoredSave
 from campaign_studio.brief import Brief
+from campaign_studio.campaign_drafts import write as write_draft
 from campaign_studio.generation import MODEL
+from campaign_studio.handoff import DeliveryAction, Handoff
+from campaign_studio.intake import Intake
 from campaign_studio.motif import attempt_details, campaign_data
-from campaign_studio.planning import make_plan
+from campaign_studio.planning import canonical_hash, make_plan
 from campaign_studio.provider import OpenAIImages
 from campaign_studio.runner import Runner
 from campaign_studio.sample import write_sample
@@ -40,7 +47,21 @@ def generated_case(tmp_path, concept_count=1):
         }
     state = State(storage)
     run_id = state.create(make_plan(Brief.model_validate(value), storage), concept_count)
-    state.confirm(run_id, state.plan(run_id).digest)
+    plan = state.plan(run_id)
+    prepared = plan.brief.model_dump(mode="json")
+    write_draft(
+        storage,
+        brief.campaign_id,
+        {
+            "authored": {"brief": prepared},
+            "composition_schema": 1,
+            "version": uuid4().hex,
+            "planned_run": run_id,
+            "planned_authored_hash": canonical_hash(prepared),
+            "authored_base": {"run_id": run_id, "revision_id": None, "metadata_snapshot_id": None},
+        },
+    )
+    state.confirm(run_id, plan.digest)
     return state, Runner(state), run_id, response
 
 
@@ -73,9 +94,12 @@ def test_sdk_request_parameters_raw_response_and_zero_automatic_retries(tmp_path
     assert attempt["request_id"] == "synthetic-request"
     assert json.loads(state.storage.path(attempt["response_ref"]).read_bytes()) == body
     assert state.storage.path(attempt["source_ref"]).is_file()
+    assert re.fullmatch(
+        r"[a-z0-9]+(?:-[a-z0-9]+)*-[a-f0-9]{32}\.png", PurePosixPath(attempt["source_ref"]).name
+    )
     assert "Authorization" not in state.storage.path(attempt["response_ref"]).read_text()
     assert manifest["metrics"]["attempted_requests"] == 1
-    assert manifest["metrics"]["cost_status"] == "unknown"
+    assert manifest["metrics"]["usage_cost_estimate"]["actual_charge"] is None
 
 
 def test_500_response_consumes_one_slot_and_pauses_without_sdk_retry(tmp_path):
@@ -91,7 +115,7 @@ def test_500_response_consumes_one_slot_and_pauses_without_sdk_retry(tmp_path):
     provider = OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport))
     result = asyncio.run(runner.execute(run_id, provider))
     assert len(calls) == 1
-    assert not result["complete"] and result["metrics"]["completed_images"] == 6
+    assert not result["complete"] and result["metrics"]["sources_ready"] == 1
     assert state.attempts(run_id)[0]["state"] == "failed"
     with pytest.raises(StateError, match="confirmation"):
         asyncio.run(runner.execute(run_id, provider))
@@ -137,7 +161,7 @@ def test_recorded_limit_reason_has_safe_remedy_without_automatic_retry(
     assert message.code == notice and remedy in message.message
     assert "PRIVATE" not in message.message and "PRIVATE" not in attempt["error_kind"]
     assert result["metrics"]["attempted_requests"] == 1
-    assert result["metrics"]["completed_images"] == 6
+    assert result["metrics"]["sources_ready"] == 1
     assert not state.storage.path(attempt["source_ref"]).exists()
     if notice == "billing_limit":
         assert "allowance does not resolve" in message.message
@@ -173,7 +197,7 @@ def test_http_refusal_stays_known_when_diagnostic_receipt_cannot_be_saved(
     details = attempt_details(Workspace(state), [attempt])[0]
     assert not details["response_retained"] and not details["response_recoverable"]
     assert provider_notice([attempt]).code == "billing_limit"
-    assert result["metrics"]["completed_images"] == 6
+    assert result["metrics"]["sources_ready"] == 1
     assert result["metrics"]["attempted_requests"] == 1
     with pytest.raises(StateError, match="confirmation"):
         asyncio.run(runner.execute(run_id, provider))
@@ -202,7 +226,7 @@ def test_failed_http_response_preserves_usage_without_treating_it_as_imagery(tmp
         )
     )
     attempt = state.attempts(run_id)[0]
-    assert result["metrics"]["completed_images"] == 6
+    assert result["metrics"]["sources_ready"] == 1
     assert attempt["state"] == "failed" and attempt["error_kind"] == "http_503"
     assert not state.storage.path(attempt["source_ref"]).exists()
     usage = attempt["usage_json"]
@@ -247,7 +271,7 @@ def test_overall_deadline_waits_for_transport_cleanup_and_preserves_unknown(tmp_
     assert not result["complete"]
     assert state.attempts(run_id)[0]["state"] == "unknown"
     assert result["metrics"]["unknown_requests"] == 1
-    assert result["metrics"]["cost_status"] == "unknown"
+    assert result["metrics"]["usage_cost_estimate"]["unreported_attempts"] == 1
 
 
 def test_duplicate_start_and_stop_prevent_second_dispatch(tmp_path):
@@ -336,7 +360,7 @@ def test_interrupted_intent_needs_explicit_retry_and_retains_old_unknown(tmp_pat
     restarted = Runner(State(state.storage))
     assert state.attempts(run_id)[0]["state"] == "unknown"
     partial = restarted.recover_local(run_id)
-    assert partial["metrics"]["completed_images"] == 6
+    assert partial["metrics"]["sources_ready"] == 1
     state.confirm(run_id, state.plan(run_id, current=False).digest, retry_allowance=2)
     calls = []
 
@@ -353,10 +377,22 @@ def test_interrupted_intent_needs_explicit_retry_and_retains_old_unknown(tmp_pat
     assert result["complete"] and len(calls) == 1
     assert [item["state"] for item in state.attempts(run_id)] == ["unknown", "decoded"]
     assert result["metrics"]["attempted_requests"] == 2
-    assert result["metrics"]["cost_status"] == "unknown"
+    assert result["metrics"]["usage_cost_estimate"]["unreported_attempts"] == 1
 
 
-def test_retry_rejects_local_copy_failure_and_preserves_confirmed_current_copy(tmp_path):
+def save_current(state, campaign, mutate):
+    projects = AuthoredProjects(Workspace(state))
+    current = projects.read(campaign)
+    mutate(current["authored"]["brief"])
+    return projects.save(
+        campaign,
+        AuthoredSave(
+            version=current["version"], base=current["base"], authored=current["authored"]
+        ),
+    )
+
+
+def test_local_copy_failure_never_authorizes_a_paid_retry_and_keeps_current_copy(tmp_path):
     state, runner, run_id, body = generated_case(tmp_path)
     calls = []
 
@@ -365,67 +401,65 @@ def test_retry_rejects_local_copy_failure_and_preserves_confirmed_current_copy(t
         return httpx.Response(200, json=body)
 
     provider = OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport))
-    original_digest = state.plan(run_id).digest
     first = asyncio.run(runner.execute(run_id, provider))
-    value = state.plan(run_id).brief.model_dump()
-    value["markets"]["es-MX"]["copy"]["message"] = "Para cada día."
-    edited = make_plan(Brief.model_validate(value), state.storage)
-    corrected = runner.revise(run_id, edited.brief, first["revision_id"], edited.digest)
-    value["markets"]["en-US"]["copy"]["message"] = "TESTBLOCK"
-    blocked = make_plan(Brief.model_validate(value), state.storage)
-    partial = runner.revise(run_id, blocked.brief, corrected["revision_id"], blocked.digest)
-    assert not partial["complete"]
-    with pytest.raises(StateError, match="No imagery is pending"):
-        state.confirm(run_id, edited.digest, retry_allowance=2)
-    recovered = runner.recover_local(run_id)
-    assert recovered["complete"] and len(calls) == 1
-    assert state.plan(run_id).brief.markets["es-MX"].text.message == "Para cada día."
-    assert state.revision(partial["revision_id"])["complete"] == 0
-
-    # A deliberately confirmed retry for genuinely missing imagery also binds
-    # the current corrected plan, even though the original brief differs.
+    campaign = first["campaign_id"]
+    save_current(
+        state, campaign, lambda b: b["markets"]["es-MX"]["copy"].update(message="Para cada día.")
+    )
+    blocked = save_current(
+        state, campaign, lambda b: b["markets"]["en-US"]["copy"].update(message="TESTBLOCK")
+    )
+    with pytest.raises(StateError):
+        Handoff(state).create_current_zip(campaign, DeliveryAction(version=blocked["version"]))
+    assert len(calls) == 1 and state.revision_count(run_id) == 0
+    save_current(
+        state, campaign, lambda b: b["markets"]["en-US"]["copy"].update(message="Ready for today.")
+    )
+    # A lost source requires a new, explicitly reviewed request, while current copy survives.
     attempt = state.attempts(run_id)[0]
     state.storage.path(attempt["source_ref"]).unlink()
     state.storage.path(attempt["response_ref"]).unlink()
-    state.set_status(run_id, "partial")
-    with pytest.raises(StateError, match="stale"):
-        state.confirm(run_id, original_digest, retry_allowance=2)
-    state.confirm(run_id, edited.digest, retry_allowance=2)
-    assert state.plan(run_id, current=False).digest == edited.digest
-    retried = asyncio.run(runner.execute(run_id, provider))
-    assert retried["complete"] and len(calls) == 2
-    assert state.plan(run_id).brief.markets["es-MX"].text.message == "Para cada día."
+    ws = Workspace(state)
+    version = AuthoredProjects(ws).read(campaign)["version"]
+    proposal = Intake(state.storage).prepare(campaign, version, ws)
+    next_run = ws.run_for(campaign)["id"]
+    assert next_run != run_id and len(calls) == 1
+    assert proposal.generation_products == ["product-1"]
+    state.confirm(next_run, proposal.digest)
+    assert asyncio.run(runner.execute(next_run, provider))["complete"]
+    assert len(calls) == 2
+    assert (
+        ws.current_composition(campaign)["plan"].brief.markets["es-MX"].text.message
+        == "Para cada día."
+    )
+    assert state.revision_count(next_run) == 0
 
 
-def test_local_composition_failure_recovers_saved_imagery_without_another_call(
-    tmp_path, monkeypatch
-):
+def test_source_production_never_attempts_a_finished_png_write(tmp_path, monkeypatch):
     state, runner, run_id, body = generated_case(tmp_path)
     calls = []
+    original = state.storage.write_new
+
+    def disallow_finished_image(reference, payload):
+        assert "/Outputs/" not in reference
+        return original(reference, payload)
+
+    monkeypatch.setattr(state.storage, "write_new", disallow_finished_image)
 
     def transport(request):
         calls.append(request.url.path)
         return httpx.Response(200, json=body)
 
-    write = state.storage.write
-
-    def fail_output(reference, payload):
-        if "/Revisions/" in reference and reference.endswith(".png"):
-            raise OSError("Synthetic disk failure")
-        return write(reference, payload)
-
-    monkeypatch.setattr(state.storage, "write", fail_output)
-    failed = asyncio.run(
+    result = asyncio.run(
         runner.execute(
             run_id,
             OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport)),
         )
     )
-    assert not failed["complete"] and len(calls) == 1
-    assert state.attempts(run_id)[0]["state"] == "decoded"
-    monkeypatch.setattr(state.storage, "write", write)
-    recovered = runner.recover_local(run_id, failed["revision_id"])
-    assert recovered["complete"] and len(calls) == 1
+    assert result["complete"] and result["sources_ready"] == 2
+    assert result["metrics"]["completed_images"] == 0 and result["outputs"] == []
+    assert state.revision_count(run_id) == 0 and len(calls) == 1
+    assert not list(state.storage.root.glob("Campaigns/**/Outputs/**/*.png"))
 
 
 def test_request_model_change_changes_plan_digest_and_transparent_logo_blocks(
@@ -466,7 +500,7 @@ def test_received_response_survives_temporary_source_write_failure(tmp_path, mon
 
     monkeypatch.setattr(state.storage, "write", fail_source)
     partial = runner.recover_local(run_id)
-    assert partial["metrics"]["completed_images"] == 6
+    assert partial["metrics"]["sources_ready"] == 1
     assert state.attempts(run_id)[0]["state"] == "received"
     assert state.attempts(run_id)[0]["error_kind"] == "saved_response_storage"
     assert attempt_details(Workspace(state), state.attempts(run_id))[0]["response_recoverable"]
@@ -476,7 +510,7 @@ def test_received_response_survives_temporary_source_write_failure(tmp_path, mon
     assert state.storage.path(attempt["response_ref"]).is_file()
     monkeypatch.setattr(state.storage, "write", write)
     complete = runner.recover_local(run_id)
-    assert complete["complete"] and complete["metrics"]["completed_images"] == 12
+    assert complete["complete"] and complete["metrics"]["sources_ready"] == 2
     assert len(state.attempts(run_id)) == 1
     assert state.source_is_intact(state.attempts(run_id)[0])
     assert state.campaign_metrics(state.run(run_id)["campaign_id"])["usage_cost_estimate"] == cost
@@ -492,7 +526,7 @@ def test_received_usage_survives_image_processing_failure(tmp_path, monkeypatch,
     else:
 
         def fail_source(reference, payload):
-            if reference.endswith("/source.png"):
+            if reference == state.attempts(run_id)[0]["source_ref"]:
                 raise OSError("Synthetic temporary source write failure")
             return write(reference, payload)
 
@@ -509,7 +543,7 @@ def test_received_usage_survives_image_processing_failure(tmp_path, monkeypatch,
         )
     )
     attempt = state.attempts(run_id)[0]
-    assert first["metrics"]["completed_images"] == 6 and attempt["state"] == "received"
+    assert first["metrics"]["sources_ready"] == 1 and attempt["state"] == "received"
     assert attempt["request_id"] == "usage-before-image"
     expected_kind = (
         "saved_response_decode" if failure == "image_decode" else "saved_response_storage"
@@ -524,13 +558,7 @@ def test_received_usage_survives_image_processing_failure(tmp_path, monkeypatch,
     model = campaign_data(Workspace(state), state.run(run_id)["campaign_id"])
     assert len(model["local_recovery"]["output_ids"]) == (6 if failure == "source_write" else 0)
     assert model["local_recovery"]["saved_result"] is (failure == "source_write")
-    # A separate damaged supplied output remains locally recoverable in either case.
-    damaged = next(item for item in first["outputs"] if item["file"])
-    prefix = state.revision(first["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    state.storage.path(f"{prefix}/{damaged['file']}").write_bytes(b"damaged output")
-    mixed = campaign_data(Workspace(state), state.run(run_id)["campaign_id"])
-    assert damaged["id"] in mixed["local_recovery"]["output_ids"]
-    assert len(mixed["local_recovery"]["output_ids"]) == (7 if failure == "source_write" else 1)
+    assert first["outputs"] == [] and state.revision_count(run_id) == 0
     assert json.loads(attempt["usage_json"]) == body["usage"]
     campaign = state.run(run_id)["campaign_id"]
     cost = state.campaign_metrics(campaign)["usage_cost_estimate"]
@@ -543,7 +571,7 @@ def test_received_usage_survives_image_processing_failure(tmp_path, monkeypatch,
     assert len(calls) == len(state.attempts(run_id)) == 1
 
 
-def test_changed_generated_master_needs_explicit_recovery_before_copy_revision(tmp_path):
+def test_changed_generated_master_requires_recovery_but_preserves_autosaved_copy(tmp_path):
     import hashlib
 
     from PIL import Image
@@ -561,36 +589,29 @@ def test_changed_generated_master_needs_explicit_recovery_before_copy_revision(t
             OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport)),
         )
     )
+    campaign = first["campaign_id"]
     attempt = state.attempts(run_id)[0]
     original = state.storage.path(attempt["source_ref"]).read_bytes()
     assert attempt["source_sha256"] == hashlib.sha256(original).hexdigest()
     with Image.new("RGB", (1920, 1920), "red") as replacement:
         replacement.save(state.storage.path(attempt["source_ref"]))
     assert not state.source_is_intact(attempt)
-    value = state.plan(run_id).brief.model_dump()
-    value["markets"]["es-MX"]["copy"]["message"] = "Para cada día."
-    brief = Brief.model_validate(value)
-    with pytest.raises(StateError, match="Saved inputs are missing or changed"):
-        runner.revise(run_id, brief, first["revision_id"], make_plan(brief, state.storage).digest)
-    assert state.run(run_id)["current_revision"] == first["revision_id"]
-    assert not state.source_is_intact(attempt)
-    recovered = runner.recover_local(run_id)
-    assert all(
-        a["pixel_sha256"] == b["pixel_sha256"]
-        for a, b in zip(first["outputs"], recovered["outputs"], strict=True)
+    saved = save_current(
+        state, campaign, lambda b: b["markets"]["es-MX"]["copy"].update(message="Para cada día.")
     )
-    corrected = runner.revise(
-        run_id, brief, recovered["revision_id"], make_plan(brief, state.storage).digest
-    )
-    assert corrected["complete"]
+    ws = Workspace(state)
+    assert "product-1" not in ws.current_composition(campaign)["sources"]
+    with pytest.raises(StateError):
+        Handoff(state).create_current_zip(campaign, DeliveryAction(version=saved["version"]))
+    assert runner.recover_local(run_id)["complete"]
     assert state.storage.path(attempt["source_ref"]).read_bytes() == original
     assert state.source_is_intact(state.attempts(run_id)[0])
-    assert len(calls) == 1 and len(state.attempts(run_id)) == 1
-    assert all(
-        old["sha256"] == new["sha256"]
-        for old, new in zip(recovered["outputs"], corrected["outputs"], strict=True)
-        if old["market"] == "en-US"
+    assert (
+        ws.current_composition(campaign)["plan"].brief.markets["es-MX"].text.message
+        == "Para cada día."
     )
+    assert len(calls) == len(state.attempts(run_id)) == 1
+    assert state.revision_count(run_id) == 0
 
 
 @pytest.mark.parametrize("entry", [None, "invalid image entry"])
@@ -613,10 +634,10 @@ def test_malformed_response_entry_remains_a_bounded_local_recovery_failure(
             OpenAIImages("synthetic-test-credential", transport=httpx.MockTransport(transport)),
         )
     )
-    assert first["metrics"]["completed_images"] == 6
+    assert first["metrics"]["sources_ready"] == 1
     assert state.attempts(run_id)[0]["error_kind"] == "saved_response_decode"
     recovered = runner.recover_local(run_id)
-    assert recovered["metrics"]["completed_images"] == 6
+    assert recovered["metrics"]["sources_ready"] == 1
     assert state.attempts(run_id)[0]["state"] == "received"
     assert state.attempts(run_id)[0]["error_kind"] == "saved_response_decode"
     assert len(calls) == 1 and len(state.attempts(run_id)) == 1

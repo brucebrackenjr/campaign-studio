@@ -2,8 +2,9 @@
 
 import argparse
 import hashlib
+import struct
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -14,11 +15,32 @@ def build(destination: Path):
     top = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True)
     if Path(top.strip()).resolve() != ROOT:
         raise ValueError("Build the source ZIP from Motif’s own Git checkout.")
-    committed_at = subprocess.check_output(
-        ["git", "show", "-s", "--format=%ct", "HEAD"], cwd=ROOT, text=True
+    committed_at = datetime.fromisoformat(
+        subprocess.check_output(
+            ["git", "show", "-s", "--format=%cI", "HEAD"], cwd=ROOT, text=True
+        ).strip()
     )
-    # Keep repeated packages stable while showing the source commit's actual date.
-    archive_date = datetime.fromtimestamp(int(committed_at.strip()), UTC).timetuple()[:6]
+    # DOS timestamps have no timezone. Use the commit's recorded local time as
+    # the fallback, with absolute UTC timestamps for extractors that support them.
+    archive_date = committed_at.timetuple()[:6]
+    committed_epoch = int(committed_at.timestamp())
+    if not 1980 <= committed_at.year <= 2107:
+        raise ValueError("The source commit date is outside ZIP's supported date range.")
+    # Info-ZIP UT stores modification time in signed Unix seconds. NTFS stores
+    # 100-nanosecond intervals since 1601, and also covers dates beyond 2038.
+    timestamp_extra = (
+        struct.pack("<HHBi", 0x5455, 5, 1, committed_epoch)
+        if committed_epoch <= 0x7FFFFFFF
+        else b""
+    )
+    # Apple's ditto still reads the older Info-ZIP UX timestamp field. Include
+    # only its two timestamps, never machine-specific user or group IDs.
+    if committed_epoch <= 0x7FFFFFFF:
+        timestamp_extra += struct.pack("<HHii", 0x5855, 8, committed_epoch, committed_epoch)
+    filetime = (committed_epoch + 11_644_473_600) * 10_000_000
+    # Normalize all archive times to this source snapshot, not checkout access
+    # or creation times, so rebuilding the same source produces the same bytes.
+    timestamp_extra += struct.pack("<HHIHHQQQ", 0x000A, 32, 0, 1, 24, *([filetime] * 3))
     names = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).split(b"\0")
     with ZipFile(destination, "x") as archive:
         for name in sorted(n.decode("utf-8") for n in names if n):
@@ -43,6 +65,7 @@ def build(destination: Path):
             ):
                 raise ValueError(f"Private file is outside the distribution: {name}")
             entry = ZipInfo(f"Motif/{name}", archive_date)
+            entry.extra = timestamp_extra
             entry.create_system = 3
             entry.external_attr = 0o100644 << 16
             archive.writestr(entry, path.read_bytes(), compress_type=ZIP_DEFLATED)

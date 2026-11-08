@@ -1,7 +1,6 @@
 """Small application operations shared by the four task pages."""
 
 import hashlib
-import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -17,9 +16,8 @@ from campaign_studio.brief import (
     Ratio,
     TextPlacement,
 )
-from campaign_studio.planning import Plan, compare_plans, make_local_plan
-from campaign_studio.rendering import blocks_output
-from campaign_studio.state import State, StateError
+from campaign_studio.planning import Plan
+from campaign_studio.state import State
 from campaign_studio.validation import issue_messages, validation_issues
 
 
@@ -166,7 +164,7 @@ class RunAction(Contract):
 
 
 class FrameEdit(Contract):
-    run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     product_id: str
     market: Market
@@ -180,7 +178,7 @@ class FrameEdit(Contract):
 
 
 class TextEdit(Contract):
-    run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     product_id: str
     market: Market
@@ -204,7 +202,7 @@ class TextEdit(Contract):
 
 
 class LogoEdit(Contract):
-    run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     product_id: str
     market: Market
@@ -263,6 +261,8 @@ class Workspace:
     def __init__(self, state: State):
         self.state = state
         self.storage = state.storage
+        self.display_inputs = (None, {})
+        self.display_damage = {}
 
     def runs(self, campaign_id: str | None = None) -> list[dict]:
         import sqlite3
@@ -347,9 +347,10 @@ class Workspace:
                 "page": "campaign",
             }
             try:
-                path = self.storage.path(self.storage.project(identity).draft)
-                if path.is_file():
-                    document = json.loads(path.read_bytes())
+                from campaign_studio.campaign_drafts import read as read_draft
+
+                document = read_draft(self.storage, identity)
+                if document is not None:
                     value = document.get("authored", {}).get("brief", document["value"])
                     entry.update(
                         name=value.get("name") or "Untitled campaign",
@@ -367,95 +368,57 @@ class Workspace:
             )
         return entries
 
+    def current_composition(self, campaign_id, expected_version=None):
+        from campaign_studio.compositions import snapshot
+
+        return snapshot(self, campaign_id, expected_version)
+
+    def preview_composition(self, campaign_id, expected_version=None):
+        from campaign_studio.compositions import snapshot
+
+        return snapshot(self, campaign_id, expected_version, preview=True)
+
+    def save_composition(self, campaign_id, edit):
+        from campaign_studio.compositions import save
+
+        return save(self, campaign_id, edit)
+
     def plan(self, campaign_id: str) -> Plan:
-        run = self.run_for(campaign_id)
-        if run is None:
-            raise ActionError("no_plan", "This campaign has no saved production plan.", 404)
-        return self.state.plan(run["id"])
+        return self.current_composition(campaign_id)["plan"]
 
-    def retained_product_source(self, campaign_id: str, product_id: str) -> dict | None:
+    def retained_product_source(
+        self, campaign_id: str, product_id: str, *, verify_bytes=True
+    ) -> dict | None:
         """The saved attachment choice stays separate from active concept input."""
-        from campaign_studio.brief import FinishedScene, PreparedProduct
-        from campaign_studio.intake import Intake
+        from campaign_studio.campaign_drafts import read
 
-        self.run_for(campaign_id)
-        document = Intake(self.storage).read(campaign_id) or {}
+        document = read(self.storage, campaign_id) or {}
         authored = document.get("authored", {})
-        if not any(
-            p.get("id") == product_id
-            for p in authored.get("brief", document.get("value", {})).get("products", [])
-            if isinstance(p, dict)
-        ):
+        product = next(
+            (
+                p
+                for p in authored.get("brief", document.get("value", {})).get("products", [])
+                if isinstance(p, dict) and p.get("id") == product_id
+            ),
+            None,
+        )
+        if not product:
             return None
         source = authored.get("form_drafts", {}).get("product_images", {}).get(product_id)
-        if isinstance(source, dict):
-            try:
-                schema = (
-                    PreparedProduct if source.get("role") == "prepared_product" else FinishedScene
-                )
-                source = schema.model_validate(source).model_dump(mode="json")
-                if self.storage.path(source["path"]).is_file():
-                    return source
-            except ValueError, OSError:
-                pass
-        output = self.state.current_output(campaign_id)
-        runs = [output[0]] if output else []
-        latest = self.run_for(campaign_id)
-        if latest and latest["id"] not in runs:
-            runs.append(latest["id"])
-        for run_id in runs:
-            plan = self.state.plan(run_id)
-            product = next((p for p in plan.brief.products if p.id == product_id), None)
-            asset = plan.assets.get(f"products/{product_id}")
-            if product and product.source.role != "concept" and asset:
-                try:
-                    if (
-                        hashlib.sha256(self.storage.path(asset.reference).read_bytes()).hexdigest()
-                        == asset.sha256
-                    ):
-                        return product.source.model_dump(mode="json")
-                except OSError:
-                    pass
-        return None
+        if not isinstance(source, dict) or not source.get("path"):
+            source = product.get("source", {})
+        if source.get("role") == "concept" or not source.get("path"):
+            return None
+        self.storage.project(campaign_id).require(source["path"], inspect_file=verify_bytes)
+        return source
 
-    def source_preview_reference(self, campaign_id: str, product_id: str) -> str | None:
+    def source_preview_reference(
+        self, campaign_id: str, product_id: str, *, verify_bytes=True
+    ) -> str | None:
         """Resolve current supplied pixels or an intact master for the same imagery intent."""
-        from campaign_studio.authored import AuthoredProjects
-        from campaign_studio.brief_preview import same_imagery_intent
-
-        run = self.run_for(campaign_id)
-        plan = self.plan(campaign_id)
-        product = next((p for p in plan.brief.products if p.id == product_id), None)
-        if product is None:
-            return None
-        asset = plan.assets.get(f"products/{product_id}")
-        if product.source.role == "concept":
-            raw = AuthoredProjects(self).read(campaign_id)["authored"]["brief"]
-            if not same_imagery_intent(plan, raw, product_id):
-                return None
-            asset = plan.assets.get(f"masters/{product_id}")
-        if asset:
-            try:
-                if (
-                    hashlib.sha256(self.storage.path(asset.reference).read_bytes()).hexdigest()
-                    == asset.sha256
-                ):
-                    return asset.reference
-            except OSError:
-                pass
-            return None
-        if run and product.source.role == "concept":
-            return next(
-                (
-                    a["source_ref"]
-                    for a in reversed(self.state.attempts(run["id"]))
-                    if a["product_id"] == product_id
-                    and a["state"] == "decoded"
-                    and self.state.source_is_intact(a)
-                ),
-                None,
-            )
-        return None
+        current = self.preview_composition(campaign_id)
+        asset = current["sources"].get(product_id)
+        return asset.reference if asset else None
 
     def manifest(self, run: dict, revision_id: str | None = None) -> dict | None:
         selected = revision_id or self.state.effective_revision(run["id"])
@@ -465,409 +428,42 @@ class Workspace:
         revision = self.state.revision(selected)
         if revision["run_id"] != run["id"]:
             raise ActionError("unknown_revision", "This saved revision is unavailable.", 404)
-        return json.loads(self.storage.path(revision["manifest_ref"]).read_bytes())
+        return self.state.revision_manifest(revision)
 
-    def logo(self, campaign_id: str, edit: LogoEdit, *, allow_unchanged: bool = False):
-        from PIL import Image
-
-        from campaign_studio.brief import FORMATS
-        from campaign_studio.imaging import (
-            fit_logo_placement,
-            load_image,
-            logo_placement,
-            placed_logo_bounds,
-        )
-        from campaign_studio.intake import Intake
-
-        try:
-            run = self.edit_run(campaign_id, edit.run_id, edit.revision_id, edit.product_id)
-        except StateError as error:
-            raise ActionError("logo_stale_revision", str(error)) from error
-        old = self.state.plan(run["id"])
-        manifest = self.manifest(run, edit.revision_id)
-        available = {o["id"] for o in manifest["outputs"] if o["file"]}
-        if edit.output_id not in available:
-            raise ActionError("creative", "Choose an available saved image to edit its logo.", 422)
-        revision = self.state.revision(edit.revision_id)
-        prefix = revision["manifest_ref"].rsplit("/", 1)[0]
-        damaged = []
+    def require_saved_outputs(self, revision_id, manifest, output_ids):
+        """An edit may replace its own verified files. Other files belong to other edits."""
+        selected = set(output_ids)
+        prefix = self.state.revision(revision_id)["manifest_ref"].rsplit("/", 1)[0]
         for output in manifest["outputs"]:
-            if not output["file"]:
+            if output["id"] not in selected or not output["file"]:
                 continue
             try:
-                intact = (
-                    hashlib.sha256(
-                        self.storage.path(f"{prefix}/{output['file']}").read_bytes()
-                    ).hexdigest()
-                    == output["sha256"]
-                )
-            except OSError:
-                intact = False
-            if not intact:
-                product = next(p for p in old.brief.products if p.id == output["product_id"])
-                damaged.append(f"{product.name} · {output['market']} · {output['ratio']}")
-        # Missing recorded outputs are supported partial work. Damaged formerly
-        # saved PNGs need explicit recovery; a logo edit must not repair them or
-        # publish an unintended partial behind a protected complete pointer.
-        if damaged and (edit.replacement or "placement" in edit.model_fields_set):
-            raise ActionError(
-                "saved_images_unavailable",
-                "Saved images are missing or changed: "
-                + "; ".join(damaged)
-                + ". Use local recovery on Production before applying logo edits.",
-            )
-        if edit.pre_fit_placement is not None and (not edit.replacement or edit.placement is None):
-            raise ActionError("logo_fit", "Review the replacement logo preview again.", 422)
-        value = old.brief.model_dump(mode="json")
-        fitted = []
-        logo_size = None
-        same_artwork = False
-        same_placement = False
-        if edit.replacement:
-            document = Intake(self.storage).current_document(campaign_id, self)
-            if document and document["version"] != edit.draft_version:
-                raise ActionError("stale_brief", "The brief changed. Reopen the logo editor.")
-            try:
-                self.storage.project(campaign_id).upload_name(edit.replacement)
-            except ValueError as error:
-                raise ActionError(
-                    "logo", "Choose a PNG or JPEG logo using this campaign's file picker.", 422
-                ) from error
-            value["brand"]["logo_path"] = edit.replacement
-            value["brand"]["logo_provenance"] = (
-                edit.provenance.model_dump()
-                if edit.provenance
-                else {
-                    "label": "User-supplied logo",
-                    "rights": "Not provided",
-                    "synthetic": False,
-                }
-            )
-            logo, _ = load_image(self.storage.path(edit.replacement))
-            logo_size = logo.size
-            old_asset = old.assets.get("logo")
-            if old_asset:
-                try:
-                    same_artwork = (
-                        hashlib.sha256(
-                            self.storage.path(old_asset.reference).read_bytes()
-                        ).hexdigest()
-                        == old_asset.sha256
-                        == hashlib.sha256(
-                            self.storage.path(edit.replacement).read_bytes()
-                        ).hexdigest()
-                    )
-                except OSError:
-                    same_artwork = False
-            if same_artwork:
-                value["brand"] = old.brief.brand.model_dump(mode="json")
-            # Saved dimensions remain authoritative when the former file is missing.
-            previous_logo = (
-                Image.new("RGBA", (old_asset.width, old_asset.height)) if old_asset else logo
-            )
-            try:
-                if same_artwork and edit.placement is not None:
-                    selected = next(o for o in old.outputs if o.id == edit.output_id)
-                    size = FORMATS[selected.ratio]
-                    if selected.framing.logo_placement is not None:
-                        before_bounds = placed_logo_bounds(
-                            logo_size, size, selected.framing.logo_placement
-                        )
-                    else:
-                        rendered, position = logo_placement(previous_logo, size)
-                        before_bounds = (
-                            *position,
-                            position[0] + rendered.width,
-                            position[1] + rendered.height,
-                        )
-                        rendered.close()
-                    try:
-                        same_placement = (
-                            placed_logo_bounds(logo_size, size, edit.placement) == before_bounds
-                        )
-                    except ValueError:
-                        same_placement = (
-                            False  # The ordinary fit/validation path handles invalid bounds.
-                        )
-                # Preserve each available image’s current position and size when
-                # new artwork replaces its logo; omitted outputs remain untouched.
-                for output in old.outputs:
-                    if (
-                        same_artwork
-                        or output.id not in available
-                        or output.framing.logo_placement is not None
-                    ):
-                        continue
-                    size = FORMATS[output.ratio]
-                    rendered, position = logo_placement(previous_logo, size)
-                    placement = dict(
-                        left=position[0] / size[0],
-                        top=position[1] / size[1],
-                        width=rendered.width / size[0],
-                    )
-                    rendered.close()
-                    product = next(p for p in value["products"] if p["id"] == output.product_id)
-                    framing = (
-                        product.setdefault("framing", {})
-                        .setdefault(output.market, {})
-                        .setdefault(output.ratio, {})
-                    )
-                    framing["logo_placement"] = placement
-            finally:
-                if previous_logo is not logo:
-                    previous_logo.close()
-                logo.close()
-        if (edit.placement is not None and not same_placement) or (
-            not edit.replacement and "placement" in edit.model_fields_set
-        ):
-            product = next(p for p in value["products"] if p["id"] == edit.product_id)
-            framing = (
-                product.setdefault("framing", {})
-                .setdefault(edit.market, {})
-                .setdefault(edit.ratio, {})
-            )
-            framing["logo_placement"] = edit.placement.model_dump() if edit.placement else None
-        if edit.pre_fit_placement is not None:
-            # The editor fits the selected image before preview. Verify that fact
-            # against the owned artwork, rather than infer it from a small logo.
-            size = FORMATS[edit.ratio]
-            requested = edit.pre_fit_placement
-            resolved = fit_logo_placement(logo_size, size, requested)
-            try:
-                bounds = placed_logo_bounds(logo_size, size, resolved)
-                valid_fit = resolved.width < requested.width and bounds == placed_logo_bounds(
-                    logo_size, size, edit.placement
-                )
-            except ValueError:
-                valid_fit = False
-            if not valid_fit:
-                raise ActionError("logo_fit", "Review the replacement logo preview again.", 422)
-            fitted.append(
-                {
-                    "id": edit.output_id,
-                    "requested": requested.model_dump(),
-                    "placement": edit.placement.model_dump(),
-                    "bounds": list(bounds),
-                }
-            )
-        if edit.replacement:
-            for output in old.outputs:
-                if output.id not in available:
-                    continue
-                product = next(p for p in value["products"] if p["id"] == output.product_id)
-                framing = product.get("framing", {}).get(output.market, {}).get(output.ratio, {})
-                if framing.get("logo_placement") is None:
-                    continue  # Identical artwork keeps the existing composition.
-                requested = LogoPlacement.model_validate(framing["logo_placement"])
-                size = FORMATS[output.ratio]
-                try:
-                    placed_logo_bounds(logo_size, size, requested)
-                except ValueError:
-                    resolved = fit_logo_placement(logo_size, size, requested)
-                    framing["logo_placement"] = resolved.model_dump()
-                    fitted = [item for item in fitted if item["id"] != output.id]
-                    fitted.append(
-                        {
-                            "id": output.id,
-                            "requested": requested.model_dump(),
-                            "placement": resolved.model_dump(),
-                            "bounds": list(placed_logo_bounds(logo_size, size, resolved)),
-                        }
-                    )
-        brief = Brief.model_validate(value)
-        opening = (
-            allow_unchanged
-            and edit.replacement is None
-            and "placement" not in edit.model_fields_set
-        )
-        # Opening a saved logo has no proposed change to plan. Keep the accepted
-        # plan; source and revision checks still run before its layers are rendered.
-        plan = old if opening else make_local_plan(old, brief, self.storage)
-        impact = compare_plans(old, plan)
-        # The replacement promise covers the available set, never an implicit repair.
-        impact.render_outputs = [o for o in impact.render_outputs if o in available]
-        impact.recheck_outputs = [o for o in impact.recheck_outputs if o in available]
-        required = available if edit.replacement else {edit.output_id}
-        logo_available = True
-        if allow_unchanged and not edit.replacement:
-            asset = plan.assets.get("logo")
-            try:
-                logo_available = bool(
-                    asset
-                    and hashlib.sha256(self.storage.path(asset.reference).read_bytes()).hexdigest()
-                    == asset.sha256
-                )
-            except OSError:
-                logo_available = False
-        self.state.require_edit_inputs(run["id"], plan, required, include_logo=logo_available)
-        if not allow_unchanged and not impact.render_outputs:
-            raise ActionError("no_changes", "No logo changes to save.")
-        return (
-            brief,
-            plan,
-            {
-                **impact.model_dump(),
-                "fitted_outputs": fitted,
-                "fitted_count": len(fitted),
-                "logo_available": logo_available,
-                "available_outputs": len(available),
-                "expected_outputs": len(plan.outputs),
-            },
-        )
-
-    def text(self, campaign_id: str, edit: TextEdit, *, allow_unchanged: bool = False):
-        """Preview wording and selected-format typography as one local correction."""
-        run = self.edit_run(campaign_id, edit.run_id, edit.revision_id, edit.product_id)
-        old = self.state.plan(run["id"])
-        output = next((o for o in old.outputs if o.id == edit.output_id), None)
-        manifest = self.manifest(run, edit.revision_id)
-        available = any(o["id"] == edit.output_id and o["file"] for o in manifest["outputs"])
-        withheld = output is not None and any(
-            finding.context and finding.context.phrase and blocks_output(finding, output)
-            for finding in old.findings
-        )
-        if output is None or not (available or withheld):
-            raise ActionError(
-                "creative", "Choose an available saved image to arrange its text.", 422
-            )
-        value = old.brief.model_dump(mode="json")
-        apply_wording(value, old.brief, edit)
-        candidate = Brief.model_validate(value)
-        candidate_product = next(p for p in candidate.products if p.id == edit.product_id)
-        wording = candidate.effective_copy(candidate_product, edit.market)
-        cleared = {field for field, text in edit.values.items() if text is None}
-        selected = next(p for p in value["products"] if p["id"] == edit.product_id)
-        framing = output.framing.model_dump(mode="json")
-        for field, placement in edit.placements.items():
-            # Clearing optional wording also makes its in-session gesture obsolete.
-            # Keep the accepted layout for a later reintroduction of that wording.
-            if field in cleared:
-                continue
-            if placement is not None and getattr(wording, field) is None:
-                raise ActionError(
-                    "text_block", "This image has no supplied text for that block.", 422
-                )
-            if placement is None:
-                framing["text_placements"].pop(field, None)
-            else:
-                framing["text_placements"][field] = placement.model_dump()
-        if framing != output.framing.model_dump(mode="json"):
-            selected["framing"].setdefault(edit.market, {})[edit.ratio] = framing
-        brief = Brief.model_validate(value)
-        if brief == old.brief and not allow_unchanged:
-            raise ActionError("no_changes", "No changes to apply. Your saved image is unchanged.")
-        plan = make_local_plan(old, brief, self.storage)
-        impact = compare_plans(old, plan)
-        self.state.require_edit_inputs(run["id"], plan, impact.render_outputs or [edit.output_id])
-        # A local text edit cannot silently recover a damaged saved set. Recovery
-        # remains explicit. A wording correction may replace an intentional rule
-        # omission, but it cannot repair another output's missing saved file.
-        prefix = self.state.revision(edit.revision_id)["manifest_ref"].rsplit("/", 1)[0]
-        for saved in manifest["outputs"]:
-            if not saved["file"]:
-                continue
-            try:
-                intact = (
-                    hashlib.sha256(
-                        self.storage.path(f"{prefix}/{saved['file']}").read_bytes()
-                    ).hexdigest()
-                    == saved["sha256"]
-                )
+                payload = self.storage.path(f"{prefix}/{output['file']}").read_bytes()
+                intact = hashlib.sha256(payload).hexdigest() == output["sha256"]
             except OSError:
                 intact = False
             if not intact:
                 raise ActionError(
                     "saved_images_unavailable",
-                    "A saved image needs local recovery before applying text changes.",
+                    f"The saved image for {output['product_id']} · {output['market']} · "
+                    f"{output['ratio']} is missing or changed. "
+                    "Use local recovery in Production before editing it.",
                 )
-        return brief, plan, impact.model_dump()
 
-    def frame(self, campaign_id: str, edit: FrameEdit, *, allow_unchanged: bool = False):
-        from campaign_studio.imaging import crop_box, load_image, protects_subject
-        from campaign_studio.planning import Finding, contextualize_findings
+    def logo(self, campaign_id: str, edit: LogoEdit, *, allow_unchanged=False):
+        from campaign_studio.compositions import candidate
 
-        run = self.edit_run(campaign_id, edit.run_id, edit.revision_id, edit.product_id)
-        old = self.state.plan(run["id"])
-        product = next((p for p in old.brief.products if p.id == edit.product_id), None)
-        if product is None or edit.market not in old.brief.markets:
-            raise ActionError("creative", "Choose an image from this campaign.", 422)
-        if product.source.role == "prepared_product":
-            raise ActionError(
-                "framing", "Prepared-product placement is not adjustable in this version.", 422
-            )
-        previous = next(
-            o
-            for o in old.outputs
-            if o.product_id == edit.product_id and o.market == edit.market and o.ratio == edit.ratio
-        )
-        # A crop-only command must not erase independently applied artwork/text.
-        edit.framing = edit.framing.model_copy(
-            update={
-                field: getattr(previous.framing, field)
-                for field in ("logo_placement", "text_placements")
-                if field not in edit.framing.model_fields_set
-            }
-        )
-        value = old.brief.model_dump(mode="json")
-        selected = next(p for p in value["products"] if p["id"] == edit.product_id)
-        selected.setdefault("framing", {}).setdefault(edit.market, {})[edit.ratio] = (
-            edit.framing.model_dump(mode="json")
-        )
-        brief = Brief.model_validate(value)
-        plan = make_local_plan(old, brief, self.storage)
-        impact = compare_plans(old, plan)
-        self.state.require_edit_inputs(
-            run["id"], plan, [f"{edit.product_id}/{edit.market}/{edit.ratio.replace(':', 'x')}"]
-        )
-        if not allow_unchanged and not impact.render_outputs and not impact.recheck_outputs:
-            raise ActionError("no_changes", "No framing changes to save.")
-        # Generated masters become known after the request. Validate these actual
-        # retained pixels as well as the dimensions available during original preflight.
-        reference = (
-            old.assets.get(f"products/{product.id}")
-            if product.source.role == "finished_scene"
-            else old.assets.get(f"masters/{product.id}")
-        )
-        source_ref = (
-            reference.reference
-            if reference
-            else next(
-                (
-                    a["source_ref"]
-                    for a in self.state.attempts(run["id"])
-                    if a["product_id"] == product.id
-                    and a["state"] == "decoded"
-                    and self.state.source_is_intact(a)
-                ),
-                None,
-            )
-        )
-        if not source_ref:
-            raise ActionError(
-                "source", "The saved source is unavailable. Recover it before adjusting framing."
-            )
-        scene, _ = load_image(self.storage.path(source_ref))
-        try:
-            if edit.framing.subject_box and not protects_subject(
-                scene.size, crop_box(scene.size, edit.ratio, edit.framing), edit.framing.subject_box
-            ):
-                identifier = f"{product.id}/{edit.market}/{edit.ratio.replace(':', 'x')}"
-                if not any(
-                    f.item == identifier and f.rule == "subject_crop" for f in plan.findings
-                ):
-                    plan.findings.append(
-                        Finding(
-                            item=identifier,
-                            rule="subject_crop",
-                            severity="blocking",
-                            evidence="This crop cuts protected subject detail.",
-                            remedy="Move the focal point or correct the bounds before applying.",
-                        )
-                    )
-                    contextualize_findings(brief, plan.outputs, plan.findings)
-        finally:
-            scene.close()
-        return brief, plan, impact.model_dump()
+        return candidate(self, campaign_id, edit)
+
+    def text(self, campaign_id: str, edit: TextEdit, *, allow_unchanged=False):
+        from campaign_studio.compositions import candidate
+
+        return candidate(self, campaign_id, edit)
+
+    def frame(self, campaign_id: str, edit: FrameEdit, *, allow_unchanged=False):
+        from campaign_studio.compositions import candidate
+
+        return candidate(self, campaign_id, edit)
 
 
 def image_url(campaign_id: str, revision_id: str, item: dict) -> str | None:

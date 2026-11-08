@@ -1,5 +1,8 @@
 /* Viewport refinements layered over styles.css. */
 [data-logo-notice]:empty { display: none; }
+.layout-notice > div { flex: 1; min-width: 0; }
+.layout-issue { display: grid; gap: 6px; border-top: 1px solid #e3c5b9; margin-top: 16px; padding-top: 12px; overflow-wrap: anywhere; }
+.layout-issue .btn { justify-self: start; margin: 2px 0 0; white-space: normal; text-align: left; }
 [data-logo-notice] > .notice { margin: 0; }
 [data-logo-notice] > .notice:not(.block) { background: #fff3d6; border-color: #d6bc7a; color: #59461f; padding: 12px 16px; align-items: center; }
 [data-logo-notice] > .notice p:empty { display: none; }
@@ -138,3 +141,59 @@
 
 /* Narrow Campaign forms retain their content inset. */
 @media(max-width:800px) { body.mf-brief-page #main { padding:20px; } }
+
+/* Production makes the next useful action visible before optional request detail. */
+.pr-workspace .wf-production-sidebar .pr-action-panel { min-height:0; padding:18px; }
+.pr-workspace .pr-action-panel > h2 { margin:0 0 10px; font-size:30px; line-height:1.08; }
+.pr-workspace .pr-action-panel > p { margin:8px 0 14px; font-size:13px; line-height:1.5; }
+.pr-workspace .pr-action-panel > .pr-primary { min-height:42px; margin:4px 0; }
+.pr-workspace .pr-action-panel .pr-inline-estimate { margin:12px 0; padding:12px 0; gap:14px; }
+.pr-workspace .pr-inline-estimate > strong { font-size:42px; }
+.pr-workspace .pr-inline-estimate small { font-size:11px; line-height:1.4; }
+.pr-workspace .pr-action-panel .pr-key-needed { margin-bottom:8px; }
+.pr-workspace .pr-action-panel .pr-export-count { margin:12px 0 0; color:var(--pr-muted); font-size:12px; }
+.pr-workspace .pr-action-panel .pr-request-details { margin-top:16px; border-top:1px solid #c6d0b9; padding-top:12px; font-size:12px; }
+.pr-request-details > summary { cursor:pointer; font-weight:700; padding:3px 0; }
+.pr-request-details > p { line-height:1.55; margin:12px 0; }
+.pr-request-details > .pr-button + .pr-button { margin-top:7px; }
+.pr-workspace .pr-source-progress { margin-top:18px; }
+.pr-workspace .pr-operation-count { font-size:32px; }
+.pr-workspace .pr-operation-count small { font-size:13px; }
+.pr-workspace .pr-operation-progress { height:6px; margin:8px 0 0; }
+.pr-workspace .pr-needed-products { padding:0; margin:14px 0 0; list-style:none; }
+.pr-workspace .pr-needed-products li { display:flex; gap:12px; align-items:center; justify-content:space-between; padding:10px 0; border-top:1px solid #c6d0b9; }
+.pr-workspace .pr-needed-products strong { font-size:13px; line-height:1.35; }
+.pr-workspace .pr-needed-products .pr-button { flex-shrink:0; }
+.pr-workspace .pr-input-issue { padding:0 0 12px; margin-bottom:12px; border-bottom:1px solid #c6d0b9; }
+.pr-input-issue > p { font-size:12px; line-height:1.45; margin:6px 0 10px; overflow-wrap:anywhere; }
+.pr-workspace .pr-product-board .pr-missing-art { padding:12px; gap:10px; }
+.pr-workspace .pr-product-board .pr-missing-art > strong { font-size:22px; line-height:1.1; }
+.pr-workspace .pr-missing-actions .pr-button { font-size:12px!important; min-height:32px; padding:5px 9px; }
+.pr-source-wait { font-size:30px; color:#56734e; }
+.pr-studio-products .pr-studio-hero.pr-add-image,
+.pr-contact-sheet .pr-image-stage:has(.pr-add-image-plus),
+.pr-compare-stage .pr-add-image { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#3d5e41; background:#e8ecdf; }
+.pr-studio-products .pr-add-image > strong,
+.pr-contact-sheet .pr-image-stage > strong { font-size:18px; font-family:inherit; }
+.pr-add-image-plus { display:block; font-size:60px; font-weight:300; line-height:.9; }
+.pr-studio-products .pr-mini-formats button > span { font-size:28px; color:#56734e; }
+.pr-compare-stage .pr-add-image { border:0; width:100%; height:100%; }
+.pr-studio-hero.pr-add-image:hover,.pr-image-tile:hover .pr-image-stage:has(.pr-add-image-plus) { background:#dfe7d2; }
+@media(max-height:820px) {
+  .pr-workspace .wf-production-sidebar .pr-action-panel { padding:15px; }
+  .pr-workspace .pr-action-panel > h2 { font-size:28px; }
+  .pr-workspace .pr-product-board .pr-missing-art { gap:7px; padding:9px; }
+  .pr-workspace .pr-product-board .pr-missing-art > strong { font-size:20px; }
+  .pr-workspace .pr-missing-actions { gap:5px; }
+}
+.pr-editor .pr-image-choice > .pr-image-requirement { font-size:12px; line-height:1.5; margin:0 0 12px; color:#596653; }
+
+/* Silent Studio autosave; errors and Reset remain usable without shifting controls. */
+.ws-workspace .ws-control-body { display: flex; flex-direction: column; gap: 12px; }
+.ws-workspace .ws-control-body > :not(.ws-reset-control) { flex-shrink: 0; }
+.ws-workspace .ws-reset-control { margin-top: auto; padding-top: 8px; }
+.ws-workspace .ws-reset-control .btn { min-height: 40px; padding: 8px 16px; font-size: 14px; }
+.ws-workspace .ws-save-recovery { color: #a72e20; font-size: 13px; line-height: 1.5; }
+.ws-workspace .ws-save-recovery p { margin: 6px 0; }
+.ws-workspace .ws-save-recovery button { margin-top: 8px; }
+.ws-workspace .ws-control-footer:not(:has([role="status"]:not(:empty), button:not([hidden]))) { display: none; }

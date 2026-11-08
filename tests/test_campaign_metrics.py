@@ -5,7 +5,6 @@ import io
 import json
 import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 from zipfile import ZipFile
 
 import httpx
@@ -24,13 +23,13 @@ from campaign_studio.costing import (
     estimate_recorded_usage,
     incomplete_reason,
 )
-from campaign_studio.exporting import package_payloads, render_report
+from campaign_studio.exporting import render_manifest_report
 from campaign_studio.generation import GenerationRequest
-from campaign_studio.handoff import Handoff, PackageAction
+from campaign_studio.handoff import DeliveryAction, Handoff
 from campaign_studio.planning import make_plan
 from campaign_studio.provider import OpenAIImages
-from campaign_studio.review import RevisionTarget
 from campaign_studio.state import State
+from campaign_studio.workspace import Workspace
 
 
 @pytest.mark.parametrize("journal", ["DELETE", "WAL"])
@@ -42,11 +41,8 @@ def test_campaign_metrics_reads_attempts_and_publication_from_one_snapshot(
     plan_ref = state.run(run)["plan_ref"]
     state.set_status(run, "running")
     manifest_ref = state.storage.project(cid).ref(f"Runs/{run}/controlled-publication.json")
-    state.storage.write(
-        manifest_ref,
-        json.dumps(
-            {"schema_version": 1, "campaign_id": cid, "metrics": {"attempted_requests": 1}}
-        ).encode(),
+    manifest = json.dumps(
+        {"schema_version": 1, "campaign_id": cid, "metrics": {"attempted_requests": 1}}
     )
     with state.storage.connect() as db:
         db.execute(f"PRAGMA journal_mode={journal}")
@@ -73,8 +69,9 @@ def test_campaign_metrics_reads_attempts_and_publication_from_one_snapshot(
                 ),
             )
             writer.execute(
-                "INSERT INTO revisions (id,run_id,plan_ref,manifest_ref,complete,created_at) "
-                "VALUES (?,?,?,?,?,?)",
+                "INSERT INTO revisions (id,run_id,plan_ref,manifest_ref,complete,"
+                "created_at,manifest_json) "
+                "VALUES (?,?,?,?,?,?,?)",
                 (
                     "interleaved-revision",
                     run,
@@ -82,6 +79,7 @@ def test_campaign_metrics_reads_attempts_and_publication_from_one_snapshot(
                     manifest_ref,
                     0,
                     "2026-10-30T00:00:01+00:00",
+                    manifest,
                 ),
             )
             writer.execute("UPDATE runs SET state='partial' WHERE id=?", (run,))
@@ -114,7 +112,9 @@ def test_campaign_metrics_reads_attempts_and_publication_from_one_snapshot(
 
         def execute(self, sql, parameters=()):
             cursor = self.db.execute(sql, parameters)
-            return Rows(cursor) if sql.startswith("SELECT a.*,r.plan_ref FROM attempts") else cursor
+            return (
+                Rows(cursor) if sql.startswith("SELECT a.*,r.plan_json FROM attempts") else cursor
+            )
 
     @contextmanager
     def intercepted():
@@ -155,9 +155,7 @@ def mocked_production(state, runner, run_id, response, usage):
 def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path):
     state, runner, run_a, response = generated_case(tmp_path)
     a = state.run(run_a)["campaign_id"]
-    first = mocked_production(
-        state, runner, run_a, response, {"input_tokens": 244, "output_tokens": 3276}
-    )
+    mocked_production(state, runner, run_a, response, {"input_tokens": 244, "output_tokens": 3276})
     first_total = state.campaign_metrics(a)
     assert first_total["attempted_requests"] == 1
     assert first_total["usage_cost_estimate"]["estimated_usd"] == 0.0995
@@ -175,7 +173,11 @@ def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path)
     # A second actual mock-transport production run adds exactly its own attempt.
     value = state.plan(run_a).brief.model_dump()
     value["audience"] += " A new campaign production run."
-    run_a2 = state.create(make_plan(Brief.model_validate(value), state.storage), 1)
+    from campaign_studio.intake import Intake
+
+    selected = revise(state, runner, run_a, Brief.model_validate(value))
+    Intake(state.storage).prepare(a, selected["version"], Workspace(state))
+    run_a2 = Workspace(state).run_for(a)["id"]
     state.confirm(run_a2, state.plan(run_a2).digest)
     mocked_production(state, runner, run_a2, response, {"input_tokens": 100, "output_tokens": 200})
     total = state.campaign_metrics(a)
@@ -183,7 +185,9 @@ def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path)
     assert total["usage_cost_estimate"]["estimated_usd"] == 0.106
     assert total["usage_cost_estimate"]["actual_charge"] is None
     assert state.campaign_metrics(b) == b_total
-    assert state.revision(first["revision_id"])["run_id"] == run_a
+    assert state.revision_count(run_a) == 0
+    with state.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
 
     def open_app():
         return create_app(
@@ -198,7 +202,7 @@ def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path)
         for campaign, expected in [(a, total), (b, b_total), (a, total)]:
             model = client.get(f"/api/motif/campaigns/{campaign}").json()
             assert model["campaign_metrics"] == expected
-            assert model["manifest"]["metrics"]["completed_images"] == 12
+            assert len(model["manifest"]["outputs"]) == 12
         endpoint = f"/api/motif/campaigns/{a}/authored"
         # Manual Save and autosave use this same endpoint; pending edits add no attempt.
         for pending in ("Manual pending wording", "Newer autosaved wording"):
@@ -210,7 +214,7 @@ def test_campaign_totals_follow_ids_across_runs_switches_and_fresh_app(tmp_path)
             assert client.post(endpoint, json=action).status_code == 200
             assert state.campaign_metrics(a) == total
         corrected = revise(state, runner, run_a2, edit_copy(state, run_a2, "Otra mirada."))
-        assert corrected["metrics"]["completed_images"] == 12
+        assert len(corrected["plan"].outputs) == 12
         assert state.campaign_metrics(a) == total
         assert state.campaign_metrics(b) == b_total
     # A fresh application/State owner reads the same database, without an in-memory counter.
@@ -264,16 +268,19 @@ def test_each_run_uses_its_own_request_and_unreadable_history_stays_unknown(tmp_
             attempt["id"], "failed", usage={"input_tokens": 100, "output_tokens": 200}
         )
         state.set_status(run_id, "paused")
-    reference = state.run(run_b)["plan_ref"]
-    historical = json.loads(state.storage.path(reference).read_bytes())
-    historical["generation_requests"]["product-1"]["model"] = "unpriced-historical-model"
-    state.storage.write(reference, json.dumps(historical).encode())
+    with state.storage.connect() as db:
+        historical = json.loads(
+            db.execute("SELECT plan_json FROM runs WHERE id=?", (run_b,)).fetchone()[0]
+        )
+        historical["generation_requests"]["product-1"]["model"] = "unpriced-historical-model"
+        db.execute("UPDATE runs SET plan_json=? WHERE id=?", (json.dumps(historical), run_b))
     summary = state.campaign_metrics(cid)
     assert summary["attempted_requests"] == summary["failed_requests"] == 2
     assert summary["usage_cost_estimate"]["estimated_usd"] is None
     assert summary["usage_cost_estimate"]["known_usage_subtotal_usd"] == 0.0065
     # Loss of a historical request cannot turn its recorded attempt into free work.
-    state.storage.path(reference).unlink()
+    with state.storage.connect() as db:
+        db.execute("UPDATE runs SET plan_json=NULL WHERE id=?", (run_b,))
     missing_request = state.campaign_metrics(cid)
     assert missing_request["attempted_requests"] == summary["attempted_requests"]
     assert missing_request["usage_cost_estimate"]["estimated_usd"] is None
@@ -300,16 +307,14 @@ def test_damaged_coverage_does_not_fabricate_complete_zero_or_drop_known_attempt
     attempt = state.reserve(run_id, "product-1")
     state.finish_attempt(attempt["id"], "failed", usage={"input_tokens": 100, "output_tokens": 200})
     reference = state.storage.project(cid).ref(f"Runs/{run_id}/damaged-manifest.json")
-    state.storage.write(
-        reference,
-        json.dumps(
-            {"schema_version": 1, "campaign_id": cid, "metrics": {"attempted_requests": 3}}
-        ).encode(),
+    manifest = json.dumps(
+        {"schema_version": 1, "campaign_id": cid, "metrics": {"attempted_requests": 3}}
     )
     with state.storage.connect() as db:
         db.execute(
-            "INSERT INTO revisions (id,run_id,plan_ref,manifest_ref,complete,created_at) "
-            "VALUES (?,?,?,?,?,?)",
+            "INSERT INTO revisions (id,run_id,plan_ref,manifest_ref,complete,"
+            "created_at,manifest_json) "
+            "VALUES (?,?,?,?,?,?,?)",
             (
                 "e" * 32,
                 run_id,
@@ -317,6 +322,7 @@ def test_damaged_coverage_does_not_fabricate_complete_zero_or_drop_known_attempt
                 reference,
                 1,
                 state.run(run_id)["created_at"],
+                manifest,
             ),
         )
     partial = state.campaign_metrics(cid)
@@ -339,60 +345,42 @@ def test_compact_estimate_never_rounds_positive_subcent_to_zero(amount, expected
     assert compact_usd(amount) == expected
 
 
-def test_package_reuse_tracks_campaign_summary_without_rewriting_prior_exports(tmp_path):
+def test_downloads_include_current_metrics_and_previous_download_keeps_its_summary(tmp_path):
     state, runner, run_id, response = generated_case(tmp_path)
-    manifest = mocked_production(
-        state, runner, run_id, response, {"input_tokens": 244, "output_tokens": 3276}
-    )
+    mocked_production(state, runner, run_id, response, {"input_tokens": 244, "output_tokens": 3276})
     cid = state.run(run_id)["campaign_id"]
-    target = RevisionTarget(
-        campaign_id=cid, run_id=run_id, revision_id=manifest["revision_id"], mode="current"
-    )
+    current = Workspace(state).current_composition(cid)
     handoff = Handoff(state)
-    action = PackageAction(snapshot_id=handoff.metadata(target)["snapshot_id"])
-    first_zip = handoff.create_zip(target, action)
-    first_bytes = handoff.download(target, first_zip["artifact_id"])
-    first_folder = handoff.create_folder(target, action)
-    first_files = {
-        p.name: p.read_bytes() for p in Path(first_folder["location"]).iterdir() if p.is_file()
-    }
-    assert handoff.create_zip(target, action) == first_zip
-    assert handoff.create_folder(target, action) == first_folder
+    action = DeliveryAction(version=current["version"])
+    with handoff.create_current_zip(cid, action) as first:
+        first_bytes = first.stream.read()
+    previous = tmp_path / "previous-download.zip"
+    previous.write_bytes(first_bytes)
     original_total = state.campaign_metrics(cid)
-
-    # A retained failed retry adds an actual attempt without publishing new pixels.
-    with state.storage.connect() as db:
-        db.execute("UPDATE runs SET allowance=2,state='running' WHERE id=?", (run_id,))
-    attempt = state.reserve(run_id, "product-1")
+    # A separately confirmed failed request adds accounting without replacing
+    # the saved editable composition or mutating a producer's previous download.
+    retry = state.create(make_plan(current["plan"].brief, state.storage), 1)
+    state.set_status(retry, "running")
+    attempt = state.reserve(retry, "product-1")
     state.finish_attempt(attempt["id"], "failed", error="http_503")
-    state.set_status(run_id, "paused")
+    state.set_status(retry, "paused")
     current_total = state.campaign_metrics(cid)
     assert current_total["attempted_requests"] == 2
     assert current_total["usage_cost_estimate"]["estimated_usd"] is None
-    assert handoff.metadata(target)["snapshot_id"] == action.snapshot_id
-    second_zip = handoff.create_zip(target, action)
-    second_folder = handoff.create_folder(target, action)
-    assert second_zip["artifact_id"] != first_zip["artifact_id"]
-    assert second_folder["location"] != first_folder["location"]
-    assert handoff.create_zip(target, action) == second_zip
-    assert handoff.create_folder(target, action) == second_folder
-    assert handoff.download(target, first_zip["artifact_id"]) == first_bytes
-    assert all(
-        (Path(first_folder["location"]) / name).read_bytes() == value
-        for name, value in first_files.items()
-    )
-    second_bytes = handoff.download(target, second_zip["artifact_id"])
+    with handoff.create_current_zip(cid, action) as second:
+        second_bytes = second.stream.read()
+    assert previous.read_bytes() == first_bytes
+    assert not list(state.storage.root.rglob("*.zip"))
     for payload, expected in [(first_bytes, original_total), (second_bytes, current_total)]:
         with ZipFile(io.BytesIO(payload)) as archive:
             public = json.loads(archive.read(f"{zip_root(archive)}/manifest.json"))
             assert public["campaign_metrics"] == expected
             assert public["report_created_at"].endswith("+00:00")
-            assert public["metrics"]["attempted_requests"] == 1  # Saved output operation scope.
             assert not any(
                 key in json.dumps(public["campaign_metrics"])
                 for key in ("prompt", "response_ref", "plan_ref")
             )
-    assert state.campaign_metrics(cid) == current_total  # Exports never add spend or attempts.
+    assert state.campaign_metrics(cid) == current_total
     assert State(state.storage).campaign_metrics(cid) == current_total
 
 
@@ -421,9 +409,12 @@ def test_expanded_report_estimate_states_never_repeat_reason_only_helpers(tmp_pa
     from test_workflow import setup_case
 
     state, runner, run_id, _ = setup_case(tmp_path, one_market=True)
-    result = asyncio.run(runner.execute(run_id))
-    revision = state.revision(result["revision_id"])
-    manifest = json.loads(package_payloads(state, result["revision_id"])["manifest.json"])
+    asyncio.run(runner.execute(run_id))
+    from campaign_studio.delivery import delivery_manifest
+
+    current = Workspace(state).current_composition(state.run(run_id)["campaign_id"])
+    manifest = delivery_manifest(current)
+    brand_name = current["plan"].brief.brand.name
     for coverage, count, subtotal, missing, reason in [
         ("complete", 2, 0, 2, "request"),
         ("complete", 1, 0, 1, "missing_usage"),
@@ -445,15 +436,17 @@ def test_expanded_report_estimate_states_never_repeat_reason_only_helpers(tmp_pa
         }
         shown = campaign_metric_display(manifest["campaign_metrics"])
         assert shown["has_known_portion"] is (subtotal > 0)
-        report = render_report(state, revision, manifest).decode()
-        paragraph = unescape(
-            re.search(r"<strong>Campaign estimate:</strong> (.*?)</p>", report).group(1)
-        )
-        assert paragraph == (shown["spend_helper"] + " " if subtotal > 0 else "") + shown["detail"]
+        report = render_manifest_report(brand_name, manifest).decode()
+        details = report.split("<summary>Full production details and estimates</summary>", 1)[
+            1
+        ].split("</details>", 1)[0]
+        plain = unescape(re.sub("<[^>]+>", "", details))
+        assert shown["detail"] in plain
+        assert plain.count(shown["detail"]) == 1
         if subtotal == 0:
-            assert paragraph.count(shown["spend_helper"]) <= 1
-    manifest["campaign_metrics"] = state.campaign_metrics(result["campaign_id"])
+            assert plain.count(shown["spend_helper"]) <= 1
+    manifest["campaign_metrics"] = state.campaign_metrics(state.run(run_id)["campaign_id"])
     assert (
         "<strong>Campaign estimate:</strong>"
-        not in render_report(state, revision, manifest).decode()
+        not in render_manifest_report(brand_name, manifest).decode()
     )

@@ -1,6 +1,10 @@
-"""Optional artwork preserves truthful findings, editable pixels, and strict delivery checks."""
+"""Optional logos preserve editing, source reuse, and strict current delivery checks."""
 
 import asyncio
+import io
+import json
+from uuid import uuid4
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +13,7 @@ from test_prohibited_exports import export_urls, save
 
 from campaign_studio.app import create_app
 from campaign_studio.brief import Brand, Brief
+from campaign_studio.campaign_drafts import write
 from campaign_studio.config import Settings
 from campaign_studio.planning import make_plan
 from campaign_studio.sample import write_sample
@@ -30,19 +35,22 @@ def unbranded(tmp_path):
         value["products"] = value["products"][:1]
         value["brand"].pop("logo_path")
         value["brand"].pop("logo_provenance")
-        brief = Brief.model_validate(value)
-        plan = make_plan(brief, ws.storage)
-        assert not plan.blocked
-        assert "logo" not in plan.assets
-        run = ws.state.create(plan, 0)
-        ws.state.confirm(run, ws.state.plan(run).digest)
-        manifest = asyncio.run(app.state.runner.execute(run))
-        assert manifest["complete"]
-        assert manifest["metrics"]["completed_images"] == 3
-        cid = brief.campaign_id
-        url = f"/api/motif/campaigns/{cid}"
-        save(client, url)
-        yield client, ws, url, original
+        write(
+            ws.storage,
+            original.campaign_id,
+            {"authored": {"brief": value}, "version": uuid4().hex, "composition_schema": 1},
+        )
+        yield client, ws, f"/api/motif/campaigns/{original.campaign_id}", original
+
+
+def exported(client, current):
+    paths = export_urls(current)
+    result = client.post(paths["zip"], json=paths["body"])
+    assert result.status_code == 200, result.text
+    with ZipFile(io.BytesIO(result.content)) as archive:
+        name = next(n for n in archive.namelist() if n.endswith("manifest.json"))
+        prefix = name.removesuffix("manifest.json")
+        return json.loads(archive.read(name)), archive.read(prefix + "index.html").decode()
 
 
 def test_brand_logo_requirement_is_explicit_and_preserves_old_serialization():
@@ -62,134 +70,78 @@ def test_brand_logo_requirement_is_explicit_and_preserves_old_serialization():
             Brand.model_validate(value | {"require_logo": bad})
 
 
-def test_unbranded_production_edit_preview_revision_and_report(unbranded):
+def test_unbranded_autosaved_edit_preview_and_report(unbranded):
     client, ws, url, _ = unbranded
     current = client.get(url).json()
     manifest = current["manifest"]
-    cid, run, revision = (
-        current["value"]["campaign_id"],
-        current["output_run_id"],
-        manifest["revision_id"],
-    )
+    cid = current["value"]["campaign_id"]
     warning = [f for f in manifest["findings"] if f["rule"] == "logo_presence"]
     assert len(warning) == 1 and warning[0]["severity"] == "warning"
-    assert not any(f["rule"] == "logo_pixels" for f in manifest["findings"])
     assert all(current["editable_products"].values())
     edit = {
-        "run_id": run,
-        "revision_id": revision,
+        "revision_id": current["version"],
         "product_id": "product-1",
         "market": "en-US",
         "ratio": "1:1",
     }
-    # All three editor services can preview an actual unbranded accepted image.
     logo = client.post(f"/api/campaigns/{cid}/logo/preview", json=edit)
     assert logo.status_code == 200, logo.text
     assert logo.json()["logo_asset"] is None
-    assert logo.json()["images"][0]["layers"]["logo_url"] is None
     text = edit | {
         "values": {"message": "Fresh wording.", "cta": "See more."},
         "field_scopes": {"message": "product", "cta": "product"},
     }
-    preview = client.post(f"/api/campaigns/{cid}/text/preview", json=text)
-    assert preview.status_code == 200, preview.text
-    applied = client.post(
-        f"/api/campaigns/{cid}/text/apply", json=text | {"preview_digest": preview.json()["digest"]}
-    )
-    assert applied.status_code == 200, applied.text
+    saved = client.post(f"/api/campaigns/{cid}/text/save", json=text)
+    assert saved.status_code == 200, saved.text
+    frame = edit | {"revision_id": saved.json()["version"], "framing": {"zoom": 1.1}}
+    saved = client.post(f"/api/campaigns/{cid}/framing/save", json=frame)
+    assert saved.status_code == 200, saved.text
     current = client.get(url).json()
-    frame = edit | {
-        "revision_id": current["manifest"]["revision_id"],
-        "framing": {"zoom": 1.1},
-    }
-    preview = client.post(f"/api/campaigns/{cid}/framing/preview", json=frame)
-    assert preview.status_code == 200, preview.text
-    applied = client.post(
-        f"/api/campaigns/{cid}/framing/apply",
-        json=frame | {"preview_digest": preview.json()["digest"]},
-    )
-    assert applied.status_code == 200, applied.text
-    current = client.get(url).json()
-    paths = export_urls(current)
-    report = client.post(paths["folder"], json=paths["body"])
-    assert report.status_code == 200, report.text
-    html = client.get(report.json()["url"])
-    assert html.status_code == 200
-    assert "These images have no logo." in html.text
-    assert "<h3>Logo origin</h3>" not in html.text
-    assert ws.state.attempts(run) == []
+    assert client.get(current["manifest"]["outputs"][0]["url"]).status_code == 200
+    result, html = exported(client, current)
+    assert "These images have no logo." in html and "<h3>Logo origin</h3>" not in html
+    assert all(o["copy"]["message"] == "Fresh wording." for o in result["outputs"])
+    assert not any(f["rule"] == "logo_pixels" for f in result["findings"])
+    assert not list(ws.storage.root.rglob("Outputs"))
+    with ws.storage.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
 
 
-def test_strict_toggle_blocks_old_downloads_but_keeps_preview_and_can_attach_later(unbranded):
+def test_required_logo_blocks_delivery_until_attached_and_stales_old_preview(unbranded):
     client, ws, url, original = unbranded
     before = client.get(url).json()
-    cid, run = before["value"]["campaign_id"], before["output_run_id"]
-    paths = export_urls(before)
-    zipped = client.post(
-        paths["zip"], json={k: paths["body"][k] for k in ("snapshot_id", "allow_partial")}
-    )
-    report = client.post(paths["folder"], json=paths["body"])
-    assert zipped.status_code == report.status_code == 200
-    old_image = before["manifest"]["outputs"][0]["url"]
-    original_hashes = [o["sha256"] for o in before["manifest"]["outputs"]]
+    old_paths = export_urls(before)
+    report = client.post(old_paths["preview"], json=old_paths["body"])
+    assert report.status_code == 200
+    old_manifest, _ = exported(client, before)
     save(client, url, lambda a: a["brief"]["brand"].update(require_logo=True))
-    project = client.get(url + "/authored").json()
-    assert client.get(url).json()["logo_issue"]["code"] == "logo_presence"
-    for destination in (zipped.json()["url"], report.json()["url"], old_image + "?download=true"):
-        assert client.get(destination).status_code == 409
-    assert client.get(old_image).status_code == 200
-    for partial in (False, True):
-        response = client.post(paths["folder"], json=paths["body"] | {"allow_partial": partial})
-        assert response.status_code == 409 and response.json()["code"] == "logo_presence"
-    request = {
-        "version": project["version"],
-        "brief": project["authored"]["brief"],
-        "product_id": "product-1",
-        "market": "en-US",
-        "ratio": "1:1",
-    }
-    preview = client.post(url + "/brief-preview", json=request)
-    assert preview.status_code == 200 and preview.json()["status"] == "ready", preview.text
-    assert preview.json()["logo_missing"]
-    assert [o["sha256"] for o in client.get(url).json()["manifest"]["outputs"]] == original_hashes
-    save(client, url, lambda a: a["brief"]["brand"].update(require_logo=False))
-    assert client.get(zipped.json()["url"]).status_code == 200
-    save(client, url, lambda a: a["brief"]["brand"].update(require_logo=True))
-    project = client.get(url + "/authored").json()
-    upload = client.post(
-        "/api/uploads",
-        content=ws.storage.path(original.brand.logo_path).read_bytes(),
-        headers={"X-Campaign-Id": cid, "X-Image-Role": "logo", "Content-Type": "image/png"},
-    )
-    assert upload.status_code == 200, upload.text
     current = client.get(url).json()
-    edit = {
-        "run_id": run,
-        "revision_id": current["manifest"]["revision_id"],
-        "product_id": "product-1",
-        "market": "en-US",
-        "ratio": "1:1",
-        "replacement": upload.json()["reference"],
-        "draft_version": project["version"],
-    }
-    preview = client.post(f"/api/campaigns/{cid}/logo/preview", json=edit)
-    assert preview.status_code == 200, preview.text
-    result = client.post(
-        f"/api/campaigns/{cid}/logo/apply", json=edit | {"preview_digest": preview.json()["digest"]}
+    assert current["logo_issue"]["code"] == "logo_presence"
+    assert client.get(report.json()["url"]).status_code == 409
+    for partial in (False, True):
+        paths = export_urls(current)
+        for kind in ("zip", "preview"):
+            denied = client.post(paths[kind], json=paths["body"] | {"allow_partial": partial})
+            assert denied.status_code == 409 and denied.json()["code"] == "logo_presence"
+    # Invalid delivery settings stay editable; attaching the owned artwork fixes them.
+    assert client.get(url + "/authored").status_code == 200
+    save(
+        client,
+        url,
+        lambda a: a["brief"]["brand"].update(
+            logo_path=original.brand.logo_path,
+            logo_provenance=original.brand.logo_provenance.model_dump(mode="json"),
+        ),
     )
-    assert result.status_code == 200, result.text
     current = client.get(url).json()
     assert current["logo_issue"] is None
+    restored, html = exported(client, current)
     assert all(
-        o["sha256"] != old
-        for o, old in zip(current["manifest"]["outputs"], original_hashes, strict=True)
+        a["pixel_sha256"] != b["pixel_sha256"]
+        for a, b in zip(restored["outputs"], old_manifest["outputs"], strict=True)
     )
-    assert not any(f["rule"] == "logo_presence" for f in current["manifest"]["findings"])
-    # An older unbranded report is still subject to its own pixels and current requirement.
-    assert client.get(report.json()["url"]).status_code == 409
-    paths = export_urls(current)
-    assert client.post(paths["folder"], json=paths["body"]).status_code == 200
-    assert ws.state.attempts(run) == []
+    assert "<h3>Logo origin</h3>" in html
+    assert not list(ws.storage.root.rglob("Outputs"))
 
 
 @pytest.mark.parametrize("required", [False, True])
@@ -216,9 +168,12 @@ def test_missing_logo_policy_does_not_mask_invalid_attached_artwork(unbranded, r
 
 def test_removing_and_restoring_logo_reuses_saved_generated_source(tmp_path):
     import httpx
+    from test_current_composition import save_campaign
+    from test_offline_report import current_payloads
     from test_provider_runner import generated_case
 
     from campaign_studio.provider import OpenAIImages
+    from campaign_studio.workspace import Workspace
 
     state, runner, run, response = generated_case(tmp_path)
     calls = []
@@ -228,53 +183,55 @@ def test_removing_and_restoring_logo_reuses_saved_generated_source(tmp_path):
             lambda request: calls.append(request) or httpx.Response(200, json=response)
         ),
     )
-    branded = asyncio.run(runner.execute(run, provider))
-    before = state.plan(run)
+    asyncio.run(runner.execute(run, provider))
+    cid = state.run(run)["campaign_id"]
+    ws = Workspace(state)
+    original = ws.current_composition(cid)["plan"].brief
     source = state.attempts(run)[0]
     source_bytes = state.storage.path(source["source_ref"]).read_bytes()
-    value = before.brief.model_dump(mode="json")
-    value["brand"]["logo_path"] = ""
-    unbranded = Brief.model_validate(value)
-    plan = make_plan(unbranded, state.storage)
-    missing = runner.revise(run, unbranded, branded["revision_id"], plan.digest)
-    assert missing["complete"]
+    branded = json.loads(current_payloads(state, cid)["manifest.json"])
+    save_campaign(ws, cid, lambda b: b["brand"].update(logo_path=""))
+    missing = json.loads(current_payloads(state, cid)["manifest.json"])
     assert not any(f["rule"] == "logo_pixels" for f in missing["findings"])
-    restore = make_plan(before.brief, state.storage)
-    restored = runner.revise(run, before.brief, missing["revision_id"], restore.digest)
+    save_campaign(ws, cid, lambda b: b["brand"].update(logo_path=original.brand.logo_path))
+    restored = json.loads(current_payloads(state, cid)["manifest.json"])
     assert [o["pixel_sha256"] for o in restored["outputs"]] == [
         o["pixel_sha256"] for o in branded["outputs"]
     ]
     assert state.storage.path(source["source_ref"]).read_bytes() == source_bytes
     assert len(calls) == len(state.attempts(run)) == 1
+    assert not list(state.storage.root.rglob("Outputs"))
 
 
-def test_official_bundled_inputs_and_prepared_pixels_still_install_exactly(tmp_path, monkeypatch):
+def test_official_bundled_inputs_install_sources_without_rendering_finished_images(
+    tmp_path, monkeypatch
+):
     from campaign_studio.bundled import load_campaigns
     from campaign_studio.runner import Runner
 
     def forbidden(*args, **kwargs):
-        pytest.fail("Prepared examples must copy their verified pixels")
+        pytest.fail("Installing examples must not compose final images or request AI")
 
-    monkeypatch.setattr(Runner, "execute", forbidden)
-    monkeypatch.setattr("campaign_studio.rendering.compose", forbidden)
     _, definitions = load_campaigns()
     _, original, _, prepared, _ = next(item for item in definitions if item[3])
     assert Brand.model_validate(original["brand"]).model_dump(mode="json") == original["brand"]
-    expected = sorted(o["sha256"] for o in prepared.descriptor["outputs"])
-    with TestClient(
-        create_app(
-            Settings(data_dir=tmp_path / "fresh"),
-            seed_examples=True,
-            key_available=lambda: False,
-            provider_factory=forbidden,
-        ),
-        base_url="http://127.0.0.1",
-    ) as client:
-        campaigns = client.get("/api/motif/workspace").json()["campaigns"]
-        assert len(campaigns) == 2
-        autumn = next(c for c in campaigns if c["brand"] == "Autumn Winds")
-        current = client.get(f"/api/motif/campaigns/{autumn['id']}").json()
-        assert sorted(o["sha256"] for o in current["manifest"]["outputs"]) == expected
-        assert current["manifest"]["metrics"]["completed_images"] == 30
-        assert current["logo_issue"] is None
-        assert not any(f["rule"] == "logo_presence" for f in current["manifest"]["findings"])
+    app = create_app(
+        Settings(data_dir=tmp_path / "fresh"),
+        seed_examples=True,
+        key_available=lambda: False,
+        provider_factory=forbidden,
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(Runner, "execute", forbidden)
+        patch.setattr("campaign_studio.rendering.compose", forbidden)
+        with TestClient(app, base_url="http://127.0.0.1") as client:
+            client.headers["X-Campaign-Token"] = app.state.csrf
+            campaigns = client.get("/api/motif/workspace").json()["campaigns"]
+            assert len(campaigns) == 2
+            autumn = next(c for c in campaigns if c["brand"] == "Autumn Winds")
+            current = client.get(f"/api/motif/campaigns/{autumn['id']}").json()
+            assert current["manifest"]["preview_only"]
+            assert len(current["manifest"]["outputs"]) == len(prepared.descriptor["outputs"]) == 30
+            assert current["logo_issue"] is None
+            assert not any(f["rule"] == "logo_presence" for f in current["manifest"]["findings"])
+            assert not list(app.state.workspace.storage.root.rglob("Outputs"))

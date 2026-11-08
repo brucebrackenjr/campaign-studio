@@ -4,27 +4,28 @@ import asyncio
 import copy
 import hashlib
 import io
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import ValidationError
 from test_authored import action
-from test_logo_editing import apply_logo, command
 from test_provider_runner import generated_case
 from test_workflow import setup_case
 
 from campaign_studio.app import create_app
 from campaign_studio.authored import AuthoredProjects, AuthoredSave
-from campaign_studio.brief import Brief, normalize_color
+from campaign_studio.brief import Brief, LogoPlacement, normalize_color
+from campaign_studio.campaign_drafts import read
 from campaign_studio.config import Settings
-from campaign_studio.exporting import package_payloads
+from campaign_studio.delivery import prepare_current_zip
 from campaign_studio.imaging import compose, load_image
 from campaign_studio.intake import Intake
 from campaign_studio.planning import canonical_hash, make_plan
 from campaign_studio.provider import OpenAIImages
 from campaign_studio.text_limits import LIMITS
-from campaign_studio.workspace import Workspace
+from campaign_studio.workspace import LogoEdit, Workspace
 
 
 def logo_payload(kind, *, empty=False):
@@ -41,7 +42,6 @@ def test_opaque_logo_intake_plan_replacement_fit_and_export_keep_original_bytes(
     state, runner, run, brief = setup_case(tmp_path, 2, True)
     first = asyncio.run(runner.execute(run))
     cid = brief.campaign_id
-    intake = Intake(state.storage)
     app = create_app(
         Settings(data_dir=state.storage.root),
         key_available=lambda: False,
@@ -78,36 +78,38 @@ def test_opaque_logo_intake_plan_replacement_fit_and_export_keep_original_bytes(
             .startswith("image/png" if kind == "PNG" else "image/jpeg")
         )
 
-    edit = command(state, run, replacement=asset["reference"])
-    saved, impact = apply_logo(state, runner, edit)
-    assert saved["complete"] and impact["fitted_outputs"]
-    reference = state.plan(run).brief.brand.logo_path
+    ws = Workspace(state)
+    edit = LogoEdit(
+        run_id=run,
+        revision_id=read(state.storage, cid)["version"],
+        product_id="product-1",
+        market="en-US",
+        ratio="1:1",
+        placement=LogoPlacement(left=0.04, top=0.03, width=0.1),
+        replacement=asset["reference"],
+    )
+    version = ws.save_composition(cid, edit)
+    final = ws.current_composition(cid)
+    reference = final["plan"].brief.brand.logo_path
     assert reference.endswith(".png" if kind == "PNG" else ".jpg")
     assert state.storage.path(reference).read_bytes() == payload
     assert state.storage.path(asset["reference"]).read_bytes() == payload
-    assert saved["revision_id"] != first["revision_id"]
-    assert not state.attempts(run)
-    package = package_payloads(state, saved["revision_id"])
-    for name, content in package.items():
-        if name.endswith(".png"):
-            with Image.open(io.BytesIO(content)) as image:
-                image.load()
-                assert image.format == "PNG"
-    value = brief.model_dump(mode="json")
-    value["brand"]["logo_path"] = asset["reference"]
-    plan = make_plan(Brief.model_validate(value), state.storage)
-    assert not plan.blocked
-    new_run = state.create(plan, 0)
-    assert state.plan(new_run).brief.brand.logo_path.endswith(".png" if kind == "PNG" else ".jpg")
-    assert state.storage.path(state.plan(new_run).brief.brand.logo_path).read_bytes() == payload
-    assert not intake.read(cid)  # Neither image operation invented a Brief draft.
+    assert version != first["version"] and not state.attempts(run)
+    with prepare_current_zip(state, final) as package, ZipFile(package.stream) as archive:
+        for name in archive.namelist():
+            if name.endswith(".png"):
+                with Image.open(io.BytesIO(archive.read(name))) as image:
+                    image.load()
+                    assert image.format == "PNG"
+    assert read(state.storage, cid)["authored"]["brief"]["brand"]["logo_path"] == reference
+    assert not list(state.storage.root.glob("Campaigns/**/Outputs"))
 
 
 def test_rejected_logo_preserves_previous_attachment_raw_work_and_upload_ownership(tmp_path):
     state, _, _, brief = setup_case(tmp_path, 2, True)
     cid = brief.campaign_id
     intake = Intake(state.storage)
-    intake.write(cid, brief.model_dump(mode="json"), None)
+    intake.write(cid, brief.model_dump(mode="json"), intake.read(cid)["version"])
     projects = AuthoredProjects(Workspace(state))
     project = projects.read(cid)
     project["authored"]["brief"]["brand"]["text_color"] = " .ddd "
@@ -394,24 +396,22 @@ def test_brief_logo_change_fits_saved_geometry_before_plan_and_preserves_other_r
     assert saved.status_code == 200, saved.text
     request = preview_request(client, cid)
     preview = client.post(f"/api/motif/campaigns/{cid}/brief-preview", json=request).json()
-    assert preview["status"] == "ready" and len(preview["fitted_outputs"]) == 1, preview
+    assert preview["status"] == "ready" and preview["fitted_outputs"] == [], preview
     planned = client.post(
         f"/api/motif/campaigns/{cid}/plan", json={"version": saved.json()["version"]}
     )
     assert planned.status_code == 200, planned.text
-    fits = planned.json()["fitted_outputs"]
-    assert len(fits) == 3 and all(item["placement"]["width"] < 0.2 for item in fits)
+    assert planned.json()["fitted_outputs"] == []
     reopened = action(client, cid)["authored"]["brief"]
     assert (
         reopened["audience"] == raw["audience"] and reopened["markets"]["es-MX"] == other_language
     )
     assert reopened["brand"]["logo_path"].endswith(".jpg")
     assert state.storage.path(reopened["brand"]["logo_path"]).read_bytes() == logo_payload("JPEG")
-    for item in fits:
-        assert (
-            reopened["products"][0]["framing"][item["market"]][item["ratio"]]["logo_placement"]
-            == item["placement"]
-        )
+    for ratio in ("1:1", "9:16", "16:9"):
+        placement = reopened["products"][0]["framing"]["en-US"][ratio]["logo_placement"]
+        assert placement["width"] < 0.2
+        assert placement["left"] == 0.7 and placement["top"] == 0.8
     assert state.plan(run).model_dump() == old_plan and not state.attempts(run)
     # Opening or replanning with the same attachment does not invent another fit.
     again = client.post(
@@ -469,4 +469,53 @@ def test_representative_preview_uses_only_intact_same_intent_retained_concept(tm
         changed["brief"]["creative_direction"] += " A genuinely different scene."
         result = client.post(url, json=changed).json()
         assert result["status"] == "ready" and result["kind"] == "typography", result
-        assert state.attempts(run) == attempts and state.revision_count(run) == 1
+        assert state.attempts(run) == attempts and state.revision_count(run) == 0
+
+
+def test_brief_preview_layers_recolor_inherited_text_without_changing_custom_blocks(preview_ui):
+    client, state, _, cid = preview_ui
+    request = preview_request(client, cid)
+    raw = request["brief"]
+    raw["brand"]["palette"] = ["#FFFFFF", "#B5542F", "#263B2E"]
+    raw["brand"]["text_color"] = "#FFFFFF"
+    raw["products"][0]["framing"] = {
+        "en-US": {
+            "1:1": {
+                "text_placements": {
+                    "message": {
+                        "left": 0.1,
+                        "top": 0.1,
+                        "width": 0.8,
+                        "font_size": 45,
+                        "font_id": "noto_sans",
+                        "color": "#263B2E",
+                    }
+                }
+            }
+        }
+    }
+    endpoint = f"/api/motif/campaigns/{cid}/brief-preview"
+    first = client.post(endpoint, json=request).json()
+    assert first["status"] == "ready", first
+    layers = first["layers"]
+    assert layers["text_blocks"]["message"]["color"] == "#263B2E"
+    assert layers["text_blocks"]["cta"]["color"] is None
+    urls = [first["image"]["url"], layers["base_url"]]
+    with Image.open(io.BytesIO(client.get(layers["base_url"]).content)) as base:
+        composed = base.convert("RGBA")
+    for block in layers["text_blocks"].values():
+        urls.append(block["url"])
+        with Image.open(io.BytesIO(client.get(block["url"]).content)) as glyph:
+            colored = Image.new("RGBA", glyph.size, block["color"] or "#B5542F")
+            colored.putalpha(glyph.getchannel("A"))
+            composed.alpha_composite(colored)
+            colored.close()
+    request["brief"]["brand"]["text_color"] = "#B5542F"
+    changed = client.post(endpoint, json=request).json()
+    with Image.open(io.BytesIO(client.get(changed["image"]["url"]).content)) as expected:
+        assert composed.convert("RGB").tobytes() == expected.convert("RGB").tobytes()
+    composed.close()
+    # Layer delivery has exactly the same owner/version admission as its full image.
+    saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=action(client, cid))
+    assert saved.status_code == 200
+    assert all(client.get(url).status_code == 404 for url in urls)

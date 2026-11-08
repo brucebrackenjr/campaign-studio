@@ -139,13 +139,53 @@ test('active dispatch, terminal uncertainty, and earlier unknown attempts retain
   assert.match(html, /Generating image…/);
 });
 
-test('zero-request composition has meaningful progress without allowance or charge filler', () => {
+test('a decoded first source remains available while the next product is generating', () => {
+  const h = progressHarness();
+  h.context.model.run.state='running';
+  h.context.model.plan_brief.products.push({id:'two',name:'Two',source:{role:'concept'}});
+  h.context.operation={run_id:'run',active:true,sources_completed:1,sources_total:2,
+    attempts:[{product_id:'one',state:'decoded',source_available:true,response_recoverable:true},
+      {product_id:'two',state:'dispatching',source_available:false,response_recoverable:false}]};
+  assert.equal(h.run('productionContext().products[0].sourceLabel'),'Source image received');
+  assert.equal(h.run('productionContext().products[0].image'),null);
+  const html = h.run('progressView()');
+  assert.match(html, /Source image received/);
+  assert.doesNotMatch(html, /sources\/one\/1x1/);
+  h.context.model.source_urls={one:'/verified-source'};
+  assert.equal(h.run('productionContext().products[0].image'),'/verified-source');
+  assert.equal(h.run('productionContext().products[1].sourceLabel'),'Generating image…');
+  assert.match(h.run('progressView()'), /1 <small[^>]*>\/ 2 source images/);
+});
+
+test('each source placeholder retains its own waiting, unknown, or failed status', () => {
+  const h = progressHarness();
+  h.context.model.run.state='partial';
+  h.context.model.plan_brief.products=[
+    {id:'received',name:'Received',source:{role:'concept'}},
+    {id:'unknown',name:'Unknown',source:{role:'concept'}},
+    {id:'failed',name:'Failed',source:{role:'concept'}},
+    {id:'unstarted',name:'Unstarted',source:{role:'concept'}},
+  ];
+  h.context.operation={run_id:'run',active:false,sources_completed:1,sources_total:4,
+    attempts:[{product_id:'received',state:'decoded',source_available:true},
+      {product_id:'unknown',state:'unknown',source_available:false},
+      {product_id:'failed',state:'failed',source_available:false}]};
+  const html=h.run('progressView()');
+  const cards=html.match(/<article class="pr-product-card">[\s\S]*?<\/article>/g);
+  assert.equal(cards.length,4);
+  for (const [index,label] of ['Source image received','Result not confirmed','Image not created','Image will be generated.'].entries()) {
+    assert.ok(cards[index].includes(label));
+    assert.doesNotMatch(cards[index], /<img /);
+  }
+});
+
+test('zero-request source preparation has progress without allowance or charge filler', () => {
   const h = progressHarness();
   h.context.model.run.allowance = 0;
-  h.context.operation = {run_id:'run',active: true, attempted: 0, stage: 'Creating campaign sizes'};
+  h.context.operation = {run_id:'run',active: true, attempted: 0, stage: 'Preparing source images'};
   const html = h.run('progressView()');
   assert.match(html, /No image requests in this run\./);
-  assert.match(html, /Creating campaign sizes/);
+  assert.match(html, /Preparing source images/);
   assert.doesNotMatch(html, /0 of 0|0 requests attempted|0 remaining allowance|This count is not a confirmed charge|reviewed plan and available allowance|may still incur charges/);
 });
 
@@ -168,62 +208,56 @@ test('retry progress uses one received attempted and remaining pair, including z
   assert.equal(h.context.model.run.allowance, 2, 'display does not change request admission');
 });
 
-test('settled zero, partial, and complete counts use current files while active counts use live progress', () => {
-  for (const available of [0,1,3]) {
+test('active and settled progress counts source images separately from format coverage', () => {
+  for (const active of [true,false]) {
     const h = progressHarness();
-    h.context.model.manifest.outputs = Array.from({length:3},(_,index)=>({id:String(index),url:index<available?'/saved.png':null}));
-    h.context.operation = {run_id:'run',active:false,completed:2,total:9};
-    assert.match(h.run('progressView()'), new RegExp(`pr-operation-count[^>]*>${available} <small[^>]*>/ 3 images`));
-    h.context.operation.active = true;
-    assert.match(h.run('progressView()'), /pr-operation-count[^>]*>2 <small[^>]*>\/ 9 images/);
+    h.context.model.manifest.outputs = Array.from({length:30},(_,i)=>({id:String(i),url:'/preview.png'}));
+    h.context.operation = {run_id:'run',active,completed:30,total:30,sources_completed:2,sources_total:5};
+    const html = h.run('progressView()');
+    assert.match(html, /pr-operation-count[^>]*>2 <small[^>]*>\/ 5 source images/);
+    assert.doesNotMatch(html, /30 images|Creating campaign images|Rebuild the missing format/);
   }
+  const h = progressHarness();
+  h.context.model.source_urls = {one:'/source.png',obsolete:'/unrelated.png'};
+  h.context.operation = {run_id:'old-run',sources_completed:5,sources_total:5};
+  assert.match(h.run('progressView()'), /pr-operation-count[^>]*>1 <small[^>]*>\/ 1 source images/);
 });
 
-test('only missing recoverable outputs enable recovery; completed decoded attempts do not', () => {
+test('recovery refers to retained source imagery, never a final format', () => {
   const h = progressHarness();
-  h.context.model.run_attempts = [{product_id: 'one', state: 'decoded', source_available: true}];
-  h.context.model.manifest.outputs = [{id: 'one/en-US/1x1', product_id: 'one', url: '/saved.png'}];
-  let html = h.run('progressView()');
-  assert.doesNotMatch(html, /A provider result is already saved/);
-  assert.match(html, /data-action="recover" disabled/);
-  h.context.model.local_recovery = {output_ids: ['one/en-US/9x16'], saved_result: true};
-  html = h.run('progressView()');
+  h.context.model.run_attempts = [{product_id:'one',state:'decoded',source_available:true}];
+  h.context.model.source_urls = {one:'/source.png'};
+  h.context.model.manifest.outputs = [{id:'one/en-US/1x1',product_id:'one',url:'/preview.png'}];
+  assert.doesNotMatch(h.run('progressView()'), /data-action="recover"/);
+  h.context.model.source_urls = {};
+  h.context.model.local_recovery = {output_ids:['one/en-US/1x1','one/en-US/9x16','one/en-US/16x9'],saved_result:true};
+  const html = h.run('progressView()');
   assert.match(html, /A provider result is already saved/);
-  assert.doesNotMatch(html, /data-action="recover" disabled/);
-  assert.doesNotMatch(html, /Rebuild the missing format/);
-  h.context.model.local_recovery.saved_result = false;
-  html = h.run('progressView()');
-  assert.match(html, /Recover missing image →/);
-  assert.match(html, /Rebuild the missing format using its saved product image\. No new AI request is needed\./);
-  h.context.model.local_recovery.output_ids.push('one/en-US/16x9');
-  assert.doesNotMatch(h.run('progressView()'), /Recover missing image →/);
-});
-
-test('completed damaged output uses single-image recovery copy only for a verified local source', () => {
-  const h = progressHarness();
+  assert.match(html, /Recover saved source images · 0 calls/);
+  assert.doesNotMatch(html, /Recover missing image|Rebuild the missing format|data-action="recover" disabled/);
   h.context.model.run.state = 'complete';
-  h.context.model.manifest = {complete:true,metrics:{},outputs:[
-    {id:'square',product_id:'one',market:'en-US',ratio:'1:1',url:'/square.png'},
-    {id:'story',product_id:'one',market:'en-US',ratio:'9:16',url:null},
-    {id:'landscape',product_id:'one',market:'en-US',ratio:'16:9',url:'/landscape.png'}]};
-  h.context.model.file_integrity = {damaged_outputs:['story']};
-  h.context.model.local_recovery = {output_ids:['story'],saved_result:false};
-  let html = h.run('production()');
-  assert.match(html, /2 of 3 saved/);
-  assert.match(html, /data-action="recover"[^>]*>Recover missing image →/);
-  assert.match(html, /Rebuild the missing format using its saved product image\. No new AI request is needed\./);
-  assert.match(html, /Saved images need recovery/);
-  h.context.model.local_recovery.output_ids.push('landscape');
-  html = h.run('production()');
-  assert.match(html, /Recover saved sources · 0 calls/);
-  assert.doesNotMatch(html, /Recover missing image|Rebuild the missing format/);
-  h.context.model.local_recovery = {output_ids:['story'],saved_result:true};
-  html = h.run('production()');
-  assert.match(html, /Recover saved sources · 0 calls/);
-  assert.doesNotMatch(html, /Recover missing image|Rebuild the missing format/);
-  h.context.model.local_recovery.saved_result = false;
+  h.context.model.composition_version = 'v1';
+  h.context.model.manifest.complete = false;
+  assert.match(h.run('production()'), /0 <small>\/ 1 source images/);
+  assert.doesNotMatch(h.run('production()'), /images saved|Saved images need recovery/);
   h.context.model.output_run_id = 'previous-run';
   assert.doesNotMatch(h.run('production()'), /data-action="recover"/);
+});
+
+test('partial handoff explains that export creates final formats from available sources', () => {
+  const h = progressHarness();
+  Object.assign(h.context, {
+    campaignMetricDisplay:()=>({}), handoffLogoNotice:()=>'', descriptionCount:()=>0,
+    total:()=>2, overviewView:()=>'', exportBlocked:()=>false,
+  });
+  h.context.C.markets=['en-US'];
+  h.context.model.manifest={complete:false,metrics:{completed_images:1},outputs:[
+    {id:'available',product_id:'one',url:'/preview.png'},
+    {id:'missing',product_id:'two',url:null},
+  ]};
+  const html = h.run('handoff()');
+  assert.match(html, /Export creates finished images from the available sources and current saved settings/);
+  assert.doesNotMatch(html, /Nothing is generated by export|Export does not create imagery/);
 });
 
 test('rule status intersects current unavailable outputs and separates other omissions without double counts', () => {
@@ -250,11 +284,11 @@ test('rules-only and mixed progress retain independent causes and only actionabl
   h.context.model.wording_issue = {code:'prohibited_phrase',matches:[{rule:'rule-1',context:{product_id:'one',product_name:'One',market:'en-US',phrase:{configured_phrase:'Always',market:'en-US',matches:[{field:'message',value:'Always here',origin:'292e9e84-eb00-5fdb-87e8-423f5e51fac4'}]}}}]};
   h.context.operation = {run_id:'run',active:false,completed:1,total:3};
   let html = h.run('progressView()');
-  assert.match(html, /pr-operation-count[^>]*>0 <small/, 'settled count uses the current accepted result');
+  assert.match(html, /pr-operation-count[^>]*>0 <small/, 'the source count is independent of format coverage');
   assert.match(html, /Images are withheld by current rules\./);
-  assert.match(html, /Withheld/);
+  assert.match(html, /withheld/);
   assert.match(html, /Edit headline in Studio/);
-  assert.match(html, /data-action="recover" disabled/);
+  assert.doesNotMatch(html, /data-action="recover"/);
   h.context.model.manifest.outputs.push({id:'failed',url:null});
   h.context.model.local_recovery.output_ids = ['failed'];
   assert.equal(h.run('canRecoverCurrentOutputs()'), true);
@@ -279,8 +313,8 @@ test('withholding cannot conceal active, unknown, stopped, source, or integrity 
     const html = h.run('progressView()');
     assert.match(html, /prohibited-word list/, kind);
     if (kind === 'active' || kind === 'source') assert.equal(h.run('canRecoverCurrentOutputs()'), false, kind);
-    if (kind === 'unknown') assert.match(html, /Result not confirmed/);
-    if (kind === 'provider') assert.match(html, /Rejected key.*Update API key/s);
+    if (kind === 'unknown') assert.match(html, /The image request could not be confirmed/);
+    if (kind === 'provider') assert.match(html, /OpenAI did not accept this key.*Update API key/s);
     if (kind === 'source') assert.match(html, /Exact unavailable source/);
   }
 });
@@ -290,7 +324,7 @@ test('rejected and denied credentials keep the existing update action without a 
   for (const code of ['rejected_key', 'access_denied']) {
     h.context.model.notice = {code, message: code === 'access_denied' ? 'The account lacks image access.' : 'The key was rejected.'};
     const html = h.run('progressView()');
-    assert.match(html, /\[updateKey\]Update API key/);
+    assert.match(html, /data-pr-action="update-key"[^>]*>Update API key/);
     assert.doesNotMatch(html, /Open setup steps/);
     assert.equal(h.run('showProductionIssue(model.notice.code, model.notice.message)'), true);
   }
@@ -444,11 +478,11 @@ test("retry failure remedy follows the recorded cause, not generic credential se
     message: "Outcome unknown",
   };
   let html = h.run("production()");
-  assert.match(html, /\[attempts\]Attempt details/);
+  assert.match(html, /data-action="attempts"[^>]*>Attempt details/);
   assert.ok(!html.includes("Open setup steps"));
   h.context.model.notice.code = "rejected_key";
   html = h.run("production()");
-  assert.match(html, /\[updateKey\]Update API key/);
+  assert.match(html, /data-pr-action="update-key"[^>]*>Update API key/);
 });
 test("exact settings use the displayed current output plan and escape prompt text without changing line breaks", () => {
   const h = harness();
@@ -520,4 +554,77 @@ test("missing-key Start opens setup without consent, confirmation, or automatic 
   assert.deepEqual(h.opened, ["missing-key"]);
   assert.equal(h.pending.length, 0);
   assert.equal(h.polls.length, 0);
+});
+
+
+test("saving a replacement key dismisses only the older authentication failure", () => {
+  const h = harness();
+  h.context.keySavedAt = Date.parse("2026-11-08T08:00:01Z") / 1000;
+  h.context.model.notice = { code: "rejected_key", message: "Old key rejected" };
+  h.context.model.run_attempts = [{state: "failed", created_at: "2026-11-08T08:00:00Z"}];
+  assert.equal(h.run("productionCredentialState().keyUpdated"), true);
+  assert.equal(h.run("productionCredentialState().credentialIssue"), null);
+  h.run("showNewProductionFailure()");
+  assert.deepEqual(h.opened, []);
+  h.context.model.run_attempts.push({state: "failed", created_at: "2026-11-08T08:00:02Z"});
+  assert.equal(h.run("productionCredentialState().credentialIssue"), "rejected_key");
+  h.run("showNewProductionFailure()");
+  assert.deepEqual(h.opened, ["rejected-key"]);
+  h.context.keyAvailable = false;
+  assert.equal(h.run("productionCredentialState().keyUpdated"), false);
+});
+
+test('active source generation keeps only progress and meaningful stop above collapsed details', () => {
+  const h=progressHarness();
+  h.context.model.run.state='running';
+  h.context.operation={run_id:'run',active:true,sources_completed:0,sources_total:1,attempted:1,remaining:0,
+    stage:'Generating One',stoppable:false,attempts:[{product_id:'one',state:'dispatching'}]};
+  let panel=h.run('progressView()').match(/<aside class="pr-action-panel">[\s\S]*?<\/aside>/)[0];
+  assert.match(panel,/Generating One/);assert.match(panel,/0 <small>\/ 1 source images/);
+  assert.doesNotMatch(panel,/partialReview|retryPlan|data-action="recover"|Hand off|Review available/);
+  assert.doesNotMatch(panel,/data-action="stop"/);
+  assert.match(panel,/<details class="pr-request-details"><summary>/);
+  h.context.operation.stoppable=true;
+  panel=h.run('progressView()').match(/<aside class="pr-action-panel">[\s\S]*?<\/aside>/)[0];
+  assert.match(panel,/data-action="stop"/);
+  assert.ok(panel.indexOf('data-action="stop"') < panel.indexOf('<details'));
+});
+
+test("restarted environment key allows deliberate resume without claiming a saved or verified key", () => {
+  const h = harness();
+  h.context.keySavedAt = null;
+  h.context.keyLoadedAt = Date.parse("2026-11-08T08:00:01Z") / 1000;
+  h.context.model.notice = { code: "rejected_key", message: "Previous attempt rejected" };
+  h.context.model.run_attempts = [{state:"failed",created_at:"2026-11-08T08:00:00Z"}];
+  assert.equal(h.run("productionCredentialState().keyReloaded"), true);
+  assert.equal(h.run("productionCredentialState().keyUpdated"), false);
+  assert.equal(h.run("productionCredentialState().credentialIssue"), null);
+  h.run("showNewProductionFailure()");
+  assert.deepEqual(h.opened, []);
+  assert.equal(h.pending.length, 0);
+  h.context.model.run_attempts.push({state:"failed",created_at:"2026-11-08T08:00:02Z"});
+  assert.equal(h.run("productionCredentialState().keyReloaded"), false);
+  assert.equal(h.run("productionCredentialState().credentialIssue"), "rejected_key");
+  h.context.keyAvailable = false;
+  assert.equal(h.run("productionCredentialState().keyReloaded"), false);
+});
+
+
+test('active generation shows elapsed time and motion outside collapsed request details', () => {
+  const h=progressHarness();
+  h.context.model.run.state='running';
+  h.context.operation={run_id:'run',active:true,sources_completed:2,sources_total:3,elapsed_seconds:12.8,
+    attempts:[{product_id:'one',state:'dispatching'}]};
+  let html=h.run('progressView()');
+  assert.ok(html.indexOf('12s elapsed') < html.indexOf('<details'));
+  assert.match(html, /pr-operation-progress is-active/);
+  assert.match(html, /pr-working-indicator/);
+  assert.match(html, /2 <small>\/ 3 source images/);
+  h.context.operation.elapsed_seconds=14.1;
+  html=h.run('progressView()');
+  assert.match(html, /14s elapsed/);
+  assert.match(html, /2 <small>\/ 3 source images/);
+  h.context.operation.active=false;
+  html=h.run('progressView()');
+  assert.doesNotMatch(html, /pr-operation-progress is-active|pr-working-indicator/);
 });

@@ -208,7 +208,8 @@ test("known unapplied logo outcomes are not reconciled against an unrelated rece
 });
 
 test("logo no-op preserves its preview while real conflict, uncertainty, and disposed responses stay distinct", async () => {
-  const context = vm.createContext({ clearTimeout, MotifEditorControls: {copy:{applyFailed:'Could not apply. Your edits are still here.'}} });
+  const context = vm.createContext({ clearTimeout });
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/editor-controls.js', 'utf8'), context);
   const source = readFileSync('src/campaign_studio/static/motif/logo-controls.js', 'utf8');
   vm.runInContext(source.replace('const api={mount:', 'const api={Editor,mount:'), context);
   for (const outcome of ['no-op', 'not-accepted', 'generic-409', 'conflict', 'transport', 'disposed', 'changed-target']) {
@@ -240,7 +241,7 @@ test("logo no-op preserves its preview while real conflict, uncertainty, and dis
       assert.equal(editor.pendingAsset, true);
       assert.equal(editor.reviewRequired, undefined);
       assert.equal(editor.busy, false);
-      assert.match(editor.message, outcome === 'no-op' ? /No changes were applied/ : /Could not apply.*edits are still here/);
+      assert.match(editor.message, outcome === 'no-op' ? /No changes were applied/ : /problem saving.*previous image is unchanged.*edits are still here/);
       assert.equal(focus, 1);
       assert.equal(sub, 0);
     } else {
@@ -547,6 +548,8 @@ test('persistent Logo distinguishes successful Apply, Cancel, and a caller-owned
     let release;context.holdContext=()=>new Promise(resolve=>{release=resolve});
     run("logoTarget=()=>({campaignId:'campaign',revisionId:'revision',draftVersion:'before'});logoContext=holdContext");
     const opening=run('openLogo(0,0)');await flush();
+    assert.equal(callbacks.loading,true,'real Logo panel mounts before source context resolves');
+    assert.equal(callbacks.savedDisplay.compositeUrl,'/image');
     context.model.version='acknowledged';
     if(scenario==='substantive-change')context.model.value.audience='Changed';
     release({});await opening;
@@ -584,4 +587,47 @@ test('unified Logo subdialogs remain interactive and restore prior sibling owner
   editor.showSub('Confirm','Body','Buttons');assert.equal(root.inert,false);assert.equal(root.overlay.inert,false);assert.equal(a.inert,true);assert.equal(b.inert,true);
   editor[end](false);assert.equal(root.overlay.removed,true);assert.equal(a.inert,false);assert.equal(a.getAttribute('aria-hidden'),null);assert.equal(b.inert,true);assert.equal(b.getAttribute('aria-hidden'),'false');
  }
+});
+
+
+test("logo preview from before its own acknowledgement cannot raise a stale notice", async()=>{
+  const context=vm.createContext({clearTimeout});
+  const source=readFileSync('src/campaign_studio/static/motif/logo-controls.js','utf8');
+  vm.runInContext(source.replace('const api={mount:', 'const api={Editor,mount:'),context);
+  let resolve;
+  const editor=Object.create(context.MotifLogo.Editor.prototype);
+  Object.assign(editor,{open:true,seq:0,target:{},asset:{reference:'logo'},p:{x:.1},
+    signature:()=> 'same',paint(){},o:{onPreview:()=>new Promise(done=>{resolve=done;}),onConflict(){assert.fail('obsolete preview must be ignored');}}});
+  const pending=editor.validate();
+  editor.seq++; // Autosave acceptance retires the prior preview's sequence.
+  resolve({reviewRequired:true,code:'conflict'}); await pending;
+  assert.equal(editor.reviewRequired,undefined);
+  assert.equal(editor.valid,null);
+});
+
+test('Logo opens a source-backed output with blocked text layout, but never admits an unavailable source', () => {
+ const context=vm.createContext({FMT:[{ratio:'1:1',name:'Square',w:1080,h:1080}],LANG:{en:'English'}});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo.js','utf8'),context);
+ const data={value:{campaign_id:'campaign'},output_brief:{name:'Campaign',products:[{id:'product',name:'Lantern'}]},manifest:{revision_id:'version',outputs:[{id:'product/en-US/1x1',product_id:'product',market:'en-US',ratio:'1:1',url:null}]},logo_editable_products:{product:true}};
+ assert.equal(context.logoTarget(data,'product','en-US','1:1').revisionId,'version');
+ data.logo_editable_products.product=false;
+ assert.throws(()=>context.logoTarget(data,'product','en-US','1:1'),/not available/);
+});
+
+test('opening Logo reaches its verified source context when the composite preview is blocked', async () => {
+ const context=vm.createContext({
+  C:{id:'campaign',products:[{id:'product'}]},lang:'en',MARKET:{en:'en-US'},FMT:[{ratio:'1:1',name:'Square',w:1080,h:1080}],LANG:{en:'English'},
+  canEditLogo:()=>true,outputFor:()=>({url:null}),
+  document:{activeElement:{}},lastFocus:null,modal:"",studioWorkspace:{root:{}},MotifLogo:{mount:()=>({})},mountProjectViews(){},
+  model:{value:{campaign_id:'campaign'},output_brief:{name:'Campaign',products:[{id:'product',name:'Lantern'}]},manifest:{revision_id:'version',outputs:[{product_id:'product',market:'en-US',ratio:'1:1',url:null}]},logo_editable_products:{product:true}},
+ });
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo.js','utf8'),context);
+ let called=0;
+ context.sourceContext=async(data,target)=>{called++;assert.equal(target.productId,'product');return{};};
+ vm.runInContext('logoContext=sourceContext',context);
+ await context.openLogo(0,0,{isCurrent:()=>false});
+ assert.equal(called,1,'source-backed context is reached without requiring a completed composite');
+ context.canEditLogo=()=>false;
+ await assert.rejects(context.openLogo(0,0),/available current image/);
+ assert.equal(called,1,'an unavailable source never reaches the context request');
 });

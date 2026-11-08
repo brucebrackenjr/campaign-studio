@@ -80,10 +80,12 @@ async function applyMetadata(product, language, format, values) {
   }
 }
 async function downloadImage(product, language, format) {
+  if (!await flushCurrentWork()) throw new Error("Your changes are still here. Save them before downloading.");
   requireIntactExport();
   const output = outputFor(product, language, format), owner = model;
   if (!output?.url) throw new Error("This image is unavailable. Recover it before downloading.");
-  const response = await fetch(`${output.url}?download=true`);
+  const downloadURL = output.download_url || `/api/campaigns/${C.id}/composition/${deliveryVersion()}/download/${C.products[product].id}/${MARKET[language]}/${FMT[format].ratio.replace(":", "x")}`;
+  const response = await fetch(downloadURL);
   if (model !== owner) return;
   if (!response.ok) {
     const body = await response.json();
@@ -99,13 +101,17 @@ async function downloadImage(product, language, format) {
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+function deliveryPath() { return `/api/campaigns/${C.id}/delivery`; }
+function deliveryVersion() { return model.composition_version || model.version; }
 function requireIntactExport() {
-  if (wordingExportBlocked()) throw new Error("Correct or apply the prohibited wording changes before exporting.");
+  if (model.composition_issues?.length) throw new Error("Finish the incomplete campaign fields before exporting.");
+  if (wordingExportBlocked()) throw new Error("Correct the prohibited wording before exporting.");
+  if (currentLayoutFindings().length) throw new Error("Correct the listed image layouts in Studio before exporting.");
   if (!model?.manifest?.metrics.completed_images)
     throw new Error(
       "Nothing to export yet. Open Production to recover or create images.",
     );
-  if (damagedFiles())
+  if (!model.composition_version && damagedFiles())
     throw new Error(
       "Saved files are missing or changed. Use local recovery before exporting this version.",
     );
@@ -113,91 +119,188 @@ function requireIntactExport() {
 let exportRecovery = null;
 let exportReceipt = null;
 let pendingExport = "zip";
-async function exportFailure(error, target, kind, allowPartial) {
+let reportPreviewURL = null;
+async function exportFailure(error, target, snapshot, kind, allowPartial, operationId = null) {
   if (await wordingExportRefused(error)) return;
-  if (showCapacity(error, "Creating this package")) return;
-  if (!model?.manifest || metadataPath() !== target) return;
-  exportRecovery = { target, kind, allowPartial, message: error.message };
+  if (!model?.manifest || deliveryPath() !== target) return;
+  let progress = null;
+  if (operationId) {
+    try { progress = await api(`${target}/progress/${operationId}`); } catch {}
+  }
+  exportRecovery = { target, snapshot, kind, allowPartial, operationId, progress, code: error.code, message: error.message };
   openModal("export-failure");
 }
+function exportRequiresRefresh(recovery) {
+  // Another tab's save is not reflected in this tab's unchanged model version.
+  return ["composition_conflict", "stale_snapshot", "stale_report"].includes(recovery?.code);
+}
 function exportFailureModal() {
+  const recovery = exportRecovery, progress = recovery?.progress;
+  if (recovery?.code === "font_unavailable") {
+    return dialog(
+      "A required font is unavailable.",
+      notice(recovery.message, "", "block"),
+      btn("Close", "cancelExport", "primary"),
+    );
+  }
+  if (exportRequiresRefresh(recovery)) {
+    const next = recovery.kind === "report"
+      ? "After refreshing, open the report preview again."
+      : "After refreshing, choose Download ZIP again.";
+    return dialog(
+      "The campaign has changed.",
+      `${notice(window.MotifSave.conflictMessage, "", "block")}<p>${next}</p>`,
+      btn("Refresh", "retryExport", "primary"),
+    );
+  }
+  const changed = recovery && deliveryVersion() !== recovery.snapshot;
+  const failures = progress?.failed_outputs?.length ? progress.failed_outputs : progress?.failed_output ? [progress.failed_output] : [];
+  const labels = failures.map(failed => {
+    const language = Object.keys(MARKET).find(key => MARKET[key] === failed.market);
+    const format = FMT.find(item => item.ratio === failed.ratio || item.ratio.replace(":", "x") === failed.ratio);
+    return [failed.product_name, format?.name || failed.ratio, LANG[language] || failed.market].filter(Boolean).join(" · ");
+  });
+  const detail = labels.length ? labels.length === 1 ? `We couldn’t create ${labels[0]}.` : "We couldn’t create these images:" : recovery?.message || "Try again.";
+  const failedList = labels.length > 1 ? `<ul>${labels.map(label => `<li>${esc(label)}</li>`).join("")}</ul>` : "";
+  const created = Number.isInteger(progress?.completed) ? `<p>${progress.completed} of ${progress.total} images have been created. Retrying keeps those images and creates the failed ones.</p>` : "";
   return dialog(
-    "Your images are safe. The package could not be saved.",
-    `${notice(exportRecovery?.message || "The local package operation could not finish.", "Your saved images and revision are unchanged.", "block")}<p class="muted">You can still retrieve individual PNGs from the handoff overview. A missing response does not change your saved campaign.</p>`,
-    btn("Individual PNGs", "exportOverview") +
-      btn(
-        exportRecovery?.kind === "zip"
-          ? "Retry ZIP download"
-          : "Retry local package",
-        "retryExport",
-        "primary",
-      ),
+    recovery?.kind === "report" ? "The report could not be opened." : "The download is not ready yet.",
+    `${notice(detail, "", "block")}${failedList}${created}${changed ? '<p>Your campaign has changed. Start a new export to include the latest saved edits.</p>' : ''}`,
+    btn("Cancel export", "cancelExport") + btn(changed ? "Start new export" : recovery?.kind === "zip" ? progress?.status === "failed" ? "Retry failed images" : "Retry ZIP download" : "Retry report preview", "retryExport", "primary"),
   );
+}
+async function cancelExport() {
+  const previous = exportRecovery;
+  if (previous?.operationId) {
+    await api(`${previous.target}/cancel`, { operation_id: previous.operationId });
+  }
+  exportRecovery = null;
+  closeModal();
 }
 async function retryExport() {
   const previous = exportRecovery;
-  if (!previous || metadataPath() !== previous.target) {
-    closeModal();
-    return;
-  }
-  if (previous.kind === "zip") await downloadZIP(previous.allowPartial);
-  else await createFolder(previous.kind === "report", previous.allowPartial);
+  if (!previous || !model?.manifest || deliveryPath() !== previous.target) { closeModal(); return; }
+  if (exportRequiresRefresh(previous)) { window.MotifSave.refreshPage(); return; }
+  if (!await flushCurrentWork()) return;
+  const changed = deliveryVersion() !== previous.snapshot;
+  if (changed && previous.operationId) await api(`${previous.target}/cancel`, { operation_id: previous.operationId });
+  if (previous.kind === "zip") await downloadZIP(previous.allowPartial, changed ? null : previous.operationId);
+  else await previewReport(previous.allowPartial);
 }
-async function downloadZIP(allowPartial) {
+function watchDeliveryProgress(campaign, operationId, button) {
+  let stopped = false, timer;
+  const stages = new Set(["Creating finished images", "Retrying image", "Preparing ZIP", "Checking download", "Download ready"]);
+  let detail = null;
+  if (button?.parentElement && typeof document.createElement === "function") {
+    detail = document.createElement("p"); detail.className = "small muted";
+    detail.setAttribute("role", "status"); detail.setAttribute("aria-live", "polite");
+    button.parentElement.append(detail);
+  }
+  async function poll() {
+    try {
+      const progress = await api(`/api/campaigns/${campaign}/delivery/progress/${operationId}`);
+      if (!stopped && detail) detail.textContent = progress.message || "";
+      if (!stopped && button && stages.has(progress.stage)) {
+        button.textContent = progress.stage === "Creating finished images" && Number.isInteger(progress.completed)
+          ? `Creating images: ${progress.completed} of ${progress.total}.`
+          : progress.stage + (progress.stage === "Download ready" ? "" : "…");
+      }
+    } catch { /* The operation may not yet be registered, or its response is closing. */ }
+    if (!stopped) timer = setTimeout(poll, 350);
+  }
+  timer = setTimeout(poll, 200);
+  return () => { stopped = true; clearTimeout(timer); detail?.remove(); };
+}
+async function downloadZIP(allowPartial, retryOperationId = null) {
+  if (!await flushCurrentWork()) throw new Error("Your changes are still here. Save them before exporting.");
   requireIntactExport();
-  const target = metadataPath();
-  let result;
+  const target = deliveryPath(), snapshot = deliveryVersion();
+  const button = $("#overlay [data-action='confirmPartial'], #overlay [data-action='retryExport']") ||
+    $("[data-action='exportZip']");
+  const label = button?.textContent;
+  if (button) {
+    const completed = retryOperationId && exportRecovery?.operationId === retryOperationId ? exportRecovery.progress?.completed || 0 : 0;
+    button.textContent = `Creating images: ${completed} of ${model.manifest.metrics.completed_images}.`;
+    button.setAttribute("aria-busy", "true");
+  }
+  const operationId = retryOperationId || crypto.randomUUID().replaceAll("-", "");
+  const stopProgress = watchDeliveryProgress(C.id, operationId, button);
   try {
-    result = await api(`${target}/zip`, {
-      snapshot_id: model.metadata.snapshot_id,
+    const response = await apiResponse(`${target}/zip`, {
+      operation_id: operationId,
+      version: snapshot,
       allow_partial: allowPartial,
     });
+    if (response.headers.get("Content-Type")?.split(";")[0] !== "application/zip")
+      throw new Error("Motif did not receive the ZIP. Try the download again.");
+    const blob = await response.blob();
+    if (!model?.manifest || deliveryPath() !== target) return;
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const encoded = disposition.match(/(?:^|;)\s*filename\*=UTF-8''([^;]+)/i);
+    const filename = encoded ? decodeURIComponent(encoded[1]) : "Motif.zip";
+    const anchor = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    try {
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.append(anchor);
+      anchor.click();
+    } finally {
+      anchor.remove();
+      // Give the browser's download manager time to take ownership of a large ZIP.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    exportReceipt = { filename };
+    openModal("export-success");
   } catch (error) {
-    await exportFailure(error, target, "zip", allowPartial);
-    return;
+    await exportFailure(error, target, snapshot, "zip", allowPartial, operationId);
+  } finally {
+    stopProgress();
+    if (button) {
+      button.textContent = label;
+      button.removeAttribute("aria-busy");
+    }
   }
-  if (!model?.manifest || metadataPath() !== target) return;
-  const anchor = document.createElement("a");
-  anchor.href = result.url;
-  anchor.download = "";
-  anchor.click();
-  exportReceipt = { kind: "zip", filename: result.filename };
-  openModal("export-success");
 }
-async function createFolder(openReport, allowPartial = false) {
+async function previewReport(allowPartial = false) {
   requireIntactExport();
   if (!model.manifest.complete && !allowPartial) {
-    pendingExport = openReport ? "report" : "folder";
+    pendingExport = "report";
     openModal("partial-export");
     return;
   }
-  const target = metadataPath();
-  let result;
+  const target = deliveryPath();
+  let snapshot = deliveryVersion();
+  // Open in response to the click, before the asynchronous validation, so
+  // browsers that require an active user gesture can still show the report.
+  const tab = window.open("about:blank", "_blank");
   try {
-    result = await api(`/api/campaigns/${C.id}/export`, {
-      run_id: model.output_run_id,
-      revision_id: model.manifest.revision_id,
-      snapshot_id: model.metadata.snapshot_id,
+    if (tab) {
+      tab.opener = null;
+      tab.document.title = "Motif – Report preview";
+      tab.document.body.textContent = "Preparing report…";
+    }
+    if (!await flushCurrentWork()) throw new Error("Your changes are still here. Save them before opening the report.");
+    snapshot = deliveryVersion();
+    const result = await api(`${target}/report-preview`, {
+      version: snapshot,
       allow_partial: allowPartial,
     });
+    if (!model?.manifest || deliveryPath() !== target) {
+      tab?.close();
+      return;
+    }
+    if (tab) {
+      if (!tab.closed) tab.location.replace(result.url);
+      if (modal) closeModal();
+    } else {
+      reportPreviewURL = result.url;
+      openModal("open-report");
+    }
   } catch (error) {
-    await exportFailure(
-      error,
-      target,
-      openReport ? "report" : "folder",
-      allowPartial,
-    );
-    return;
+    tab?.close();
+    await exportFailure(error, target, snapshot, "report", allowPartial);
   }
-  if (!model?.manifest || metadataPath() !== target) return;
-  exportReceipt = { kind: "folder" };
-  // Opening a returned same-origin report is separate from producing the package.
-  openModal("export-success");
-  $("#overlay .modal-body").insertAdjacentHTML(
-    "beforeend",
-    `<div class="field"><label for="export-location">Saved folder</label><input id="export-location" type="text" readonly value="${esc(result.location)}"><span class="hint">Select and copy this path to open the folder on this computer.</span></div><p><a href="${esc(result.url)}" target="_blank" rel="noopener">Open offline report ↗</a></p>`,
-  );
-  if (openReport) window.open(result.url, "_blank", "noopener");
 }
 document.addEventListener("change", event => {
   if (event.target.id === "overview-filter") {

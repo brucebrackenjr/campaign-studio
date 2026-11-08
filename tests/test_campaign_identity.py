@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from campaign_studio import intake as intake_module
 from campaign_studio.app import create_app
 from campaign_studio.brief import Brief
 from campaign_studio.cleanup import Cleanup
@@ -40,6 +41,14 @@ def create(client, name="Same campaign name"):
     response = client.post("/api/motif/campaigns", json={"name": name, "brand": "Brand"})
     assert response.status_code == 200, response.text
     return response.json()["campaign_id"]
+
+
+def draft_payload(storage, campaign):
+    with storage.connect() as db:
+        row = db.execute(
+            "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (campaign,)
+        ).fetchone()
+    return row[0] if row else None
 
 
 def test_campaign_and_empty_production_open_without_a_plan_and_brief_is_not_an_alias(client):
@@ -178,18 +187,18 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
 ):
     state = State(Storage(tmp_path / "runtime"))
     intake = Intake(state.storage)
-    original_write = state.storage.write_new
+    original_write = intake_module.write_draft
 
-    def fail(reference, payload):
+    def fail(*args, **kwargs):
         raise OSError("controlled draft write failure")
 
-    monkeypatch.setattr(state.storage, "write_new", fail)
+    monkeypatch.setattr(intake_module, "write_draft", fail)
     with pytest.raises(OSError, match="controlled"):
         intake.new()
     with state.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
     assert not list(state.storage.path("Campaigns").glob("*/Brief/draft.json"))
-    monkeypatch.setattr(state.storage, "write_new", original_write)
+    monkeypatch.setattr(intake_module, "write_draft", original_write)
     original_connect = state.storage.connect
     candidate = str(uuid4())
 
@@ -211,31 +220,31 @@ def test_creation_failure_rolls_back_registry_and_never_overwrites_an_existing_d
     with state.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM campaigns").fetchone()[0] == 0
     campaign, document = intake.new()
-    path = state.storage.path(state.storage.project(campaign).draft)
-    before = path.read_bytes()
+    before = draft_payload(state.storage, campaign)
     with pytest.raises(sqlite3.IntegrityError):
         intake.create(campaign, document["value"] | {"name": "Must not replace"})
-    assert path.read_bytes() == before
+    assert draft_payload(state.storage, campaign) == before
     orphan = str(uuid4())
     folder = f"Untitled campaign-{orphan[:8]}"
     orphan_path = state.storage.path(f"Campaigns/{folder}/Brief/draft.json")
-    state.storage.write(orphan_path.relative_to(state.storage.root).as_posix(), before)
+    state.storage.write(orphan_path.relative_to(state.storage.root).as_posix(), before.encode())
     intake.create(orphan, document["value"] | {"campaign_id": orphan})
     assert state.storage.project(orphan).folder != folder
-    assert orphan_path.read_bytes() == before
-    assert state.storage.path(state.storage.project(orphan).draft).is_file()
+    assert orphan_path.read_bytes() == before.encode()
+    assert draft_payload(state.storage, orphan) is not None
+    assert not state.storage.path(state.storage.project(orphan).draft).exists()
     assert intake.read(campaign) == document
 
 
 @pytest.mark.skipif(
     os.name == "nt", reason="Windows publishes with MoveFileExW, not directory fsync"
 )
-def test_creation_directory_sync_failure_removes_only_its_newly_linked_draft(tmp_path, monkeypatch):
+def test_creation_directory_sync_failure_removes_only_its_new_import(tmp_path, monkeypatch):
     state = State(Storage(tmp_path / "runtime"))
     intake = Intake(state.storage)
-    existing, _ = intake.new()
-    existing_path = state.storage.path(state.storage.project(existing).draft)
-    before = existing_path.read_bytes()
+    existing, document = intake.new()
+    before = draft_payload(state.storage, existing)
+    candidate = str(uuid4())
     original_sync = os.fsync
     failure = OSError("controlled post-publication directory sync failure")
     attempted = []
@@ -249,11 +258,14 @@ def test_creation_directory_sync_failure_removes_only_its_newly_linked_draft(tmp
     with monkeypatch.context() as patch:
         patch.setattr(os, "fsync", fail_directory)
         with pytest.raises(OSError) as error:
-            intake.new()
+            intake.create(
+                candidate, document["value"] | {"campaign_id": candidate}, imported_bytes=b"{}"
+            )
     assert error.value is failure
     assert len(attempted) == 1
-    assert existing_path.read_bytes() == before
-    assert list(existing_path.parent.iterdir()) == [existing_path]
+    assert draft_payload(state.storage, existing) == before
+    assert draft_payload(state.storage, candidate) is None
+    assert not list(state.storage.path("Campaigns").glob("*/Brief/Imports/original.json"))
     with state.storage.connect() as db:
         assert [row[0] for row in db.execute("SELECT id FROM campaigns")] == [existing]
     created, _ = intake.new()
@@ -265,15 +277,20 @@ def test_registered_damage_does_not_reinitialize_and_pending_deletion_keeps_retr
 ):
     campaign = create(client)
     state = client.app.state.workspace.state
-    path = state.storage.path(state.storage.project(campaign).draft)
-    exact = path.read_bytes()
-    path.unlink()
+    exact = draft_payload(state.storage, campaign)
+    with state.storage.connect() as db:
+        db.execute("DELETE FROM campaign_drafts WHERE campaign_id=?", (campaign,))
     response = client.get(f"/campaigns/{campaign}/campaign")
     assert response.status_code == 409 and "saved data is unavailable" in response.text
-    assert not path.exists()
+    assert draft_payload(state.storage, campaign) is None
     rows = client.get("/api/motif/workspace").json()["campaigns"]
     assert rows[0]["id"] == campaign and rows[0]["status"] == "damaged"
-    path.write_bytes(exact)
+    with state.storage.connect() as db:
+        db.execute("INSERT INTO campaign_drafts VALUES (?,?)", (campaign, exact))
+    project = state.storage.project(campaign)
+    reference = project.ref("Brief/Imports/original.json")
+    project.write(reference, b"{}")
+    path = state.storage.path(reference)
     cleanup = Cleanup(state)
     preview = cleanup.preview_campaign(campaign)
     original_unlink = Path.unlink

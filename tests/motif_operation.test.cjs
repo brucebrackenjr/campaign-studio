@@ -71,7 +71,7 @@ function harness() {
     window: { addEventListener() {} },
     structuredClone,
     modalView() {},
-    localDialog: null, studioWorkspace: null,
+    localDialog: null, studioWorkspace: null, flushCurrentWork:async()=>true,
     destroyBriefFlow() {},
     mountBriefFlow() {},
     invalidatePreview() {},
@@ -253,6 +253,7 @@ function navigationHarness() {
     model.project={authored:{brief:JSON.parse(baseline),form_drafts:{fields:{'brief/copy/en':{'copy-headline':'Saved pending A'}}}}};
     restoreProject=value=>{draft=structuredClone(value.brief);projectBuffers.form_drafts=structuredClone(value.form_drafts)};
     saveProject=async()=>{steps.push('project');dirty=false;return true};
+    flushCurrentWork=async()=>{try{return await saveProject()}catch{return false}};
     updateWordingPreview=async()=>{throw new Error('Project Save must not preview images')};
     saveDraft=async()=>{throw new Error('Project Save must not use a separate brief writer')};
     saveWording=async()=>{throw new Error('Project Save must not apply images')};
@@ -356,8 +357,7 @@ test("draft-only Save and leave preserves campaign forms despite pending image c
         showStorage=state=>{modal=state};
       `);
       await h.run("navigate('library')");
-      assert.equal(h.run("modal"), "unsaved");
-      await h.click("saveLeave");
+      assert.equal(h.run("modal"), "");
       assert.equal(h.run("page"), "library");
       assert.deepEqual(h.context.steps, ["project"]);
       assert.equal(h.run("dirty"), false);
@@ -372,7 +372,7 @@ test("Save and leave preserves unfinished Brief forms; editor-owned Apply checks
     const h=navigationHarness();
     h.context.policy={pending};
     h.run("model.image_cleanup=policy;showStorage=state=>{modal=state}");
-    await h.run("navigate('library')"); await h.click("saveLeave");
+    await h.run("navigate('library')");
     assert.equal(h.run("page"),"library");
     assert.deepEqual(h.context.steps,["project"]);
     assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']"),"A");
@@ -417,7 +417,7 @@ test("Cancel, close, and Escape abort only pending inventory and never reopen it
     await h.click("storage:cancel");
     await next;
     await h.run("navigate('library')");
-    assert.equal(h.run("modal"), "unsaved");
+    assert.equal(h.run("modal"), "");
     assert.equal(h.pending.length, 2); // No confirmation or cleanup request.
   }
 });
@@ -444,7 +444,7 @@ test("Workbench deletion previews and confirms the clicked card even when anothe
 
 test("product JPEG attachment preserves unrelated Brief logo and raw work", async () => {
   const h = navigationHarness();
-  h.run("draft.brand={logo_path:'Campaigns/Test-12345678/Assets/Products/original.png'};modalProduct={source:{path:'old-product.png'}}");
+  h.run("draft.brand={logo_path:'Campaigns/Test-12345678/Assets/Products/original.png'};modalProduct={id:'jpeg-product',source:{path:'old-product.png'}};draft.products=[structuredClone(modalProduct)]");
   const product = h.run("upload({type:'image/jpeg',name:'photo.jpg'})");
   h.pending[0].resolve({reference:'Campaigns/Test-12345678/Assets/Products/photo.jpg',url:'/uploads/photo.jpg'});
   await product;
@@ -462,111 +462,45 @@ test("deliverable totals follow each supported selected-language count", () => {
     }
 });
 
-test("page exits guard unacknowledged work while saved pending wording stays navigable", async () => {
-  const h=navigationHarness();
+test("page exits automatically flush Campaign fields without an Apply or discard dialog", async()=>{
   for(const target of ["library","campaign","production","handoff"]) {
-    h.run("dirty=true;page='review'"); await h.run(`navigate('${target}')`);
-    assert.equal(h.run("modal"),"unsaved"); assert.equal(h.run("page"),"review");
-    await h.click("close");
-    assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']"),"A");
+    const h=navigationHarness(); await h.run(`navigate('${target}')`);
+    assert.equal(h.run("page"),target); assert.equal(h.run("modal"),"");
+    assert.deepEqual(h.context.steps,["project"]);
+    assert.equal(h.run("draft.audience"),"Typed audience");
+    assert.equal(h.pending.length,0);
   }
-  for(const action of ["openCampaign","new","import"]) {
-    await h.click(action,"62220994-1d32-5713-80d2-ac0b6ff0baf3"); assert.equal(h.run("modal"),"unsaved"); assert.equal(h.pending.length,0);
-  }
-  await h.click("close"); await h.click("format:1:2");
-  assert.equal(h.run("formats[1]"),2);
-  h.run("dirty=false"); await h.run("navigate('library')");
-  assert.equal(h.run("page"),"library"); assert.equal(h.run("modal"),"");
-  assert.equal(h.run("Object.keys(projectBuffers.form_drafts.fields).length"),1);
 });
-
-test("replacement navigation selects Products only after the common unsaved guard resolves", async () => {
-  const h = navigationHarness();
-  h.run("page='production';tab='copy'");
-  await h.click("nav:products");
-  assert.equal(h.run("modal"), "unsaved");
-  assert.equal(h.run("page"), "production");
-  assert.equal(h.run("tab"), "copy");
-  await h.click("close");
-  assert.equal(h.run("draft.audience"), "Typed audience");
-  await h.click("nav:products");
-  await h.click("saveLeave");
-  assert.equal(h.run("page"), "production");
-  assert.equal(h.run("tab"), "copy");
-  assert.equal(h.run("draft.audience"), "Typed audience");
-  assert.deepEqual(h.context.steps, ["project"]);
-  assert.equal(h.pending.length, 0);
-  h.run("page='production';tab='copy'");
-  await h.click("nav:products");
-  assert.equal(h.run("page"), "production");
-  assert.equal(h.run("tab"), "copy");
-  assert.equal(h.run("modal"), "");
-  assert.equal(h.pending.length, 0);
+test("replacement navigation saves fields and keeps the selected Production tab",async()=>{
+  const h=navigationHarness(); h.run("page='production';tab='copy'"); await h.click("nav:products");
+  assert.equal(h.run("page"),"production"); assert.equal(h.run("tab"),"copy");
+  assert.equal(h.run("modal"),""); assert.deepEqual(h.context.steps,["project"]);
 });
-
-test("Discard and leave restores acknowledged Brief and pending targets without clearing another campaign",async()=>{
-  const h=navigationHarness(); await h.run("navigate('library')"); await h.click("discardLeave");
-  assert.equal(h.run("page"),"library"); assert.equal(h.run("draft.audience"),"Saved audience");
-  assert.deepEqual(JSON.parse(h.run("JSON.stringify(projectBuffers.form_drafts)")), {
-    fields: {"brief/copy/en": {"copy-headline": "Saved pending A"}}
-  });
-  assert.deepEqual(h.context.steps,["project"]); assert.equal(h.pending.length,0);
+test("unfinished Campaign values remain saveable before leaving without Production admission",async()=>{
+  const h=navigationHarness(); h.run("draft.audience='';projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']=''");
+  await h.run("navigate('library')"); assert.equal(h.run("page"),"library");
+  assert.equal(h.run("draft.audience"),""); assert.equal(h.pending.length,0);
 });
-
-test("Save and leave preserves all pending targets through the common save without applying any",async()=>{
-  const h=navigationHarness(); await h.run("navigate('library')"); await h.click("saveLeave");
-  assert.deepEqual(h.context.steps,["project"]); assert.equal(h.run("page"),"library");
-  assert.equal(h.run("draft.audience"),"Typed audience");
-  assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']"),"A");
+test("a save that reorders Workbench keeps the chosen destination campaign identity",async()=>{
+  const h=navigationHarness(); h.run(`openCampaign=async id=>steps.push('open:'+id);
+    saveProject=async()=>{saved.reverse();dirty=false;return true}`);
+  await h.click("openCampaign","62220994-1d32-5713-80d2-ac0b6ff0baf3");
+  assert.equal(h.context.steps.at(-1),"open:62220994-1d32-5713-80d2-ac0b6ff0baf3");
 });
-
-test("invalid unfinished target values remain saveable without a production-readiness check",async()=>{
-  const h=navigationHarness();h.run("draft.audience='';projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']='';projectBuffers.form_drafts.fields['brief/copy/es']={'copy-headline':'  '}");
-  await h.run("navigate('library')");await h.click("saveLeave");
-  assert.deepEqual(h.context.steps,["project"]); assert.equal(h.run("page"),"library");
-  assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']"),"");
-  assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/es']['copy-headline']"),"  ");
+test("failed or held autosave retains all editing fields and blocks navigation until retry",async()=>{
+  const h=navigationHarness(); h.run("saveProject=async()=>false"); await h.run("navigate('library')");
+  assert.equal(h.run("page"),"review"); assert.equal(h.run("dirty"),true);
+  assert.match(h.notices.at(-1),/changes are still here/);
+  h.run("draft.audience='Newer audience';saveProject=async()=>{dirty=false;return true}");
+  await h.run("navigate('library')"); assert.equal(h.run("page"),"library");
+  assert.equal(h.run("draft.audience"),"Newer audience");
 });
-
-test("a save that reorders Workbench retains the intended destination campaign identity", async () => {
-  const h = navigationHarness();
-  h.run(`
-    openCampaign=async id=>steps.push('open:'+id);
-    refreshCatalog=async()=>{saved=[{id:'292e9e84-eb00-5fdb-87e8-423f5e51fac4'},{id:'62220994-1d32-5713-80d2-ac0b6ff0baf3'}]};
-    saveProject=async()=>{dirty=false;await refreshCatalog();return true};
-  `);
-  await h.click("openCampaign", "62220994-1d32-5713-80d2-ac0b6ff0baf3");
-  await h.click("saveLeave");
-  assert.equal(h.context.steps.at(-1), "open:62220994-1d32-5713-80d2-ac0b6ff0baf3");
-});
-
-test("a failed common save retains every pending target and does not navigate",async()=>{
-  const h=navigationHarness();h.run("saveProject=async()=>{throw new Error('Controlled save failure')}");
-  await h.run("navigate('library')");await h.click("saveLeave");
-  assert.equal(h.run("page"),"review");assert.equal(h.run("modal"),"unsaved");
-  assert.equal(h.run("navigationError"),"Controlled save failure");assert.equal(h.run("dirty"),true);
-  assert.equal(h.run("Object.keys(projectBuffers.form_drafts.fields).length"),1);assert.equal(h.run("pendingNav"),"library");
-});
-
-test("Save and leave distinguishes a temporary hold from conflict and preserves newer input until retry",async()=>{
-  const h=navigationHarness();let state={busy:true,problem:null};h.context.getSaveState=()=>state;
-  h.run("saveProject=async()=>false");await h.run("navigate('library')");await h.click('saveLeave');
-  assert.equal(h.run('navigationError'),'Saving will finish in a moment. Try again.');
-  assert.equal(h.run('page'),'review');
-  state={busy:true,problem:{phase:'conflict'}};await h.click('saveLeave');
-  assert.equal(h.run('navigationError'),'Saving is paused. Keep editing, then review the update.');
-  h.run("draft.audience='Newer audience';projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']='Newest headline'");
-  state={busy:false,problem:null};h.run("saveProject=async()=>{steps.push(structuredClone({draft,projectBuffers}));dirty=false;return true}");
-  await h.click('saveLeave');assert.equal(h.run('page'),'library');
-  assert.equal(h.context.steps[0].draft.audience,'Newer audience');
-  assert.equal(h.context.steps[0].projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline'],'Newest headline');
-});
-
-test("Save and leave waits for the common queue's current acknowledgement",async()=>{
-  const h=navigationHarness();h.run("saveProject=()=>new Promise(resolve=>{finishProject=resolve})");
-  await h.run("navigate('library')");const leaving=h.click("saveLeave");
-  assert.equal(h.run("page"),"review");h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']='Newer';finishProject(false)");
-  await leaving;assert.equal(h.run("page"),"review");assert.equal(h.run("modal"),"unsaved");
+test("navigation waits for the current metadata acknowledgement and respects a failed acknowledgement",async()=>{
+  const h=navigationHarness(); h.run("saveProject=()=>new Promise(resolve=>{finishProject=resolve})");
+  const leaving=h.run("navigate('library')"); await flush();
+  assert.equal(h.run("page"),"review");
+  h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']='Newer';finishProject(false)");
+  await leaving; assert.equal(h.run("page"),"review");
   assert.equal(h.run("projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']"),"Newer");
 });
 
@@ -669,6 +603,28 @@ test("scheduled polls retain their run and stop without a request after a new pl
   await h.timers.shift()();
   assert.equal(h.pending.length, 0);
   assert.equal(h.run("operation"), null);
+});
+
+test("a terminal source read cannot replace a newer same-run save projection", async () => {
+  const h = harness();
+  h.run("model.version='before';model.composition_version='before'");
+  const polling = h.run("poll()");
+  h.pending.shift().resolve({run_id: "old", active: false});
+  await flush();
+  const read = h.pending.shift();
+  h.run("model.version='new-save';model.composition_version='new-save';model.manifest={complete:true}");
+  read.resolve({...campaign("old"), version: "older-read", composition_version: "older-read"});
+  await polling;
+  assert.equal(h.run("model.version"), "new-save");
+  assert.equal(h.run("model.composition_version"), "new-save");
+  assert.equal(h.run("model.manifest.complete"), true);
+  assert.equal(h.timers.length, 1, "read-only polling is retried without another save or generation request");
+  const retry = h.timers.shift()();
+  await flush();
+  assert.match(h.pending[0].url, /\/status$/);
+  assert.equal(h.pending[0].body, undefined);
+  h.pending.shift().resolve({run_id: "different", active: false});
+  await retry;
 });
 
 test("same-run completion preserves and shows its own error, not a fabricated success", async () => {
@@ -941,6 +897,36 @@ function productUploadHarness() {
   h.context.api=(url,body,options)=>new Promise((resolve,reject)=>h.pending.push({url,body,options,resolve,reject}));
   return h;
 }
+test('resume confirmation cannot dispatch a changed request estimate',async()=>{
+  for (const changed of [false,true]) {
+    const h=harness();
+    h.context.changeEstimate=changed;
+    h.run(`
+      model.retry_plan={digest:'same-plan',generation_products:['a'],cost_estimate:{estimated_usd:0.1}};
+      globalThis.started=0;
+      reviewRetryPlan=async()=>{if(changeEstimate)model.retry_plan.cost_estimate.estimated_usd=0.2;};
+      startDisplayedPlan=async()=>{started++;};
+      openModal=name=>{modal=name;};
+    `);
+    await h.run("dispatchAction({action:'confirmResume'})");
+    assert.equal(h.run('started'),changed?0:1);
+    if(changed) {
+      assert.equal(h.run('modal'),'retry-plan');
+      assert.match(h.notices.at(-1),/estimate changed/);
+    }
+  }
+});
+test('a transparent scene upload preserves the old photo and reports a typed warning for the dialog',async()=>{
+  const h=productUploadHarness(),task=h.run("upload({name:'transparent.png',type:'image/png'})");
+  h.pending[0].resolve({reference:'transparent.png',url:'/uploads/transparent.png',opaque:false});
+  await assert.rejects(task,error=>error.input_image?.kind==='transparent_scene' && /transparent areas/.test(error.message));
+  assert.equal(h.run('modalProduct.source.path'),'old.png');
+  const replacement=h.run("upload({name:'photo.jpg',type:'image/jpeg'})");
+  h.pending[1].resolve({reference:'photo.jpg',url:'/uploads/photo.jpg',opaque:true});
+  await replacement;
+  assert.equal(h.run('modalProduct.error'),'');
+  assert.equal(h.run('modalProduct.source.path'),'photo.jpg');
+});
 test('product Update cannot commit the old photo while a chosen replacement is pending',async()=>{
   const h=productUploadHarness(),task=h.run("upload({name:'new.png',type:'image/png'})");
   assert.equal(h.run('modalProduct.uploading'),true);
@@ -1133,5 +1119,114 @@ test('ordinary modal close and cancel still restore focus before and after the c
     microtasks.shift()();
     assert.deepEqual(focused, ['original', 'replacement']);
     assert.equal(h.context.document.activeElement, replacement);
+  }
+});
+
+test('Handoff layout repair flushes pending work and opens the exact product, market, format, and tool', async () => {
+  const h=harness();h.context.repairs=[];
+  h.run("draft=null;page='handoff';openStudioWorkspace=async mode=>repairs.push({mode,product:currentProduct,format:currentFormat,language:lang,page});updateURL=()=>{}");
+  await h.run("dispatchAction({action:'repairLayout:1:2:es:text'})");
+  assert.deepEqual(JSON.parse(JSON.stringify(h.context.repairs)),[{mode:'text',product:1,format:2,language:'es',page:'review'}]);
+  h.run("page='handoff';flushCurrentWork=async()=>false");
+  await h.run("dispatchAction({action:'repairLayout:0:0:en:framing'})");
+  assert.equal(h.context.repairs.length,1);assert.equal(h.run('page'),'handoff');
+});
+
+
+test("opening an incomplete Workbench campaign selects Production instead of a saved Studio tab", async () => {
+  const h = harness();
+  const value = campaign("old");
+  value.value.products = [{id: "one", source: {role: "concept"}}];
+  value.editable_products = {};
+  value.project = {authored: {ui_context: {page: "review", tab: "products"}}};
+  const opening = h.run("openCampaign('292e9e84-eb00-5fdb-87e8-423f5e51fac4')");
+  h.pending.shift().resolve(value);
+  await flush();
+  h.pending.shift().resolve({run_id:"old", active:false});
+  await opening;
+  assert.equal(h.run("page"), "production");
+});
+
+function newProductPhotoHarness() {
+  const h = productUploadHarness(), revoked = [];
+  h.run("draft.products=[];modalProduct.source.path='';modalProduct.origin='Own photo';modalProduct.rights='Owned'");
+  h.context.document.querySelectorAll = () => [];
+  h.context.URL = {createObjectURL: file => 'blob:' + file.name, revokeObjectURL: url => revoked.push(url)};
+  h.context.FileReader = class {readAsDataURL(file) {this.result = 'data:image/png;base64,cGhvdG8='; this.onload();}};
+  for (const [field, value] of Object.entries({name:'Lantern',description:'Brass lantern',origin:'Own photo',rights:'Owned'}))
+    h.get('#product-'+field).value=value;
+  h.revoked = revoked;
+  return h;
+}
+
+test('new product selections validate without saving, and Cancel discards the local file', async()=>{
+  for (const cancelBeforeResponse of [false,true]) {
+    const h = newProductPhotoHarness(), target = h.run('modalProduct');
+    const task = h.run("upload({name:'new.png',type:'image/png'})");
+    assert.equal(h.pending[0].url,'/api/uploads/validate');
+    if (cancelBeforeResponse) h.run('realCloseModal({restoreFocus:false})');
+    h.pending[0].resolve({width:20,height:20,opaque:true});
+    await task;
+    if (!cancelBeforeResponse) {
+      assert.equal(target.localFile.name,'new.png');
+      assert.equal(target.localImage,'blob:new.png');
+      assert.equal(target.source.path,'');
+      h.run('realCloseModal({restoreFocus:false})');
+      assert.deepEqual(h.revoked,['blob:new.png']);
+    }
+    assert.equal(target.localFile,undefined);
+    assert.equal(h.run('draft.products.length'),0);
+    assert.equal(h.pending.length,1,'Cancel does not need a persistence or cleanup request');
+  }
+});
+
+test('choosing another new product photo releases the previous browser preview',async()=>{
+  const h=newProductPhotoHarness();
+  for (const name of ['first.png','second.png']) {
+    const task=h.run(`upload({name:'${name}',type:'image/png'})`);
+    h.pending.at(-1).resolve({opaque:true}); await task;
+  }
+  assert.equal(h.run('modalProduct.localFile.name'),'second.png');
+  assert.deepEqual(h.revoked,['blob:first.png']);
+  assert.equal(h.run('draft.products.length'),0);
+  assert.ok(h.pending.every(request=>request.url==='/api/uploads/validate'));
+});
+
+test('Add sends file and product once; failure retains both and success adopts the saved reference',async()=>{
+  for(const fail of [false,true]) {
+    const h=newProductPhotoHarness(), target=h.run('modalProduct');
+    const selecting=h.run("upload({name:'new.png',type:'image/png'})");
+    h.pending[0].resolve({opaque:true});await selecting;
+    h.context.withProjectApply = action => action();
+    h.context.restoreProject = value => h.run(`draft=${JSON.stringify(value.brief)}`);
+    h.context.acknowledgements=[];
+    h.run("model.project={base:{run_id:null,revision_id:null,metadata_snapshot_id:null}};projectQueue={version:()=> 'current',applied: value=>acknowledgements.push(value)};closeModal=realCloseModal");
+    const adding=h.run('saveProductDraft()');await flush();
+    assert.equal(h.pending.length,2);
+    const request=h.pending[1];
+    assert.match(request.url,/\/products\/photo$/);
+    assert.equal(request.body.version,'current');
+    assert.equal(request.body.image_base64,'cGhvdG8=');
+    assert.equal(request.body.product.source.path,'');
+    assert.equal(h.run('draft.products.length'),0);
+    assert.equal(target.adding,true);
+    if(fail) request.reject(new Error('The campaign changed elsewhere. Refresh the page.'));
+    else {
+      const authored={brief:JSON.parse(h.run('JSON.stringify(draft)'))};
+      authored.brief.products.push({...request.body.product,source:{...request.body.product.source,path:'Campaigns/Test-12345678/Assets/Products/Lantern-abc.png'}});
+      request.resolve({project:{version:'saved',authored,base:request.body.base},campaign:{project:{authored}}});
+    }
+    await adding;
+    assert.equal(target.adding,false);
+    if(fail) {
+      assert.equal(target.localFile.name,'new.png');assert.equal(target.name,'Lantern');
+      assert.match(target.error,/changed elsewhere/);assert.equal(h.run('draft.products.length'),0);
+    } else {
+      assert.equal(target.error,'');
+      assert.equal(h.run('draft.products.length'),1);
+      assert.match(h.run('draft.products[0].source.path'),/Lantern-abc\.png$/);
+      assert.equal(h.context.acknowledgements.length,1);
+      assert.deepEqual(h.revoked,['blob:new.png']);
+    }
   }
 });

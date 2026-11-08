@@ -91,13 +91,24 @@ def create_app(
         for task in active:
             task.cancel()
         await asyncio.gather(*active, return_exceptions=True)
+        for job in list(state.__dict__.get("delivery_jobs", {}).values()):
+            job.cancel()
 
     async def campaign_identity(request: Request):
         campaign_id = request.path_params.get("campaign_id")
         if campaign_id is not None:
-            from campaign_studio.cleanup import require_campaign_registered
+            from campaign_studio.cleanup import (
+                UPGRADE_RECOVERY_MESSAGE,
+                require_campaign_registered,
+                upgrade_pending,
+            )
 
-            require_campaign_registered(request.app.state.storage, campaign_id)
+            storage = request.app.state.storage
+            require_campaign_registered(storage, campaign_id)
+            if not request.url.path.startswith(f"/api/campaigns/{campaign_id}/cleanup/"):
+                with storage.connect() as db:
+                    if upgrade_pending(db, campaign_id):
+                        raise StateError(UPGRADE_RECOVERY_MESSAGE, code="workspace_upgrade")
 
     app = FastAPI(
         title="Motif – Campaign Studio",
@@ -128,7 +139,10 @@ def create_app(
                     {"code": "session", "message": "Refresh this page before taking an action."},
                     status_code=403,
                 )
-            uploading = request.url.path == "/api/uploads"
+            uploading = request.url.path in {"/api/uploads", "/api/uploads/validate"}
+            adding_photo = request.url.path.startswith(
+                "/api/motif/campaigns/"
+            ) and request.url.path.endswith("/products/photo")
             content_type = request.headers.get("content-type", "").split(";", 1)[0]
             # Upload bytes have their own bounded decoder and actual-type check.
             # Browser MIME is only a hint; it cannot reject valid supported artwork.
@@ -143,6 +157,8 @@ def create_app(
             limit = (
                 BODY_LIMIT
                 if request.url.path == "/api/openai-key"
+                else ((20 * 1024 * 1024 + 2) // 3) * 4 + 131072
+                if adding_photo
                 else 20 * 1024 * 1024
                 if uploading
                 else 1_048_576
@@ -181,7 +197,7 @@ def create_app(
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self'; font-src 'self'; script-src 'self'; "
+            "img-src 'self' blob:; font-src 'self'; script-src 'self'; "
             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         )
         # The portable report intentionally contains its own CSS and no script.
@@ -294,6 +310,24 @@ def create_app(
     @app.exception_handler(StateError)
     @app.exception_handler(StorageError)
     async def state_error(request, error):
+        if error.code == "workspace_upgrade" and not request.url.path.startswith("/api/"):
+            return templates.TemplateResponse(
+                request=request,
+                name="motif-error.html",
+                context={"message": str(error), "not_found": False},
+                status_code=409,
+            )
+        if error.code == "stale_report" and request.url.path.startswith("/reports/preview/"):
+            return templates.TemplateResponse(
+                request=request,
+                name="motif-error.html",
+                context={
+                    "message": str(error),
+                    "not_found": False,
+                    "current_images": f"/campaigns/{request.path_params['campaign_id']}/handoff",
+                },
+                status_code=409,
+            )
         if error.code == "report_not_found":
             return templates.TemplateResponse(
                 request=request,

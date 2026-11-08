@@ -6,8 +6,11 @@ import time
 from collections import OrderedDict
 from uuid import uuid4
 
+from PIL import Image
+
 from campaign_studio.imaging import (
     compose,
+    composite_text_blocks,
     composition_base,
     creative_overlay,
     load_image,
@@ -19,6 +22,25 @@ from campaign_studio.imaging import (
 )
 from campaign_studio.rendering import blocks_output
 from campaign_studio.state import StateError
+
+
+def diagnostic_overlay(logo, output, color):
+    """Show the chosen text geometry for repair, without changing its saved settings."""
+    layer = Image.new("RGBA", (output.width, output.height))
+    try:
+        if logo is not None:
+            artwork, position = logo_placement(logo, layer.size, output.framing.logo_placement)
+            try:
+                layer.alpha_composite(artwork, position)
+            finally:
+                artwork.close()
+        composite_text_blocks(
+            layer, text_blocks(output.text, output.ratio, output.framing, validate=False), color
+        )
+        return layer
+    except BaseException:
+        layer.close()
+        raise
 
 
 class DraftPreviews:
@@ -46,13 +68,17 @@ class DraftPreviews:
         from campaign_studio.workspace import ActionError, Workspace
 
         with self.lock, self.state.storage.exclusive_run():
-            result, payload = representative_preview(self.state, campaign_id, action)
+            result, payload = representative_preview(
+                self.state, campaign_id, action, with_layers=True
+            )
             current = AuthoredProjects(Workspace(self.state)).document(campaign_id)
             if current["version"] != action.version:
                 raise ActionError("stale_brief", "The brief changed. Refresh its preview.")
             if payload is None:
                 return result
-            if len(payload) > self.max_bytes:
+            layer_payloads = result.pop("_layer_payloads", {})
+            size = len(payload) + sum(len(layer) for layer in layer_payloads.values())
+            if size > self.max_bytes:
                 raise StateError("This preview is too large. Shorten the draft and try again.")
             token = uuid4().hex
             self.entries[token] = {
@@ -60,11 +86,17 @@ class DraftPreviews:
                 "created": time.monotonic(),
                 "campaign": campaign_id,
                 "version": action.version,
-                "size": len(payload),
+                "size": size,
                 "payload": payload,
+                "layers": layer_payloads,
             }
             self._prune()
-            result["image"]["url"] = f"/api/motif/campaigns/{campaign_id}/brief-preview/{token}.png"
+            url = f"/api/motif/campaigns/{campaign_id}/brief-preview/{token}"
+            result["image"]["url"] = f"{url}.png"
+            if layer_payloads:
+                result["layers"]["base_url"] = f"{url}.base.png"
+                for key, block in result["layers"]["text_blocks"].items():
+                    block["url"] = f"{url}.{key}.png"
             return result
 
     def brief_image(self, campaign_id, token):
@@ -73,13 +105,14 @@ class DraftPreviews:
 
         with self.lock:
             self._prune()
+            token, _, layer = token.partition(".")
             entry = self.entries.get(token)
             if not entry or entry.get("kind") != "brief" or entry["campaign"] != campaign_id:
                 return None
             try:
                 document = AuthoredProjects(Workspace(self.state)).document(campaign_id)
                 if document["version"] == entry["version"]:
-                    return entry["payload"]
+                    return entry.get("layers", {}).get(layer) if layer else entry["payload"]
             except ActionError, StateError:
                 pass
             del self.entries[token]
@@ -99,7 +132,9 @@ class DraftPreviews:
         # The same serial boundary prevents preview/save races across processes. It never
         # reserves an attempt, performs recovery, or changes the saved campaign pointer.
         with self.lock, self.state.storage.exclusive_run():
-            self.state.require_current_revision(edit.run_id, edit.revision_id)
+            from campaign_studio.workspace import Workspace
+
+            current = Workspace(self.state).preview_composition(campaign_id, edit.revision_id)
             missing_logo = logo_preview and not impact.get("logo_available", True)
             required = impact["render_outputs"]
             if framing_preview:
@@ -108,27 +143,19 @@ class DraftPreviews:
                 required = list(set(required) | {edit.output_id})
             if text_preview:
                 required = list(set(required) | {edit.output_id})
-            self.state.require_edit_inputs(
-                edit.run_id, plan, required, include_logo=not missing_logo
-            )
-            sources = {}
-            if plan.brief.replay:
-                sources.update(
-                    {p: plan.assets[f"masters/{p}"].reference for p in plan.brief.replay.sources}
-                )
-            for attempt in self.state.attempts(edit.run_id):
-                if attempt["state"] == "decoded" and self.state.source_is_intact(attempt):
-                    sources[attempt["product_id"]] = attempt["source_ref"]
+            sources = {pid: asset.reference for pid, asset in current["sources"].items()}
             images = {}
             layers = {}
             selected = set(edit.preview_products)
             size = 0
-            # A crop conflict may be shown as a local diagnostic. Save still checks
-            # the original blocking plan; it cannot publish this diagnostic image.
+            # Editors may show a clipped text layout so the producer can repair it.
+            # These temporary diagnostics never relax gallery or export validation.
+            editor_preview = framing_preview or logo_preview or text_preview
             can_render = not any(
                 any(blocks_output(f, o) for o in plan.outputs if o.id in required)
                 and not (framing_preview and f.rule == "subject_crop")
                 and not (missing_logo and f.item == "logo")
+                and not (editor_preview and f.rule == "text_fit")
                 for f in plan.findings
             )
             if can_render:
@@ -154,6 +181,7 @@ class DraftPreviews:
                                 blocks_output(f, output)
                                 and not (framing_preview and f.rule == "subject_crop")
                                 and not (missing_logo and f.item == "logo")
+                                and not (editor_preview and f.rule == "text_fit")
                                 for f in plan.findings
                             )
                         ):
@@ -178,17 +206,34 @@ class DraftPreviews:
                                         plan.assets[f"products/{product.id}"].reference
                                     )
                                 )
-                            result = compose(
-                                scene,
-                                logo,
-                                output.text,
-                                output.ratio,
-                                plan.brief.brand.text_color,
-                                cutout,
+                            diagnostic_text = editor_preview and any(
+                                f.rule == "text_fit" and blocks_output(f, output)
+                                for f in plan.findings
+                            )
+                            render_framing = (
                                 output.framing.model_copy(update={"subject_box": None})
                                 if framing_preview
-                                else output.framing,
+                                else output.framing
                             )
+                            if diagnostic_text:
+                                with composition_base(
+                                    scene, output.ratio, cutout, render_framing
+                                ) as base:
+                                    with diagnostic_overlay(
+                                        logo, output, plan.brief.brand.text_color
+                                    ) as overlay:
+                                        base.alpha_composite(overlay)
+                                    result = base.convert("RGB")
+                            else:
+                                result = compose(
+                                    scene,
+                                    logo,
+                                    output.text,
+                                    output.ratio,
+                                    plan.brief.brand.text_color,
+                                    cutout,
+                                    render_framing,
+                                )
                             with io.BytesIO() as buffer:
                                 # Temporary logo previews favor encoding speed. Saved
                                 # revisions and exports retain their PNG defaults.
@@ -212,7 +257,12 @@ class DraftPreviews:
                                     )
                                     base.alpha_composite(artwork, position)
                                     artwork.close()
-                                blocks = text_blocks(output.text, output.ratio, output.framing)
+                                blocks = text_blocks(
+                                    output.text,
+                                    output.ratio,
+                                    output.framing,
+                                    validate=not diagnostic_text,
+                                )
                                 geometry = {}
                                 for block in blocks:
                                     layer = text_block_overlay(
@@ -240,11 +290,15 @@ class DraftPreviews:
                                 base.close()
                             if logo_preview:
                                 base = composition_base(scene, output.ratio, cutout, output.framing)
-                                text = wording_overlay(
-                                    output.text,
-                                    output.ratio,
-                                    plan.brief.brand.text_color,
-                                    output.framing,
+                                text = (
+                                    diagnostic_overlay(None, output, plan.brief.brand.text_color)
+                                    if diagnostic_text
+                                    else wording_overlay(
+                                        output.text,
+                                        output.ratio,
+                                        plan.brief.brand.text_color,
+                                        output.framing,
+                                    )
                                 )
                                 try:
                                     for suffix, layer in (
@@ -296,12 +350,16 @@ class DraftPreviews:
                                     ]
                                     default.close()
                             if framing_preview:
-                                overlay = creative_overlay(
-                                    logo,
-                                    output.text,
-                                    output.ratio,
-                                    plan.brief.brand.text_color,
-                                    output.framing,
+                                overlay = (
+                                    diagnostic_overlay(logo, output, plan.brief.brand.text_color)
+                                    if diagnostic_text
+                                    else creative_overlay(
+                                        logo,
+                                        output.text,
+                                        output.ratio,
+                                        plan.brief.brand.text_color,
+                                        output.framing,
+                                    )
                                 )
                                 with io.BytesIO() as buffer:
                                     save_srgb(overlay, buffer)
@@ -356,22 +414,17 @@ class DraftPreviews:
             return result
 
     def image(self, campaign_id, token, product, market, ratio):
+        from campaign_studio.cleanup import require_campaign_available
+
+        require_campaign_available(self.state.storage, campaign_id)
         with self.lock:
             self._prune()
             entry = self.entries.get(token)
             if entry and entry.get("kind") == "brief":
                 return None
-            if entry:
-                try:
-                    self.state.run(entry["run"])
-                except StateError:
-                    # Committed campaign deletion also invalidates in-memory PNGs.
-                    del self.entries[token]
-                    return None
-            if (
-                not entry
-                or entry["campaign"] != campaign_id
-                or self.state.effective_revision(entry["run"]) != entry["revision"]
-            ):
+            from campaign_studio.campaign_drafts import read as read_draft
+
+            current = read_draft(self.state.storage, campaign_id)
+            if not entry or entry["campaign"] != campaign_id or not current:
                 return None
             return entry["images"].get(f"{product}/{market}/{ratio}")

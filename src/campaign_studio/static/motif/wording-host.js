@@ -31,8 +31,18 @@ function wordingNotice() {
 function wordingExportBlocked() {
   return currentWordingView().phase !== "clear";
 }
+function currentLayoutFindings() {
+  return (model?.manifest?.findings || []).filter(finding => finding.severity === "blocking" &&
+    finding.rule === "text_fit");
+}
+function layoutFindingsFor(output) {
+  if (!output) return [];
+  return currentLayoutFindings().filter(finding => finding.item === output.id ||
+    finding.context?.product_id && finding.context.product_id === output.product_id && finding.context.market === output.market &&
+    finding.context?.ratio === output.ratio);
+}
 function exportBlocked() {
-  return !!model?.logo_issue || wordingExportBlocked();
+  return !!model?.logo_issue || wordingExportBlocked() || currentLayoutFindings().length > 0;
 }
 function paintWordingAvailability() {
   const content = MotifWording.notice(currentWordingView());

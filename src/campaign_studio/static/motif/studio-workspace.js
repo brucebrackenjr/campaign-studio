@@ -3,10 +3,81 @@
 // A product visit owns one shell and one existing editor controller at a time.
 // Requests, geometry, and publication stay in those controllers.
 let studioWorkspace = null;
+// One target's verified preview work lives only for this Studio visit. A new
+// document or target releases every old image reference and preview response.
+function studioPreviewCache() {
+  const owner = studioWorkspace;
+  if (!owner) return null;
+  const key = JSON.stringify([C.id, model?.composition_version || model?.version,
+    model?.manifest?.revision_id, C.products[currentProduct]?.id, lang, currentFormat]);
+  if (owner.previewCache?.key !== key) owner.previewCache = { key, requests: new Map(), images: new Map(), readyImages: new Set() };
+  return owner.previewCache;
+}
+function studioRetainImage() {
+  const owner = studioWorkspace;
+  if (!owner?.root?.querySelector || !modal) return;
+  const cache = studioPreviewCache();
+  const image = owner.root.querySelector('#text-image:not([hidden]),#frame-image:not([hidden]),.mf-logo-composite:not([hidden]),[data-ws-slot="surface"] > img');
+  if (image?.complete && image.naturalWidth && image.style.visibility !== "hidden" &&
+      (owner.surfaceKey === cache.key || cache.readyImages.has(image.currentSrc || image.src)))
+    owner.retainedImage = { image, url: image.currentSrc || image.src, key: studioPreviewCache().key };
+}
+function studioRetainedImage() {
+  return studioWorkspace?.retainedImage?.key === studioPreviewCache()?.key ? studioWorkspace.retainedImage.image : null;
+}
+// A visible surface is presentation only: it never authorizes a save or a
+// preview cache hit. Keep one same-target surface while the next tool decodes.
+function studioVisualTarget() {
+  return JSON.stringify([C.id, C.products[currentProduct]?.id, lang, currentFormat]);
+}
+function studioRetainSurface() {
+  const owner = studioWorkspace;
+  if (!owner?.root?.querySelector || !modal || owner.visualTarget !== studioVisualTarget()) return;
+  const slot = owner.root.querySelector('[data-ws-slot="surface"]');
+  if (!slot || slot.querySelector('.ws-preview-continuity')) return;
+  const visible = node => node && !node.hidden && node.style.visibility !== 'hidden' &&
+    (node.tagName === 'CANVAS' || (node.complete && node.naturalWidth));
+  const canvas = document.createElement('canvas');
+  const format = FMT[currentFormat];
+  canvas.width = format.w || format.width; canvas.height = format.h || format.height;
+  const paint = canvas.getContext('2d');
+  if (!paint) return;
+  const image = modal === 'text'
+    ? [slot.querySelector('#text-canvas'), slot.querySelector('#text-image')].find(visible)
+    : modal === 'frame'
+      ? [slot.querySelector('#frame-live'), slot.querySelector('#frame-image')].find(visible)
+      : modal === 'logo'
+        ? [slot.querySelector('.mf-logo-composite')].find(visible)
+        : [...slot.querySelectorAll('img')].find(visible);
+  if (image) paint.drawImage(image, 0, 0, canvas.width, canvas.height);
+  else if (modal === 'logo' && !logoEditor?.loading) {
+    const base = slot.querySelector('.mf-logo-photo'), copy = slot.querySelector('.mf-logo-copy');
+    if (!visible(base) || !visible(copy)) return;
+    paint.drawImage(base, 0, 0, canvas.width, canvas.height);
+    const art = slot.querySelector('[data-lg-art]'), logo = art?.querySelector('img');
+    if (visible(logo) && !art.hidden) paint.drawImage(logo,
+      parseFloat(art.style.left) / 100 * canvas.width, parseFloat(art.style.top) / 100 * canvas.height,
+      parseFloat(art.style.width) / 100 * canvas.width, parseFloat(art.style.height) / 100 * canvas.height);
+    paint.drawImage(copy, 0, 0, canvas.width, canvas.height);
+  } else return;
+  canvas.className = 'ws-preview-continuity'; canvas.setAttribute('aria-hidden', 'true');
+  owner.retainedSurface = { node: canvas, target: owner.visualTarget };
+}
+function studioShowRetainedSurface() {
+  const owner = studioWorkspace, held = owner?.retainedSurface;
+  if (!held || held.target !== studioVisualTarget()) { if (owner) owner.retainedSurface = null; return; }
+  owner.root.querySelector('[data-ws-slot="surface"]')?.append(held.node);
+}
+function studioPreviewReady() {
+  const owner = studioWorkspace;
+  if (!owner) return;
+  owner.root?.querySelector?.('.ws-preview-continuity')?.remove();
+  owner.retainedSurface = null;
+}
 function imageEditorRoot() { return studioWorkspace?.root || $("#overlay"); }
 function studioTextAvailable() {
   const output = outputFor(currentProduct, lang, currentFormat);
-  return canEditProduct(currentProduct) && !!(output?.url || model.rule_withheld_outputs?.includes(output?.id));
+  return canEditProduct(currentProduct) && !!output;
 }
 function studioBusy() {
   return !!(textEditor?.saving || frameSaving || logoEditor?.busy || logoEditor?.uploading || logoEditor?.reviewing);
@@ -19,34 +90,25 @@ function studioDirty() {
   return false;
 }
 function studioApplyButton() {
-  return $(modal === "logo" ? '[data-lg="save"]' : modal === "frame" ? '#frame-primary[data-action="saveFrame"]' : '[data-action="applyText"]', studioWorkspace?.root);
+  const selector = modal === "logo" ? '[data-lg="save"]' : modal === "frame"
+    ? framingRecovery === "apply" ? '#frame-primary' : '#frame-primary[data-action="saveFrame"]'
+    : textEditor?.recovery === "apply" ? '[data-action="recoverText"]' : '[data-action="applyText"]';
+  return $(selector, studioWorkspace?.root);
 }
 async function resolveStudioChanges() {
   const owner = studioWorkspace;
-  if (!owner || studioBusy()) return false;
-  if (!studioDirty()) return true;
-  const mode = modal;
-  const choice = await chooseEditorFormat({
-    product: C.products[currentProduct].name, format: FMT[currentFormat].ratio,
-    replacement: mode === "logo" && logoEditor.pendingAsset,
-    isCurrent: () => studioWorkspace === owner && modal === mode,
-    canApply: () => !!studioApplyButton() && !studioApplyButton().disabled,
-  });
-  if (choice === "keep" || studioWorkspace !== owner || modal !== mode) return false;
-  if (choice === "apply") {
-    owner.continuing = true;
-    try {
-      const applied = await (mode === "logo" ? logoEditor.applyForSwitch()
-        : withProjectApply(mode === "text" ? applyText : saveFraming));
-      return applied && studioWorkspace === owner;
-    } finally { owner.continuing = false; }
-  }
-  return true;
+  if (!owner) return true;
+  if (logoEditor?.uploading || framingPan?.active() || framingDrawing || textEditor?.input?.active()) return false;
+  return await flushStudioSave() && studioWorkspace === owner;
 }
 function teardownStudioTool() {
   const owner = studioWorkspace;
   if (!owner) return;
+  studioRetainImage();
+  studioRetainSurface();
   owner.tearingDown = true;
+  studioSave?.stop(); studioSave = null;
+  clearTimeout(owner.savedTimer);
   owner.logoLoad?.abort();
   owner.logoLoad = null;
   owner.observer?.disconnect();
@@ -65,7 +127,7 @@ function studioShellView(mode) {
     markets: C.markets.map(language => ({ id: MARKET[language], label: LANG[language] })),
     market: MARKET[lang], marketLabel: LANG[lang], mode,
     formats: FMT.map((format, index) => ({ id: format.ratio, name: format.name,
-      url: outputFor(currentProduct, lang, index)?.url, available: !!outputFor(currentProduct, lang, index)?.url })),
+      url: outputFor(currentProduct, lang, index)?.thumbnail_url || outputFor(currentProduct, lang, index)?.url, available: !!outputFor(currentProduct, lang, index) && (!!outputFor(currentProduct, lang, index)?.url || canEditProduct(currentProduct)) })),
     format: FMT[currentFormat].ratio, formatLabel: FMT[currentFormat].name,
   };
 }
@@ -83,6 +145,10 @@ function mountStudioVisit(mode = "inspect") {
   document.body.classList.add("ws-active");
   owner.root = $(".ws-workspace");
   owner.root.classList.add("mf-editor", "is-direct");
+  for (const type of ["input", "change", "pointerup", "keyup", "click"]) owner.root.addEventListener(type, event => {
+    if (event.target.closest("[data-studio-save],[data-studio-recovery]")) return;
+    queueMicrotask(() => { if (studioWorkspace === owner) scheduleStudioSave(type === "change" || type === "pointerup"); });
+  });
   owner.root.addEventListener("click", async event => {
     const control = event.target.closest("[data-ws-mode],[data-ws-target],[data-ws-action]");
     if (!control || control.disabled || control.dataset.action || control.dataset.lg) return;
@@ -107,7 +173,8 @@ function refreshStudioTargets() {
   if (!studioWorkspace) return;
   const root = studioWorkspace.root;
   for (const button of $$('[data-ws-mode]', root)) {
-    const available = !!outputFor(currentProduct, lang, currentFormat)?.url;
+    const output = outputFor(currentProduct, lang, currentFormat);
+    const available = !!output && (!!output.url || canEditProduct(currentProduct));
     button.disabled = button.dataset.wsMode === "text" ? !studioTextAvailable()
       : button.dataset.wsMode === "inspect" ? !available
       : button.dataset.wsMode === "logo" ? !canEditLogo(currentProduct) || !available
@@ -117,11 +184,66 @@ function refreshStudioTargets() {
   for (const button of $$('[data-ws-target="format"]', root)) {
     const index = FMT.findIndex(format => format.ratio === button.dataset.wsFormat);
     const output = outputFor(currentProduct, lang, index);
-    button.disabled = !output?.url && !(studioWorkspace.mode === "text" && model.rule_withheld_outputs?.includes(output?.id));
+    button.disabled = !output || !(output.url || canEditProduct(currentProduct));
     button.setAttribute("aria-pressed", String(index === currentFormat));
     button.setAttribute("aria-label", `${FMT[index].name} · ${FMT[index].ratio}${output?.url ? "" : " · Image unavailable"}`);
-    $(".ws-thumb", button).innerHTML = output?.url ? `<img src="${esc(output.url)}" alt="">` : '<span aria-hidden="true">–</span>';
+    const thumbnail = $(".ws-thumb", button);
+    const url = output?.thumbnail_url || output?.url;
+    refreshStudioThumbnail(button, thumbnail, output, index, url);
   }
+}
+function studioThumbnailSignature(output, format) {
+  const product = model.output_brief?.products?.find(item => item.id === C.products[currentProduct]?.id);
+  const brand = model.output_brief?.brand;
+  // A document version changes for every autosave. The visible pixels only
+  // change when this product/market/format's actual composition changes.
+  return JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format,
+    !!output?.url, output?.copy, product?.source, product?.framing?.[MARKET[lang]]?.[FMT[format].ratio],
+    brand?.logo_path, brand?.text_color,
+    model.source_urls?.[product?.id]?.replace(/\/composition\/[^/]+\//, "/composition/current/")]);
+}
+function refreshStudioThumbnail(button, thumbnail, output, format, url) {
+  const owner = studioWorkspace;
+  owner.thumbnails ||= new Map();
+  const signature = studioThumbnailSignature(output, format);
+  const target = JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format]);
+  let state = owner.thumbnails.get(button);
+  let shown = thumbnail.querySelector?.("img");
+  if (!state) {
+    state = { signature, target, url, sequence: 0 };
+    owner.thumbnails.set(button, state);
+    // The shell has already requested this exact target. Retain that node.
+    if (shown && url && shown.getAttribute("src") === url) return;
+  } else if (state.target !== target) {
+    // An old market or product must never appear under the new target label.
+    state.target = target; state.signature = null; state.pending = null; state.sequence++;
+    thumbnail.innerHTML = '<span aria-hidden="true">–</span>';
+    shown = null;
+  } else if (state.signature === signature && shown?.complete && shown.naturalWidth) {
+    // An unchanged, decoded thumbnail is presentation only. Never use its old
+    // URL to authorize a new preview request or save.
+    return;
+  }
+  if (!url) {
+    state.signature = signature; state.url = null; state.sequence++;
+    thumbnail.innerHTML = '<span aria-hidden="true">–</span>';
+    return;
+  }
+  if (state.pending === url) return;
+  const sequence = ++state.sequence;
+  state.pending = url;
+  const image = new Image(); image.alt = ""; image.src = url;
+  image.decode().then(() => {
+    if (studioWorkspace !== owner || state.sequence !== sequence ||
+        studioThumbnailSignature(outputFor(currentProduct, lang, format), format) !== signature) return;
+    thumbnail.replaceChildren(image);
+    state.signature = signature; state.url = url; state.pending = null;
+    button.removeAttribute("title");
+  }).catch(() => {
+    if (studioWorkspace !== owner || state.sequence !== sequence) return;
+    state.pending = null;
+    button.title = "Preview could not be updated. Select this format to retry.";
+  });
 }
 function mountStudioParts(markup, { tools, surface, status, footer = ".modal-foot .row" }) {
   const root = studioWorkspace.root, template = document.createElement("template");
@@ -133,14 +255,37 @@ function mountStudioParts(markup, { tools, surface, status, footer = ".modal-foo
   MotifStudioShell.setMode(root, { mode: studioWorkspace.mode, title: {text:"Text",framing:"Framing",logo:"Logo",inspect:"Inspect"}[studioWorkspace.mode],
     target: `${LANG[lang]} · ${FMT[currentFormat].name}`, controlsHtml: "", applyLabel: "Apply changes", canApply: false, status: "" });
   $('[data-ws-slot="controls"]', root).replaceChildren(controls);
+  // Move the already decoded image into the next tool instead of clearing it.
+  const retained = studioRetainedImage();
+  const nextImage = canvas.querySelector('#text-image,#frame-image,.mf-logo-composite');
+  // Adopt the new stage into the live document first. Moving a decoded image
+  // through template.content's inert document would discard its decoded pixels.
   $('[data-ws-slot="surface"]', root).replaceChildren(canvas);
+  if (retained && nextImage) {
+    for (const name of [...retained.attributes].map(attribute => attribute.name)) if (name !== "src") retained.removeAttribute(name);
+    for (const attribute of [...nextImage.attributes]) if (attribute.name !== "src") retained.setAttribute(attribute.name, attribute.value);
+    retained.hidden = false;
+    nextImage.replaceWith(retained);
+  }
+  studioShowRetainedSurface();
   const foot = $('[data-ws-slot="commit"]', root);
   foot.replaceChildren(source.querySelector(status), source.querySelector(footer));
   foot.hidden = false;
   const apply = foot.querySelector('[data-action="applyText"],#frame-primary,[data-lg="save"]');
-  if (apply) apply.dataset.wsAction = "apply";
+  if (apply) { apply.dataset.wsAction = "apply"; apply.hidden = true; }
   const cancel = foot.querySelector('[data-action="close"],[data-lg="cancel"]');
-  if (cancel) cancel.dataset.wsAction = "cancel";
+  if (cancel) { cancel.dataset.wsAction = "cancel"; cancel.hidden = true; }
+  const reset = root.querySelector('[data-action="resetText"],[data-action="restoreFrame"],[data-lg="reset"]');
+  if (reset) {
+    const resetSlot = document.createElement("div");
+    resetSlot.className = "ws-reset-control";
+    reset.classList.remove("quiet", "small");
+    reset.textContent = "Reset";
+    reset.setAttribute("aria-label", { text: "Reset text layout", framing: "Reset framing", logo: "Reset logo placement" }[studioWorkspace.mode]);
+    resetSlot.append(reset);
+    controls.querySelector(".mf-logo-reset")?.remove();
+    $('[data-ws-slot="controls"]', root).append(resetSlot);
+  }
   const statusNode = foot.querySelector("[role=status]") || foot.firstElementChild;
   statusNode.dataset.wsSlot = "status";
   const target = $('[data-ws-slot="target"]', root);
@@ -157,10 +302,12 @@ async function mountStudioTool(mode) {
   }
   teardownStudioTool();
   owner.mode = mode;
+  owner.surfaceKey = studioPreviewCache()?.key;
+  owner.visualTarget = studioVisualTarget();
   const sequence = ++owner.sequence;
   const current = () => studioWorkspace === owner && owner.sequence === sequence;
   const output = outputFor(currentProduct, lang, currentFormat);
-  if (!output?.url && !(mode === "text" && studioTextAvailable())) {
+  if (!output || !(output.url || canEditProduct(currentProduct))) {
     owner.mode = "inspect"; modal = "inspect";
     MotifStudioShell.setMode(owner.root, { mode: "inspect", title: "Inspect", target: `${LANG[lang]} · ${FMT[currentFormat].name}`, controlsHtml: "", inspect: true });
     $('[data-ws-slot="surface"]', owner.root).innerHTML = notice("This image is unavailable.", "Open Production to review the next action for this image.", "info", "nav:production", "Open Production");
@@ -169,20 +316,14 @@ async function mountStudioTool(mode) {
   }
   if (mode === "logo") {
     const load = owner.logoLoad = new AbortController();
-    MotifStudioShell.setMode(owner.root, { mode, title: "Logo", target: `${LANG[lang]} · ${FMT[currentFormat].name}`,
-      controlsHtml: '<p role="status">Preparing logo controls…</p>', inspect: true });
-    const image = document.createElement("img");
-    image.className = "creative-image";
-    image.alt = `${C.products[currentProduct].name} · ${FMT[currentFormat].name}`;
-    image.src = output.url;
-    $('[data-ws-slot="surface"]', owner.root).replaceChildren(image);
-    refreshStudioTargets();
     try {
       await openLogo(currentProduct, currentFormat, { isCurrent: current, signal: load.signal });
+      if (current()) beginStudioSave();
     } catch (error) {
       if (!current() || load.signal.aborted) return;
       const controls = $('[data-ws-slot="controls"]', owner.root);
-      controls.querySelector('[role="status"]').textContent = error.message;
+      const status = owner.root.querySelector('[data-lg-status]');
+      if (status) status.textContent = error.message;
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "btn";
@@ -197,21 +338,27 @@ async function mountStudioTool(mode) {
   if (mode === "text") {
     beginText(); modal = "text";
     mountStudioParts(textParts(), { tools: ".mf-editor-tools", surface: "#text-stage", status: "#text-status", footer: ".ws-text-footer" });
-    if (output.url) { $("#text-image").src = output.url; $("#text-image").hidden = false; }
+    if (output.url && !$("#text-image").src) { $("#text-image").src = output.url; $("#text-image").hidden = false; }
     bindText();
+    beginStudioSave();
   } else if (mode === "framing") {
     modal = "frame";
     mountStudioParts(framingParts(), { tools: ".framing-tools", surface: ".framing-visual", status: "#frame-status" });
-    $("#frame-image").src = output.url; $("#frame-image").hidden = false;
+    if (output.url && !$("#frame-image").src) { $("#frame-image").src = output.url; $("#frame-image").hidden = false; }
     bindFraming();
+    beginStudioSave();
   } else {
     modal = "inspect";
     const template = document.createElement("template"); template.innerHTML = inspectorModal();
     const details = template.content.querySelector(".large-inspector > div:last-child");
     MotifStudioShell.setMode(owner.root, {mode, title:"Inspect", target:`${LANG[lang]} · ${FMT[currentFormat].name}`, controlsHtml:details.innerHTML, inspect:true});
     $('[data-ws-slot="surface"]', owner.root).replaceChildren(template.content.querySelector(".lightbox").firstElementChild);
+    studioShowRetainedSurface();
+    const image = $('[data-ws-slot="surface"] > img', owner.root);
+    if (image) image.decode().then(() => { if (current()) studioPreviewReady(); }).catch(() => {});
     restoreProjectControls();
     refreshStudioTargets();
+    beginStudioSave();
   }
 }
 async function switchStudioTarget({ mode = studioWorkspace?.mode, format = currentFormat, language = lang } = {}) {
@@ -222,7 +369,7 @@ async function switchStudioTarget({ mode = studioWorkspace?.mode, format = curre
   await mountStudioTool(mode);
 }
 async function cancelStudioTool() {
-  if (!studioWorkspace || studioBusy()) return;
+  if (!studioWorkspace || !await resolveStudioChanges()) return;
   if (wordingReturn?.kind === "text") { finishStudioVisit(); returnFromWording("text"); return; }
   await mountStudioTool("inspect");
 }
@@ -241,8 +388,22 @@ async function studioApplied(data, accept) {
   return true;
 }
 async function leaveStudioWorkspace() {
-  if (!studioWorkspace) return true;
+  const owner = studioWorkspace;
+  if (!owner) return true;
   if (!await resolveStudioChanges()) return false;
+  // Metadata acknowledgements intentionally skip source checks and layout planning.
+  // Refresh that read-only projection once before showing the gallery or Handoff.
+  const previous = model;
+  if (previous?.composition_projection_stale) {
+    const version = previous.composition_version || previous.version;
+    const latest = await api(`/api/motif/campaigns/${encodeURIComponent(owner.campaign)}`);
+    if (studioWorkspace !== owner || model !== previous || studioSave?.dirty() || projectQueue?.isDirty()) return false;
+    if (latest.value?.campaign_id !== owner.campaign || (latest.composition_version || latest.version) !== version) {
+      studioSave?.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 }));
+      return false;
+    }
+    useData(latest);
+  }
   finishStudioVisit();
   wordingReturn = null;
   return true;

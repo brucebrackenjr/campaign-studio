@@ -8,7 +8,8 @@ function beginText() {
   textEditor = {
     campaign: C.id, product: product.id, language: lang, format: currentFormat,
     run: model.output_run_id, revision: model.manifest.revision_id,
-    brand: copy(model.output_brief.brand), placements: {}, selected: "message",
+    brand: copy(model.output_brief.brand), placements: {}, pendingStyles: {}, selected: "message",
+    savedPlacements: copy(model.output_brief.products?.find(item => item.id === product.id)?.framing?.[MARKET[lang]]?.[format.ratio]?.text_placements || {}),
     initial: { message: valueFor(currentProduct, lang, "headline"), cta: valueFor(currentProduct, lang, "cta") },
     values: { message: valueFor(currentProduct, lang, "headline"), cta: valueFor(currentProduct, lang, "cta") },
     all: { message: false, cta: false },
@@ -37,19 +38,20 @@ function textParts() {
     </aside>
     <section class="mf-editor-preview"><div class="mf-preview-head"><span class="eyebrow">${esc(product.name)}</span></div>
     <div class="mf-stage" id="text-stage"><div class="mf-output" id="text-output"><canvas id="text-canvas" width="${editor.width}" height="${editor.height}" hidden></canvas><img id="text-image" hidden alt="Proposed text layout for ${esc(product.name)}">${MotifEditorControls.selection("Message")}</div></div>
-    <p class="mf-preview-status" id="text-status" role="status">Preparing preview…</p></section></div>`,
+    <p class="mf-preview-status" id="text-status" role="status"></p></section></div>`,
     `<div class="ws-text-footer">${btn("Retry preview", "recoverText", "", "hidden")}<div class="row ws-text-actions">${btn("Reset text layout", "resetText", "quiet")}${btn("Cancel", "close")}${btn("Apply text", "applyText", "primary", "disabled")}</div></div>`);
 }
 function textBlock(editor = textEditor) {
   return editor?.geometry?.text_blocks[editor.selected];
 }
 function textPlacement(editor = textEditor) {
+  if (editor.placements[editor.selected] === null) return undefined;
   return editor.placements[editor.selected] || textBlock(editor)?.placement;
 }
 function textStyle(editor) {
-  const block = textBlock(editor);
-  if (!block) { $("#text-style").innerHTML = ""; delete $("#text-style").dataset.signature; return; }
-  const placement = textPlacement(editor);
+  const placement = { font_id: "noto_sans", color: null,
+    ...(textPlacement(editor) || editor.savedPlacements?.[editor.selected] || {}),
+    ...editor.pendingStyles?.[editor.selected] };
   const style = $("#text-style"), signature = JSON.stringify([editor.selected, placement.font_id, placement.color, editor.brand]);
   if (style.dataset.signature === signature) return;
   const focused = document.activeElement, key = focused?.dataset?.mfColor;
@@ -70,14 +72,18 @@ function textLengthIssue(editor = textEditor) {
 function paintText() {
   const editor = textEditor;
   if (!editor || !textCurrent(editor)) return;
-  $("#text-status").textContent = editor.message;
+  const stale = editor.recovery === "stale", inlineConflict = stale && typeof studioSave !== "undefined" && studioSave;
+  const routinePreview = typeof studioWorkspace !== "undefined" && studioWorkspace && !editor.recovery &&
+    [MotifEditorControls.copy.previewing, "Preparing preview…", "The preview will refresh after your changes finish saving."].includes(editor.message);
+  $("#text-status").textContent = inlineConflict || routinePreview ? "" : stale ? MotifSave.conflictMessage : editor.message;
+  if (inlineConflict) studioSave.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 }));
   $("#text-status").classList.toggle("is-error", !!editor.recovery || !!editor.preview?.result.blocked || editor.anchorBlocked);
   const apply = $('[data-action="applyText"]');
   apply.textContent = editor.saving ? "Applying…" : "Apply text";
   apply.disabled = !!textLengthIssue(editor) || editor.saving || editor.pending || !!editor.recovery || editor.anchorBlocked || !editor.preview?.displayed || editor.preview.result.blocked || !editor.preview.result.impact.render_outputs.length;
   const recovery = $('[data-action="recoverText"]');
-  recovery.hidden = !editor.recovery;
-  recovery.textContent = editor.recovery === "production" ? "Open recovery" : editor.recovery === "stale" ? "Use latest image" : editor.recovery === "uncertain" ? "Check current image" : "Retry preview";
+  recovery.hidden = !editor.recovery || !!inlineConflict;
+  recovery.textContent = editor.recovery === "production" ? "Open recovery" : editor.recovery === "stale" ? "Refresh" : editor.recovery === "uncertain" ? "Check current image" : editor.recovery === "apply" ? "Try again" : "Retry preview";
   for (const el of $$('[data-text-block]')) {
     const block = editor.geometry?.text_blocks[el.dataset.textBlock];
     el.disabled = editor.saving;
@@ -174,7 +180,13 @@ function writeTextGesture(value) {
   editor.anchorBlocked = false;
   block.placement = copy(value.placement);
   block.bounds = [...value.bounds];
-  if (editor.layers) {
+  paintLocalText(editor);
+  editor.gestureBlock = value.id;
+  scheduleTextPreview(true);
+  positionTextSelection();
+}
+function paintLocalText(editor = textEditor) {
+  if (editor?.layers && textCurrent(editor)) {
     const canvas = $("#text-canvas"), ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, editor.width, editor.height);
     ctx.drawImage(editor.layers.base, 0, 0);
@@ -182,19 +194,31 @@ function writeTextGesture(value) {
       const layer = editor.layers.blocks[id], geometry = editor.geometry.text_blocks[id];
       if (layer && geometry) {
         const scale = geometry.placement.font_size / layer.fontSize;
-        ctx.drawImage(layer.image, geometry.bounds[0] - layer.bounds[0] * scale, geometry.bounds[1] - layer.bounds[1] * scale, editor.width * scale, editor.height * scale);
+        const color = (editor.placements[id] || geometry.placement).color || editor.brand.text_color;
+        let image = layer.image;
+        if (color !== layer.color) {
+          if (layer.tintColor !== color) {
+            const mask = layer.tint || (layer.tint = document.createElement("canvas"));
+            mask.width = editor.width; mask.height = editor.height;
+            const tint = mask.getContext("2d");
+            tint.drawImage(layer.image, 0, 0);
+            tint.globalCompositeOperation = "source-in";
+            tint.fillStyle = color; tint.fillRect(0, 0, editor.width, editor.height);
+            layer.tintColor = color;
+          }
+          image = layer.tint;
+        }
+        ctx.drawImage(image, geometry.bounds[0] - layer.bounds[0] * scale, geometry.bounds[1] - layer.bounds[1] * scale, editor.width * scale, editor.height * scale);
       }
     }
     canvas.hidden = false;
     $("#text-image").hidden = true;
   }
-  editor.gestureBlock = value.id;
-  scheduleTextPreview(true);
-  positionTextSelection();
 }
 function scheduleTextPreview(preserveGesture = false) {
   const editor = textEditor;
   if (!editor || editor.saving) return;
+  scheduleStudioSave();
   editor.sequence++;
   if (!preserveGesture) editor.gestureBlock = null;
   editor.preview = null;
@@ -208,7 +232,62 @@ function scheduleTextPreview(preserveGesture = false) {
   }
   paintText();
 }
-async function previewText() {
+function previewText() {
+  const editor = textEditor;
+  if (!editor) return Promise.resolve();
+  if (editor.pending) { editor.queued = true; return editor.previewWork || Promise.resolve(); }
+  const work = performTextPreview();
+  editor.previewWork = work;
+  return work;
+}
+async function prepareTextStyleSave(editor = textEditor) {
+  if (!editor || !Object.keys(editor.pendingStyles || {}).length) return true;
+  if (editor.styleWork) return editor.styleWork;
+  const work = (async () => {
+    // Only the renderer knows the unarranged block's measured placement.
+    // Preserve an early style choice until that geometry arrives.
+    await (editor.pending ? editor.previewWork : previewText());
+    if (!textCurrent(editor)) return false;
+    if (editor.geometrySequence !== editor.sequence) await previewText();
+    if (!textCurrent(editor)) return false;
+    for (const [id, style] of Object.entries(editor.pendingStyles)) {
+      const placement = editor.geometrySequence === editor.sequence && editor.geometry?.text_blocks[id]?.placement;
+      if (!placement) throw new Error("The text preview could not be prepared. Your font and color choices are still here. Retry the preview.");
+      editor.placements[id] = { ...placement, ...style };
+    }
+    editor.pendingStyles = {};
+    scheduleTextPreview();
+    return true;
+  })();
+  editor.styleWork = work;
+  try { return await work; } finally { if (editor.styleWork === work) editor.styleWork = null; }
+}
+function changeTextStyle(style) {
+  const editor = textEditor;
+  const placement = textPlacement(editor) || editor.savedPlacements?.[editor.selected];
+  editor.anchor = null;
+  if (placement) {
+    const sameGeometry = Object.keys(style).every(key => key === "color") &&
+      !!editor.layers && (editor.geometrySequence === editor.sequence || editor.gestureBlock === editor.selected);
+    editor.placements[editor.selected] = { ...placement, ...style };
+    // Color uses the already decoded glyph mask, so it is visible before
+    // metadata persistence or a new renderer response.
+    if ("color" in style) paintLocalText(editor);
+    // Tinting does not change the measured glyph shape. Continue accepting
+    // direct movement while the authoritative colored preview is on its way.
+    if (sameGeometry) editor.gestureBlock = editor.selected;
+    scheduleTextPreview(sameGeometry);
+  } else {
+    editor.pendingStyles ||= {};
+    editor.pendingStyles[editor.selected] = { ...editor.pendingStyles[editor.selected], ...style };
+    paintText();
+    scheduleStudioSave();
+    prepareTextStyleSave(editor).catch(error => {
+      if (textCurrent(editor)) { editor.message = error.message; editor.recovery = "retry"; paintText(); }
+    });
+  }
+}
+async function performTextPreview() {
   const editor = textEditor;
   if (!editor || !textCurrent(editor) || editor.saving || editor.input?.active() || ["stale", "uncertain"].includes(editor.recovery)) return;
   if (textLengthIssue(editor)) return;
@@ -234,10 +313,10 @@ async function previewText() {
     }
     // Selection belongs to the producer, including an optional block just cleared.
     const image = result.images[0];
-    if (image && !result.blocked) {
+    if (image) {
       const [final, base, entries] = await Promise.all([
         decodedImage(image.url), decodedImage(image.layers.base_url),
-        Promise.all(Object.entries(image.layers.text_blocks).map(async ([id, block]) => [id, { image: await decodedImage(block.url), bounds: block.bounds, fontSize: result.geometry.text_blocks[id].placement.font_size }])),
+        Promise.all(Object.entries(image.layers.text_blocks).map(async ([id, block]) => [id, { image: await decodedImage(block.url), bounds: block.bounds, fontSize: result.geometry.text_blocks[id].placement.font_size, color: block.color || editor.brand.text_color }])),
       ]);
       if (!current()) return;
       const displayed = $("#text-image");
@@ -247,18 +326,22 @@ async function previewText() {
       displayed.hidden = false;
       $("#text-canvas").hidden = true;
       editor.layers = { base, blocks: Object.fromEntries(entries) };
+      if (typeof studioPreviewReady === "function") studioPreviewReady();
     } else editor.layers = null;
     editor.placements = copy(body.placements);
     editor.geometry = result.geometry;
     editor.geometrySequence = sequence;
-    editor.gestureBlock = !result.blocked && !editor.anchorBlocked ? editor.selected : null;
+    editor.gestureBlock = image && !editor.anchorBlocked ? editor.selected : null;
     editor.preview = { body, result, displayed: !!image && !result.blocked };
     editor.message = result.blocked ? wordingBlockDetails(result.findings, `${editor.product}/${MARKET[editor.language]}/${FMT[editor.format].ratio.replace(":", "x")}`) || MotifEditorControls.copy.noFit
       : editor.anchorBlocked ? MotifEditorControls.copy.noFit
-      : Object.keys(editor.placements).length || wordingIntent(editor).fields.length ? "Preview only. Apply text saves your changes." : "";
+      : "";
     if (!image && !result.blocked) { editor.message = "Preview unavailable."; editor.recovery = "retry"; }
   } catch (error) {
     if (!current()) return;
+    if (error.status === 409 && typeof studioSave !== "undefined" && studioSave?.dirty()) {
+      editor.recovery = null; editor.message = "The preview will refresh after your changes finish saving."; return;
+    }
     editor.gestureBlock = null;
     editor.recovery = error.code === "saved_images_unavailable" ? "production" : "retry";
     editor.message = error.message || "Preview unavailable.";
@@ -318,6 +401,7 @@ function bindText() {
       if (editor.pending && editor.input?.active()) editor.sequence++;
     },
     onFinish: ({ keyboard }) => {
+      scheduleStudioSave(!keyboard);
       if (!keyboard && editor.geometrySequence !== editor.sequence) {
         clearTimeout(editor.timer);
         previewText();
@@ -343,6 +427,8 @@ function endText() {
 }
 function resetText() {
   if (!textEditor || textEditor.saving) return;
+  textEditor.pendingStyles = {};
+  textEditor.savedPlacements = {};
   textEditor.placements = { message: null, cta: null };
   textEditor.anchor = null;
   textEditor.anchorBlocked = false;
@@ -378,6 +464,7 @@ async function applyText() {
   const editor = textEditor, preview = editor?.preview;
   if (!editor || textLengthIssue(editor) || editor.saving || editor.pending || editor.recovery || editor.anchorBlocked || !preview?.displayed || preview.result.blocked || !preview.result.impact.render_outputs.length) return false;
   editor.saving = true;
+  let accepted = false;
   paintText();
   try {
     if (!(await imageCleanupReady(editor.campaign, () => textCurrent(editor) && editor.preview === preview && JSON.stringify(textBody(editor)) === JSON.stringify(preview.body)))) {
@@ -386,16 +473,19 @@ async function applyText() {
     editor.attempt = { body: copy(preview.body), digest: preview.result.digest, sequence: editor.sequence,
       values: copy(editor.values), all: copy(editor.all) };
     const applied = await api(`/api/campaigns/${editor.campaign}/text/apply`, { ...preview.body, preview_digest: preview.result.digest });
-    const latest = await api(`/api/motif/campaigns/${editor.campaign}`);
+    accepted = true;
+    const latest = await api(`/api/motif/campaigns/${editor.campaign}?after_edit=true`);
     if (latest.manifest?.revision_id !== applied.revision_id) throw { status: 409, message: MotifEditorControls.copy.stale };
     return await finishText(editor, latest);
   } catch (error) {
     if (!textCurrent(editor)) return false;
     editor.saving = false;
     paintText();
-    if (await imageCapacity(error, "Applying this text layout")) { paintText(); return false; }
-    editor.recovery = error.code === "apply_not_accepted" ? "retry" : !error.status || error.status >= 500 ? "uncertain" : error.status === 409 ? "stale" : "retry";
-    editor.message = editor.recovery === "uncertain" ? MotifEditorControls.copy.uncertain : error.message || MotifEditorControls.copy.applyFailed;
+    const refused = !accepted && (error.code === "apply_not_accepted" ||
+      await imageCapacity(error, "Applying this text layout"));
+    editor.recovery = refused ? "apply" : !accepted && error.status === 409 ? "stale" : "uncertain";
+    editor.message = refused ? MotifEditorControls.applyFailure(error) :
+      editor.recovery === "uncertain" ? MotifEditorControls.copy.uncertain : error.message || MotifEditorControls.copy.stale;
     paintText();
     return false;
   }
@@ -403,6 +493,7 @@ async function applyText() {
 async function recoverText() {
   const editor = textEditor;
   if (!editor || editor.saving) return;
+  if (editor.recovery === "stale") return MotifSave.refreshPage();
   if (editor.recovery === "production") {
     const latest = await api(`/api/motif/campaigns/${editor.campaign}`);
     if (!textCurrent(editor) || editor.recovery !== "production") return;
@@ -410,6 +501,10 @@ async function recoverText() {
     return navigate("production");
   }
   if (editor.recovery === "retry") return previewText();
+  if (editor.recovery === "apply") {
+    editor.recovery = null;
+    return withProjectApply(applyText);
+  }
   const recovery = editor.recovery, sequence = editor.sequence, attempt = editor.attempt;
   const latest = await api(`/api/motif/campaigns/${editor.campaign}`);
   if (!textCurrent(editor) || sequence !== editor.sequence) return;
@@ -452,17 +547,13 @@ document.addEventListener("click", event => {
     textEditor.input.cancel();
     textEditor.selected = block.dataset.textBlock;
     paintText();
-  } else if (color && textBlock()) {
-    textEditor.placements[textEditor.selected] = { ...textPlacement(), color: color.hasAttribute("data-mf-color-default") ? null : color.dataset.mfColor };
-    textEditor.anchor = null;
-    scheduleTextPreview();
+  } else if (color) {
+    changeTextStyle({ color: color.hasAttribute("data-mf-color-default") ? null : color.dataset.mfColor });
   }
 });
 document.addEventListener("change", event => {
-  if (modal !== "text" || !textEditor || textEditor.saving || !event.target.matches("[data-mf-font]") || !textBlock()) return;
-  textEditor.placements[textEditor.selected] = { ...textPlacement(), font_id: event.target.value };
-  textEditor.anchor = null;
-  scheduleTextPreview();
+  if (modal !== "text" || !textEditor || textEditor.saving || !event.target.matches("[data-mf-font]")) return;
+  changeTextStyle({ font_id: event.target.value });
 });
 
 function recordCombinedText(event) {

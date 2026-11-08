@@ -75,6 +75,24 @@ def test_sqlite_connections_commit_rollback_and_close(storage):
         assert storage.path("private/state.sqlite3").stat().st_mode & 0o777 == 0o600
 
 
+def test_startup_does_not_create_smoke_directory(tmp_path):
+    store = Storage(tmp_path / "workspace")
+    store.initialize()
+    assert not (store.root / "smoke").exists()
+
+
+def test_startup_removes_only_empty_legacy_smoke_directory(storage):
+    smoke = storage.root / "smoke"
+    smoke.mkdir()
+    storage.initialize()
+    assert not smoke.exists()
+    smoke.mkdir()
+    proof = smoke / "result.txt"
+    proof.write_text("existing check results")
+    storage.initialize()
+    assert proof.read_text() == "existing check results"
+
+
 def test_reinitializing_preserves_existing_files(storage):
     from campaign_studio.state import State
 
@@ -115,3 +133,34 @@ def test_readable_delivery_names_keep_private_and_path_boundaries(storage, tmp_p
     with pytest.raises(StorageError):
         storage.write("Campaigns/Autumn-12345678/Exports/linked folder/file.png", b"no")
     assert not list(outside.iterdir())
+
+
+def test_newer_workspace_is_rejected_without_modifying_database(storage):
+    from campaign_studio.state import State
+    from campaign_studio.storage import WORKSPACE_SCHEMA
+
+    State(storage)
+    with storage.connect() as db:
+        db.execute(f"PRAGMA user_version={WORKSPACE_SCHEMA + 1}")
+    path = storage.path("private/state.sqlite3")
+    before = path.read_bytes()
+    with pytest.raises(StorageError, match="newer version"):
+        State(Storage(storage.root))
+    assert path.read_bytes() == before
+
+
+def test_schema15_workspace_upgrades_and_keeps_current_campaign(tmp_path):
+    from campaign_studio.campaign_drafts import read
+    from campaign_studio.intake import Intake
+    from campaign_studio.state import State
+    from campaign_studio.storage import WORKSPACE_SCHEMA
+
+    storage = Storage(tmp_path / "workspace")
+    State(storage)
+    cid, document = Intake(storage).new(name="Saved before upgrade")
+    with storage.connect() as db:
+        db.execute("PRAGMA user_version=15")
+    State(storage)
+    assert read(storage, cid)["authored"]["brief"]["name"] == "Saved before upgrade"
+    with storage.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == WORKSPACE_SCHEMA

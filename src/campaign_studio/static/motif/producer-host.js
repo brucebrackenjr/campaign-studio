@@ -11,8 +11,8 @@ function productPhotoView(product) {
     ...product,
     mode: concept ? "concept" : "photo",
     description: concept ? product.source.description || product.description : product.description,
-    image: concept || !current ? null : product.image || retained?.url,
-    filename: current?.path?.split("/").pop() || "",
+    image: concept ? null : product.localImage || (current ? product.image || retained?.url : null),
+    filename: product.localFile?.name || current?.path?.split("/").pop() || "",
     previousImage: retained?.url || null,
     previousFilename: retained?.source.path?.split("/").pop() || "",
   };
@@ -23,7 +23,8 @@ function productEditorView() {
     product: productPhotoView(modalProduct),
     existing: draft.products.some(product => product.id === modalProduct.id),
     origin: page,
-    busy: operation?.active || !!modalProduct.uploading,
+    busy: operation?.active || !!modalProduct.uploading || !!modalProduct.adding,
+    adding: !!modalProduct.adding,
     uploading: !!modalProduct.uploading,
     error: modalProduct.error,
     invalidFields: modalProduct.invalidFields,
@@ -36,10 +37,23 @@ function captureProductInputs() {
     modalProduct[field] = $(`#product-${field}`).value;
   if (modalProduct.source.role === "concept")
     modalProduct.source.description = modalProduct.description;
+  const existing = draft.products.find(product => product.id === modalProduct.id);
+  if (existing) {
+    existing.name = modalProduct.name;
+    existing.description = modalProduct.description;
+    const role = { reuse: "finished_scene", prepared: "prepared_product", concept: "concept" }[modalProduct.treatment];
+    const provenance = { label: modalProduct.origin || "Not provided", rights: modalProduct.rights || "Not provided", synthetic: false };
+    const photoSource = { ...copy(modalProduct.source) };
+    delete photoSource.description;
+    delete photoSource.imagery_absent;
+    existing.source = role === "concept"
+      ? { role, imagery_absent: true, description: modalProduct.description, provenance }
+      : { ...photoSource, role, provenance };
+  }
 }
 
 function setProductMode(concept, restore = false) {
-  if (modal !== "product" || !modalProduct || operation?.active) return;
+  if (modal !== "product" || !modalProduct || operation?.active || modalProduct.adding) return;
   cancelProductUpload();
   captureProductInputs();
   if (restore || (!concept && !modalProduct.source.path)) {
@@ -55,6 +69,8 @@ function setProductMode(concept, restore = false) {
     : modalProduct.source.role === "prepared_product" ? "prepared" : "reuse";
   delete modalProduct.error;
   delete modalProduct.invalidFields;
+  captureProductInputs();
+  projectChanged();
   openModal("product");
 }
 
@@ -74,6 +90,11 @@ function productionView(context, operationHtml = "", notices = "") {
     operationHtml,
   };
   let html = MotifProducerRepair.production(view);
+  const changedSources = context.plan?.changed_source_products || [];
+  if (changedSources.length && !context.active) {
+    const names = changedSources.map(product => product.name).join(", ");
+    notices += `<div class="pr-inline-error" role="status"><div><strong>The image instructions changed.</strong><p>${esc(names)}: the previous generated image no longer matches the current instructions. Review the estimate before generating a replacement. You can also restore the previous instructions to use that image again.</p></div></div>`;
+  }
   if (context.active)
     for (const action of ["edit", "choose", "choose-concept"])
       html = html.replaceAll(`data-pr-action="${action}"`, `data-pr-action="${action}" disabled`);
@@ -97,6 +118,10 @@ function refreshProductionStatus() {
   cards.forEach((card, index) => { if (updated[index] && card.outerHTML !== updated[index].outerHTML) card.replaceWith(updated[index]); });
   const add = $('.wf-product-management [data-pr-action="add"]'), nextAdd = $('.wf-product-management [data-pr-action="add"]', template.content);
   if (add && nextAdd) add.disabled = nextAdd.disabled;
+  const keyAccess = $(".pr-key-access"), nextKeyAccess = $(".pr-key-access", template.content);
+  if (keyAccess && nextKeyAccess) keyAccess.replaceWith(nextKeyAccess);
+  else if (keyAccess) keyAccess.remove();
+  else if (nextKeyAccess) next.after(nextKeyAccess);
   const availability = $(".wf-studio-availability"), nextAvailability = $(".wf-studio-availability", template.content);
   if (availability && !nextAvailability) availability.remove();
   else if (!availability && nextAvailability) $(".wf-production-sidebar").append(nextAvailability);
@@ -119,6 +144,8 @@ function studioView() {
   if (reviewTab === "product") return MotifStudioShell.shell(studioShellView("inspect"));
   const products = C.products.map((product, index) => ({
     id: product.id, name: product.name,
+    sourceAvailable: !!model.editable_products?.[product.id] || !!model.source_urls?.[product.id] ||
+      (model.concept_preview_version === model.version && !!model.concept_previews?.[product.id]),
     outputs: Object.fromEntries(C.markets.flatMap(language => FMT.map((format, f) =>
       [`${MARKET[language]}|${format.ratio}`, outputFor(index, language, f)?.url || null]))),
   }));
@@ -136,9 +163,10 @@ function studioView() {
     compareIds: selected.map(index => products[Math.min(index, products.length - 1)]?.id),
     actionAvailability: Object.fromEntries(products.map((product, index) => [product.id,
       Object.fromEntries(C.markets.flatMap(language => FMT.map((format, f) => {
-        const available = !!outputFor(index, language, f)?.url;
+        const output = outputFor(index, language, f);
+        const available = !!output && (!!output.url || canEditProduct(index));
         return [`${MARKET[language]}|${format.ratio}`, {
-          text: canEditProduct(index) && (available || model.rule_withheld_outputs?.includes(outputFor(index, language, f)?.id)),
+          text: canEditProduct(index) && available,
           framing: canEditProduct(index) && available, logo: canEditLogo(index) && available,
           inspect: available,
         }];
@@ -150,6 +178,11 @@ function studioView() {
 
 async function producerAction(button) {
   const action = button.dataset.prAction;
+  if (modal === "product" && ["dismiss", "cancel", "save"].includes(action) && draft.products.some(product => product.id === modalProduct.id)) {
+    captureProductInputs(); projectChanged();
+    if (!await saveProject()) return;
+    closeModal({ retain: false }); render(); return;
+  }
   const id = button.dataset.prId;
   const p = C.products.findIndex(product => product.id === id);
   const f = FMT.findIndex(format => format.ratio === button.dataset.prFormat);
@@ -169,6 +202,9 @@ async function producerAction(button) {
   }
   if (["open-product", "open-format", "open-output"].includes(action)) {
     if (p < 0) return;
+    if (!model.editable_products?.[id] && !model.source_urls?.[id] &&
+        !(model.concept_preview_version === model.version && model.concept_previews?.[id]))
+      return dispatchAction({ action: `addProductImage:${id}` });
     if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
     if (action === "open-output" && outputFor(p, lang, f)?.url)
       return dispatchAction({ action: `inspect:${p}:${f}:${lang}` });
@@ -182,6 +218,7 @@ async function producerAction(button) {
   const format = f < 0 ? formats[0] : f;
   if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
   const mapped = {
+    "add-image": `addProductImage:${id}`, "update-key": "updateKey", resumeGeneration: "resumeGeneration",
     add: "addProduct", "close-cap": "close", edit: `product:${id}`, source: `productSource:${id}`,
     "review-plan": "plan", "plan-input": "planDraftInput", settings: "settings", start: "start", key: "missingKey", stop: "stop",
     studio: "nav:review", browse: "pickProduct", save: "saveProduct", cancel: "cancelEdits",

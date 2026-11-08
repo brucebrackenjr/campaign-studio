@@ -109,7 +109,7 @@
   const copy = {
     unchanged: "",
     previewing: "Preparing preview…",
-    applyFailed: "Could not apply. Your edits are still here.",
+    applyFailed: "There was a problem saving your changes. Your previous image is unchanged, and your edits are still here.",
     uncertain:
       "The update could not be confirmed. Check the current image before trying again.",
     stale:
@@ -120,7 +120,13 @@
       "This text does not fit. Reduce its size, move it, or edit the wording.",
     noReference: "No visible reference pixels to verify.",
   };
+  function applyFailure(error) {
+    const reason = error?.message?.trim();
+    return copy.applyFailed + (reason && reason !== copy.applyFailed &&
+      reason !== "Could not apply. Your edits are still here." ? " " + reason : "");
+  }
   const api = {
+    applyFailure,
     esc,
     textStyleControls,
     wordingFields,

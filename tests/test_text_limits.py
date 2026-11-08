@@ -16,7 +16,6 @@ from test_web_workflow import page_data, sample_plan, start, ui, wait_for_work  
 from campaign_studio.brief import Brief
 from campaign_studio.bundled import install_campaigns
 from campaign_studio.intake import Intake
-from campaign_studio.planning import make_plan
 from campaign_studio.review import CreativeUpdate
 from campaign_studio.state import State
 from campaign_studio.storage import Storage
@@ -214,8 +213,6 @@ def test_import_reports_each_limit_before_creating_a_campaign(ui, purpose, path)
 def test_studio_text_refuses_over_limit_then_applies_corrected_copy(ui):
     client, ws = ui
     data = sample_plan(client)
-    assert start(client, data).status_code == 202
-    wait_for_work(client, data["campaignId"])
     ready = page_data(client, client.get(f"/campaigns/{data['campaignId']}/studio"))
     edit = {
         "run_id": ready["runId"],
@@ -230,21 +227,27 @@ def test_studio_text_refuses_over_limit_then_applies_corrected_copy(ui):
     rejected = client.post(endpoint + "/preview", json=edit)
     assert rejected.status_code == 422, rejected.text
     assert "120" in rejected.json()["field_errors"][0]["message"]
-    rejected = client.post(endpoint + "/apply", json=edit)
+    rejected = client.post(endpoint + "/save", json=edit)
     assert rejected.status_code == 422
-    assert ws.state.effective_revision(ready["runId"]) == ready["currentRevision"]
+    assert (
+        client.get(f"/api/motif/campaigns/{data['campaignId']}").json()["version"]
+        == ready["currentRevision"]
+    )
     edit["values"] = {"message": "A fresh headline."}
     preview = client.post(endpoint + "/preview", json=edit)
     assert preview.status_code == 200, preview.text
     applied = client.post(
-        endpoint + "/apply", json=edit | {"preview_digest": preview.json()["digest"]}
+        endpoint + "/save", json=edit | {"preview_digest": preview.json()["digest"]}
     )
     assert applied.status_code == 200, applied.text
     assert (
-        ws.state.plan(ready["runId"]).brief.products[0].copy_overrides["en-US"].message
+        ws.current_composition(data["campaignId"])["plan"]
+        .brief.products[0]
+        .copy_overrides["en-US"]
+        .message
         == "A fresh headline."
     )
-    assert ws.state.attempts(ready["runId"]) == []
+    assert ws.runs(data["campaignId"]) == []
 
 
 def test_image_description_action_uses_description_limit():
@@ -264,18 +267,19 @@ def test_fresh_renamed_examples_install_all_prepared_bytes_without_rendering(tmp
     ws = Workspace(State(Storage(tmp_path / "Workspace")))
     receipt = asyncio.run(install_campaigns(ws))
     assert receipt["state"] == "complete"
-    names = [ws.state.plan(ws.run_for(c["id"])["id"]).brief.name for c in receipt["campaigns"]]
+    from campaign_studio.campaign_drafts import read
+
+    names = [read(ws.storage, c["id"])["authored"]["brief"]["name"] for c in receipt["campaigns"]]
     assert set(names) == {"Autumn at Home", "Winter at the Ranch"}
-    autumn = next(ws.run_for(c["id"]) for c in receipt["campaigns"] if c["slug"] == "autumn-winds")
-    manifest = ws.manifest(autumn)
-    prefix = ws.state.revision(manifest["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    prepared = json.loads((RESOURCES / "autumn-winds/prepared-outputs.json").read_text())
-    expected = {item["sha256"] for item in prepared["outputs"]}
-    actual = {
-        hashlib.sha256(ws.storage.path(f"{prefix}/{item['file']}").read_bytes()).hexdigest()
-        for item in manifest["outputs"]
-    }
-    assert len(manifest["outputs"]) == 30 and actual == expected
-    plan = make_plan(ws.state.plan(autumn["id"]).brief, ws.storage)
+    autumn = next(c["id"] for c in receipt["campaigns"] if c["slug"] == "autumn-winds")
+    plan = ws.current_composition(autumn)["plan"]
     assert not plan.blocked and len(plan.outputs) == 30 and not plan.generation_products
-    assert ws.state.attempts(autumn["id"]) == []
+    original = json.loads((RESOURCES / "autumn-winds/brief.json").read_text())
+    expected = {
+        hashlib.sha256((RESOURCES / "autumn-winds" / p["source"]["path"]).read_bytes()).hexdigest()
+        for p in original["products"]
+    }
+    actual = {a.sha256 for key, a in plan.assets.items() if key.startswith("products/")}
+    assert actual == expected
+    assert ws.runs(autumn) == []
+    assert not list(ws.storage.root.glob("Campaigns/**/Outputs"))

@@ -2,18 +2,20 @@
 
 import copy
 import io
-import json
 import re
 import warnings
 from contextlib import suppress
 from datetime import date
 from pathlib import PurePosixPath
+from urllib.parse import quote
 from uuid import uuid4
 
 from PIL import Image
 from pydantic import Field
 
 from campaign_studio.brief import FORMATS, Brief, Contract, Product
+from campaign_studio.campaign_drafts import read as read_draft
+from campaign_studio.campaign_drafts import write as write_draft
 from campaign_studio.imaging import (
     ColorProfileProblem,
     EmptyLogoProblem,
@@ -24,7 +26,7 @@ from campaign_studio.imaging import (
     require_visible_logo,
 )
 from campaign_studio.state import timestamp
-from campaign_studio.storage import CapacityError, StorageError
+from campaign_studio.storage import CapacityError, StorageError, asset_component
 from campaign_studio.validation import field_issue, validation_issues
 from campaign_studio.workspace import ActionError
 
@@ -34,12 +36,6 @@ REUSE_HISTORY = (
     "Verified sources retained from earlier plans in this campaign. "
     "New requests are listed separately in this plan."
 )
-
-
-def draft_bytes(document, *, allow_nan=True) -> bytes:
-    """Encode the editable Brief/draft.json file for reading in a text editor."""
-    text = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=allow_nan)
-    return (text + "\n").encode("utf-8")
 
 
 class BriefDraft(Contract):
@@ -58,16 +54,12 @@ class Intake:
     def __init__(self, storage):
         self.storage = storage
 
-    def upload(self, payload, content_type, campaign_id=None, role=None):
+    @staticmethod
+    def validate_upload(payload, role=None, source_role=None):
         if role not in {None, "logo", "product"}:
             raise ActionError("upload_role", "Choose the logo or product image picker.", 422)
-        with self.storage.exclusive_run():
-            from campaign_studio.cleanup import require_campaign_available
-
-            require_campaign_available(self.storage, campaign_id)
-            return self._upload(payload, content_type, campaign_id, role)
-
-    def _upload(self, payload, content_type, campaign_id, role=None):
+        if source_role not in {None, "finished_scene", "prepared_product"}:
+            raise ActionError("upload_role", "Choose a supported product image type.", 422)
         if len(payload) > UPLOAD_LIMIT:
             raise ActionError(
                 "upload_size",
@@ -122,52 +114,22 @@ class Intake:
                         "limit_pixels": PIXEL_LIMIT,
                     },
                 )
-            self.storage.require_capacity(len(payload) * 2)
-            for _ in range(100):
-                token = uuid4().hex
-                project = self.storage.project(campaign_id)
-                group = "Brand" if role == "logo" else "Products"
-                name = f"{token}.{'png' if kind == 'PNG' else 'jpg'}"
-                reference = project.ref(f"Assets/{group}/{name}")
-                # Commit ownership first. A crash can leave an owned missing file,
-                # but never a new successfully written anonymous attachment.
-                with self.storage.connect() as db:
-                    if db.execute("SELECT 1 FROM uploads WHERE name=?", (name,)).fetchone():
-                        continue
-                    project.claim(reference, db)
-                    db.execute(
-                        "INSERT INTO uploads(name,reference) VALUES (?,?)", (name, reference)
-                    )
-                try:
-                    self.storage.write_new(reference, payload)
-                    break
-                except FileExistsError:
-                    self._forget_upload_owner(reference, campaign_id)
-                    continue
-                except BaseException:
-                    # Publication can succeed before a directory-fsync error.
-                    # Remove the file before forgetting ownership; if unlink also
-                    # fails, retain its owner so campaign deletion can reclaim it.
-                    self.storage.path(reference).unlink(missing_ok=True)
-                    self._forget_upload_owner(reference, campaign_id)
-                    raise
-            else:
-                raise StorageError("A new upload identity could not be reserved. Try again.")
+            image, _ = load_image(io.BytesIO(payload))
             try:
-                image, _ = load_image(self.storage.path(reference))
-                try:
-                    dimensions = image.size
-                    opaque = (
-                        "A" not in image.getbands() or image.getchannel("A").getextrema()[0] == 255
+                dimensions = image.size
+                opaque = "A" not in image.getbands() or image.getchannel("A").getextrema()[0] == 255
+                if role == "logo":
+                    require_visible_logo(image)
+                if source_role == "finished_scene" and not opaque:
+                    raise ActionError(
+                        "upload_scene",
+                        "This image has transparent areas. "
+                        "Select a product image without transparency.",
+                        422,
+                        input_image={"kind": "transparent_scene"},
                     )
-                    if role == "logo":
-                        require_visible_logo(image)
-                finally:
-                    image.close()
-            except Exception:
-                self.storage.path(reference).unlink(missing_ok=True)
-                self._forget_upload_owner(reference, campaign_id)
-                raise
+            finally:
+                image.close()
         except CapacityError, ActionError:
             raise
         except (
@@ -190,13 +152,61 @@ class Intake:
                     else "decode_failure"
                 },
             ) from error
+        return {"width": dimensions[0], "height": dimensions[1], "type": kind, "opaque": opaque}
+
+    def upload(
+        self, payload, content_type, campaign_id=None, role=None, label=None, source_role=None
+    ):
+        with self.storage.exclusive_run():
+            from campaign_studio.cleanup import require_campaign_available
+
+            require_campaign_available(self.storage, campaign_id)
+            return self._upload(payload, content_type, campaign_id, role, label, source_role)
+
+    def _upload(self, payload, content_type, campaign_id, role=None, label=None, source_role=None):
+        details = self.validate_upload(payload, role, source_role)
+        kind = details["type"]
+        self.storage.require_capacity(len(payload) * 2)
+        for _ in range(100):
+            token = uuid4().hex
+            project = self.storage.project(campaign_id)
+            group = "Brand" if role == "logo" else "Products"
+            readable = asset_component(
+                label if isinstance(label, str) else "",
+                "Brand logo" if role == "logo" else "Product image",
+            )
+            name = f"{readable}-{token}.{'png' if kind == 'PNG' else 'jpg'}"
+            reference = project.ref(f"Assets/{group}/{name}")
+            # Commit ownership first. A crash can leave an owned missing file,
+            # but never a new successfully written anonymous attachment.
+            with self.storage.connect() as db:
+                if db.execute("SELECT 1 FROM uploads WHERE name=?", (name,)).fetchone():
+                    continue
+                project.claim(reference, db)
+                db.execute("INSERT INTO uploads(name,reference) VALUES (?,?)", (name, reference))
+            try:
+                self.storage.write_new(reference, payload)
+                break
+            except FileExistsError:
+                self._forget_upload_owner(reference, campaign_id)
+                continue
+            except BaseException as error:
+                # Publication can succeed before a directory-fsync error.
+                # Remove the file before forgetting ownership; if unlink also
+                # fails, retain its owner so campaign deletion can reclaim it.
+                self.storage.unlink(self.storage.path(reference), missing_ok=True)
+                self._forget_upload_owner(reference, campaign_id)
+                if isinstance(error, OSError):
+                    raise ActionError(
+                        "upload_write", "This image could not be saved. Try again.", 500
+                    ) from error
+                raise
+        else:
+            raise StorageError("A new upload identity could not be reserved. Try again.")
         return {
+            **details,
             "reference": reference,
-            "width": dimensions[0],
-            "height": dimensions[1],
-            "type": kind,
-            "opaque": opaque,
-            "url": f"/uploads/{PurePosixPath(reference).name}",
+            "url": f"/uploads/{quote(PurePosixPath(reference).name, safe='')}",
             **(
                 {
                     "provenance": {
@@ -210,6 +220,87 @@ class Intake:
             ),
         }
 
+    def add_product(self, workspace, campaign_id, version, base, product, payload):
+        """Add a photo and its new product in one request; failed saves release only this upload."""
+        from campaign_studio.authored import AuthoredProjects, AuthoredSave, attachment_paths
+        from campaign_studio.cleanup import require_campaign_available
+
+        value = copy.deepcopy(product)
+        source = value.get("source", {})
+        if (
+            not isinstance(source, dict)
+            or source.get("role") not in {"finished_scene", "prepared_product"}
+            or source.get("path")
+        ):
+            raise ActionError("product_image", "Select an image for this new product.", 422)
+        source["path"] = "new-product.png"
+        value = Product.model_validate(value).model_dump(mode="json")
+        self.validate_upload(payload, "product", source["role"])
+        projects = AuthoredProjects(workspace)
+        with self.storage.exclusive_run():
+            require_campaign_available(self.storage, campaign_id)
+            current = projects.read(campaign_id)
+            products = current["authored"]["brief"].get("products", [])
+            existing = next((p for p in products if p.get("id") == value["id"]), None)
+            if existing:
+                # A lost response may repeat Add. Return the saved result only
+                # when the current product and original bytes still match.
+                expected = copy.deepcopy(value)
+                reference = existing.get("source", {}).get("path")
+                expected["source"]["path"] = reference
+                if expected == Product.model_validate(existing).model_dump(mode="json"):
+                    self.storage.project(campaign_id).require(reference)
+                    if self.storage.path(reference).read_bytes() == payload:
+                        return current
+                raise ActionError(
+                    "authored_conflict",
+                    "This product has already been added. "
+                    "Refresh the page to see the latest changes.",
+                    409,
+                )
+            if version != current["version"] or base != current["base"]:
+                raise ActionError(
+                    "authored_conflict",
+                    "This campaign has been updated elsewhere. "
+                    "Refresh the page to see the latest changes.",
+                    409,
+                )
+            if len(products) >= 5:
+                raise ActionError("product_limit", "This workspace supports up to 5 products.", 422)
+            project = self.storage.project(campaign_id)
+            new_directories = [
+                self.storage.path(project.ref(part)) for part in ("Assets/Products", "Assets")
+            ]
+            new_directories = [path for path in new_directories if not path.exists()]
+            try:
+                uploaded = self._upload(
+                    payload, "", campaign_id, "product", value["name"], source["role"]
+                )
+                reference = uploaded["reference"]
+                value["source"]["path"] = reference
+                authored = copy.deepcopy(current["authored"])
+                authored["brief"].setdefault("products", []).append(value)
+                try:
+                    projects.save(
+                        campaign_id, AuthoredSave(version=version, base=base, authored=authored)
+                    )
+                except BaseException:
+                    # A response can fail after the save committed. Never delete
+                    # bytes now referenced by the current document.
+                    saved = projects.read(campaign_id)
+                    if reference not in set(attachment_paths(saved["authored"])):
+                        project.require(reference)
+                        self.storage.unlink(self.storage.path(reference), missing_ok=True)
+                        self._forget_upload_owner(reference, campaign_id)
+                    raise
+                return projects.read(campaign_id)
+            finally:
+                # Only remove directories created by this request, and only
+                # while empty. Existing folders and adopted files stay intact.
+                for directory in new_directories:
+                    with suppress(OSError):
+                        directory.rmdir()
+
     def _forget_upload_owner(self, reference, campaign_id):
         if campaign_id is not None:
             with self.storage.connect() as db:
@@ -219,7 +310,9 @@ class Intake:
                 )
 
     def uploaded_path(self, name):
-        if not re.fullmatch(r"[a-f0-9]{32}\.(png|jpg)", name):
+        from campaign_studio.projects import valid_upload_name
+
+        if not valid_upload_name(name):
             raise ActionError("upload", "This uploaded image is unavailable.", 404)
         with self.storage.connect() as db:
             row = db.execute("SELECT reference FROM uploads WHERE name=?", (name,)).fetchone()
@@ -241,14 +334,8 @@ class Intake:
         from campaign_studio.cleanup import require_campaign_available
 
         require_campaign_available(self.storage, campaign_id)
-        path = self.storage.path(self.storage.project(campaign_id).draft)
-        if not path.is_file():
-            return None
         try:
-            document = json.loads(path.read_bytes())
-            if document["value"]["campaign_id"] != campaign_id:
-                raise ValueError("Campaign identity does not match its saved document")
-            return document
+            return read_draft(self.storage, campaign_id)
         except ValueError, KeyError, TypeError:
             raise ActionError(
                 "campaign_data",
@@ -257,108 +344,9 @@ class Intake:
             ) from None
 
     def current_document(self, campaign_id, workspace):
-        document = self.read(campaign_id)
-        run = workspace.run_for(campaign_id)
-        if not document or not run:
-            return document
-        current = workspace.state.plan(run["id"]).brief.model_dump(mode="json")
-        if document.get("planned_run") == run["id"]:
-            # Even a first partial revision uses the snapshotted source references.
-            # Those path changes are not an unsaved producer edit.
-            document["value"] = current
-        elif (
-            workspace.state.effective_revision(run["id"]) and document.get("base_run") == run["id"]
-        ):
-            base_revision = document.get("base_revision")
-            if base_revision:
-                record = workspace.state.revision(base_revision)
-                baseline = workspace.state.revision_plan(record).brief.model_dump(mode="json")
-            else:
-                baseline = workspace.state.plan(run["id"], current=False).brief.model_dump(
-                    mode="json"
-                )
-            draft = document["value"]
-            for field in ("logo_path", "logo_provenance"):
-                if draft["brand"].get(field) == baseline["brand"].get(field):
-                    draft["brand"][field] = current["brand"].get(field)
-            for language, content in draft["markets"].items():
-                if language not in baseline["markets"] or language not in current["markets"]:
-                    continue
-                for field in ("message", "cta"):
-                    if content["copy"].get(field) == baseline["markets"][language]["copy"].get(
-                        field
-                    ):
-                        content["copy"][field] = current["markets"][language]["copy"].get(field)
-            before = {p["id"]: p for p in baseline["products"]}
-            after = {p["id"]: p for p in current["products"]}
-            for product in draft["products"]:
-                if (
-                    product["id"] in before
-                    and product["id"] in after
-                    and product.get("copy_overrides", {})
-                    == before[product["id"]].get("copy_overrides", {})
-                ):
-                    product["copy_overrides"] = after[product["id"]].get("copy_overrides", {})
-                if (
-                    product["id"] in before
-                    and product["id"] in after
-                    and product.get("framing", {}) == before[product["id"]].get("framing", {})
-                ):
-                    product["framing"] = after[product["id"]].get("framing", {})
-        output = workspace.state.current_output(campaign_id)
-        output_run = workspace.state.run(output[0]) if output else run
-        try:
-            manifest = workspace.manifest(output_run)
-        except OSError, json.JSONDecodeError:
-            # A damaged image record cannot authorize a logo-field replacement.
-            # Leave the draft readable for the existing local recovery path.
-            manifest = None
-        receipt = (manifest or {}).get("edit_receipt", {})
-        authored = document.get("authored")
-        if manifest and authored and authored.get("form_drafts", {}).get("brand_color_defaults"):
-            from campaign_studio.authored import AuthoredProjects
+        from campaign_studio.compositions import migrate_current
 
-            AuthoredProjects(workspace).reconcile_applied_fields(
-                document, authored, colors_only=True
-            )
-        if receipt.get("brand_update"):
-            from campaign_studio.brand_updates import reconcile_brand_update
-
-            accepted = workspace.state.plan(output_run["id"])
-            reconcile_brand_update(document, accepted.brief.brand, receipt)
-            if (
-                receipt["brand_update"]["version"] == document["version"]
-                and output_run["id"] == run["id"]
-            ):
-                from pydantic import ValidationError
-
-                from campaign_studio.authored import AuthoredProjects
-                from campaign_studio.planning import canonical_hash
-
-                raw = document.get("authored", {}).get("brief", document["value"])
-                try:
-                    matches = Brief.model_validate(raw) == accepted.brief
-                except ValidationError:
-                    matches = False
-                if matches:
-                    # Brand-only work is already represented by these images.
-                    # Any unrelated unfinished difference keeps its plan pending.
-                    document["planned_run"] = output_run["id"]
-                    document["planned_authored_hash"] = canonical_hash(raw)
-                    document["authored_base"] = AuthoredProjects(workspace).base(campaign_id)
-        if (
-            "replacement_draft_version" in receipt
-            and receipt["replacement_draft_version"] == document["version"]
-        ):
-            # Explicit campaign-wide replacement supersedes that same logo
-            # choice, including a pending Brief choice. A later authored Save
-            # has a different token and must keep its newer fields untouched.
-            brand = workspace.state.plan(output_run["id"]).brief.model_dump(mode="json")["brand"]
-            for field in ("logo_path", "logo_provenance"):
-                document["value"]["brand"][field] = copy.deepcopy(brand[field])
-                if isinstance(document.get("authored", {}).get("brief", {}).get("brand"), dict):
-                    document["authored"]["brief"]["brand"][field] = copy.deepcopy(brand[field])
-        return document
+        return migrate_current(workspace.state, campaign_id)
 
     def persist_applied_revision(self, campaign_id, workspace, *, only_superseded_colors=False):
         with self.storage.exclusive_draft():
@@ -388,26 +376,51 @@ class Intake:
             )
             if prior_targets == current_targets:
                 return
-        if current and current != previous:
-            previous_authored = previous.get("authored")
-            if (
-                previous_authored
-                and previous.get("planned_run")
-                and canonical_hash(previous_authored["brief"])
-                == previous.get("planned_authored_hash", canonical_hash(previous["value"]))
-            ):
-                # A confirmed local replacement changes the admitted logo, not
-                # its pinned generation request. Never admit an unrelated edit.
+        if not current:
+            return
+        from campaign_studio.authored import AuthoredProjects
+
+        projects = AuthoredProjects(workspace)
+        previous_authored = previous.get("authored")
+        admitted_before = False
+        if previous_authored and previous.get("planned_run"):
+            admitted = previous.get("planned_authored_hash", canonical_hash(previous["value"]))
+            before = copy.deepcopy(previous_authored["brief"])
+            # The read view already has current image settings. Reconstruct the
+            # prior comparison in memory when checking an existing plan admission.
+            base = previous.get("authored_base", {})
+            if base.get("revision_id"):
+                baseline = workspace.state.comparison_brief(campaign_id, base["revision_id"])
+                old = {product["id"]: product for product in baseline["products"]}
+                products = before.get("products", [])
+                for product in products if isinstance(products, list) else []:
+                    if isinstance(product, dict) and product.get("id") in old:
+                        product["framing"] = copy.deepcopy(old[product["id"]].get("framing", {}))
+            admitted_before = admitted in {
+                canonical_hash(previous_authored["brief"]),
+                canonical_hash(before),
+            }
+        if current.get("authored"):
+            projects.reconcile_applied_fields(current, current["authored"])
+            current["authored_base"] = projects.base(campaign_id)
+            if admitted_before and current.get("planned_run") == current["authored_base"]["run_id"]:
                 current["planned_authored_hash"] = canonical_hash(current["authored"]["brief"])
-            current["version"] = uuid4().hex
-            current["saved_at"] = timestamp()
-            run = workspace.run_for(campaign_id)
-            current["base_run"] = run["id"]
-            current["base_revision"] = workspace.state.effective_revision(run["id"])
-            self.storage.write(
-                self.storage.project(campaign_id).draft,
-                draft_bytes(current),
-            )
+        if current == previous:
+            from campaign_studio.campaign_drafts import strip_accepted_settings
+
+            strip_accepted_settings(self.storage, campaign_id)
+            return
+        current["version"] = uuid4().hex
+        current["saved_at"] = timestamp()
+        run = workspace.run_for(campaign_id)
+        current["base_run"] = run["id"]
+        current["base_revision"] = workspace.state.effective_revision(run["id"])
+        project = self.storage.project(campaign_id)
+        write_draft(self.storage, campaign_id, current)
+        from campaign_studio.output_files import sync_draft_comparisons
+
+        with self.storage.connect() as db:
+            sync_draft_comparisons(workspace.state, db, project, current)
 
     def write(self, campaign_id, value, expected, *, attachment_hints=None):
         with self.storage.exclusive_draft():
@@ -422,6 +435,8 @@ class Intake:
             raise ActionError("campaign_identity", "A campaign’s identity cannot be changed.", 422)
         result = {
             "value": value,
+            "authored": {"brief": copy.deepcopy(value)},
+            "composition_schema": 1,
             "version": uuid4().hex,
             "saved_at": timestamp(),
         }
@@ -436,19 +451,19 @@ class Intake:
                 files = []
                 if imported_bytes is not None:
                     files.append((project.ref("Brief/Imports/original.json"), imported_bytes))
-                files.append((project.draft, draft_bytes(result)))
                 for reference, _ in files:
                     project.claim(reference, db)
-            # Ownership is durable before the first byte. Publishing the draft last
-            # keeps a stopped import identifiable and deletable without executing it.
+            # The original import remains an owned source file. Publish the
+            # editable database record only after that input has been written.
             published = []
             try:
                 for reference, payload in files:
                     self.storage.write_new(reference, payload)
                     published.append(reference)
+                write_draft(self.storage, campaign_id, result, create=True)
             except BaseException:
                 for reference in published:
-                    self.storage.path(reference).unlink(missing_ok=True)
+                    self.storage.unlink(self.storage.path(reference), missing_ok=True)
                 with self.storage.connect() as db:
                     db.execute("DELETE FROM file_owners WHERE campaign_id=?", (campaign_id,))
                     db.execute("DELETE FROM campaigns WHERE id=?", (campaign_id,))
@@ -471,12 +486,14 @@ class Intake:
             raise ActionError("campaign_identity", "A campaign’s identity cannot be changed.", 422)
         if previous and previous["value"] == value:
             return previous
-        result = {"value": value, "version": uuid4().hex, "saved_at": timestamp()}
+        result = copy.deepcopy(previous) if previous else {}
+        result.update(value=value, version=uuid4().hex, saved_at=timestamp(), composition_schema=1)
         # Validated Brief writes must preserve independently saved unfinished
         # form work. The common project Save owns that envelope and its receipt.
         for key in ("authored", "authored_base", "authored_receipt"):
             if previous and key in previous:
                 result[key] = copy.deepcopy(previous[key])
+        result.setdefault("authored", {})["brief"] = copy.deepcopy(value)
         hints = (
             attachment_hints
             if attachment_hints is not None
@@ -484,13 +501,8 @@ class Intake:
         )
         if hints:
             result["attachment_hints"] = hints
-        project.claim(project.draft)
-        writer = self.storage.write if previous else self.storage.write_new
         try:
-            writer(
-                self.storage.project(campaign_id).draft,
-                draft_bytes(result),
-            )
+            write_draft(self.storage, campaign_id, result, create=previous is None)
         except FileExistsError as error:
             raise ActionError(
                 "stale_brief", "This campaign was saved in another window. Reopen it before saving."
@@ -705,10 +717,7 @@ class Intake:
         result = self._write(campaign_id, value, document.version)
         result["base_run"] = run["id"] if run else None
         result["base_revision"] = workspace.state.effective_revision(run["id"]) if run else None
-        self.storage.write(
-            self.storage.project(campaign_id).draft,
-            draft_bytes(result),
-        )
+        write_draft(self.storage, campaign_id, result)
         return result
 
     @staticmethod
@@ -816,149 +825,132 @@ class Intake:
         return hints
 
     def prepare(self, campaign_id, expected, workspace):
+        from campaign_studio.authored import AuthoredProjects
+        from campaign_studio.planning import canonical_hash
+
+        document = self.read(campaign_id)
+        receipt = (document or {}).get("production_receipt", {})
+        if (
+            receipt.get("request_version") == expected
+            and receipt.get("version") == document["version"]
+        ):
+            return workspace.state.plan(receipt["run_id"], current=False)
         from pydantic import ValidationError
 
-        from campaign_studio.planning import canonical_hash, make_plan
-        from campaign_studio.workspace import validation_messages
-
+        try:
+            current = workspace.current_composition(campaign_id, expected)
+        except ValidationError as error:
+            raise ActionError(
+                "brief_fields",
+                "Some campaign fields need attention before preparing sources.",
+                422,
+                field_errors=validation_issues(error),
+            ) from error
+        plan = current["plan"]
+        if plan.blocked:
+            raise ActionError(
+                "brief_images",
+                "Correct the listed campaign findings before preparing sources.",
+                422,
+                field_errors=list(
+                    {
+                        (tuple(field.path), field.code): field.model_dump(mode="json")
+                        for finding in plan.findings
+                        if finding.severity == "blocking" and finding.context
+                        for field in finding.context.fields
+                    }.values()
+                ),
+                proposal={
+                    "outputs": [o.model_dump(mode="json") for o in plan.outputs],
+                    "campaign_id": campaign_id,
+                    "version": expected,
+                    "findings": [
+                        f.model_dump(mode="json") for f in plan.findings if f.severity == "blocking"
+                    ],
+                },
+            )
+        # Supplied and previously generated sources are already editable. Reviewing
+        # their readiness does not create a run, copy files, or render images.
+        if not plan.generation_products:
+            return plan
         with self.storage.exclusive_run(), self.storage.exclusive_draft():
-            document = self.current_document(campaign_id, workspace)
+            document = self.read(campaign_id)
             if not document or document["version"] != expected:
-                raise ActionError("stale_brief", "Save the latest brief before reviewing its plan.")
-            # Validate the current authored input without publishing a new draft.
-            value = document["value"]
-            if "authored" in document:
-                from campaign_studio.authored import AuthoredProjects
+                raise ActionError(
+                    "stale_brief", "This campaign changed. Review its current source plan."
+                )
+            old = workspace.run_for(campaign_id)
+            frozen = None
+            if old and old["state"] == "planned":
+                existing = workspace.state.plan(old["id"], current=False)
+                if self.same_source_plan(existing, plan):
+                    frozen = existing
+            if frozen is None:
+                run_id = workspace.state.create(plan, len(plan.generation_products))
+                frozen = workspace.state.plan(run_id, current=False)
+            else:
+                run_id = old["id"]
+                # The current brief may have returned to an earlier plan after
+                # an edit was undone. Re-admit that reviewed version without
+                # creating another run or retaining its stale authored guard.
+                if document.get("planned_run") == run_id and document.get(
+                    "planned_authored_hash"
+                ) == canonical_hash(document["authored"]["brief"]):
+                    return frozen
+            authored = document["authored"]["brief"]
+            authored["brand"]["logo_path"] = frozen.brief.brand.logo_path
+            products = {p.id: p for p in frozen.brief.products}
+            for product in authored["products"]:
+                if products[product["id"]].source.role != "concept":
+                    product["source"]["path"] = products[product["id"]].source.path
+            if authored.get("replay") and frozen.brief.replay:
+                for pid, source in authored["replay"]["sources"].items():
+                    source["path"] = frozen.brief.replay.sources[pid].path
+            document["planned_run"] = run_id
+            document["planned_authored_hash"] = canonical_hash(authored)
+            document["authored_base"] = AuthoredProjects(workspace).base(campaign_id)
+            document["version"] = uuid4().hex
+            document["production_receipt"] = {
+                "request_version": expected,
+                "version": document["version"],
+                "run_id": run_id,
+            }
+            write_draft(self.storage, campaign_id, document)
+            return frozen
 
-                project = AuthoredProjects(workspace).read(campaign_id)
-                document["authored"] = project["authored"]
-                authored_hash = canonical_hash(document["authored"]["brief"])
-                if (
-                    document.get("planned_run")
-                    and document.get("planned_authored_hash") == authored_hash
-                    and all(
-                        document.get("authored_base", {}).get(field) == project["base"][field]
-                        for field in ("run_id", "revision_id")
-                    )
-                ):
-                    return workspace.state.plan(document["planned_run"])
-                try:
-                    Brief.model_validate(document["authored"]["brief"])
-                except ValidationError as error:
-                    raise ActionError(
-                        "brief_fields",
-                        "Check the brief: " + "; ".join(validation_messages(error)),
-                        422,
-                        field_errors=validation_issues(error),
-                    ) from error
-                run = workspace.run_for(campaign_id)
-                value = self._save(
-                    campaign_id,
-                    BriefDraft(
-                        value=document["authored"]["brief"],
-                        version=document["version"],
-                        base_revision=workspace.state.effective_revision(run["id"])
-                        if run
-                        else None,
-                    ),
-                    workspace,
-                    persist=False,
-                    preserve_ids=True,
-                )
-            if (
-                "authored" not in document
-                and document.get("planned_run")
-                and value == document["value"]
-            ):
-                return workspace.state.plan(document["planned_run"])
-            try:
-                brief = Brief.model_validate(value)
-            except ValidationError as error:
-                raise ActionError(
-                    "brief_fields",
-                    "Check the brief: " + "; ".join(validation_messages(error)),
-                    422,
-                    field_errors=validation_issues(error),
-                ) from error
-            old_run = workspace.run_for(campaign_id)
-            previous_logo = (
-                workspace.state.plan(old_run["id"]).brief.brand.logo_path if old_run else None
-            )
-            brief, fitted = self.fit_replacement_logo(brief, previous_logo)
-            plan = make_plan(brief, self.storage)
-            if old_run and plan.generation_products:
-                plan = self.reuse_unchanged(plan, old_run, workspace)
-            if plan.blocked:
-                reasons = list(
-                    dict.fromkeys(f.evidence for f in plan.findings if f.severity == "blocking")
-                )
-                raise ActionError(
-                    "brief_images",
-                    "Check the images or wording: " + " ".join(reasons),
-                    422,
-                    field_errors=list(
-                        {
-                            (tuple(field.path), field.code): field.model_dump()
-                            for finding in plan.findings
-                            if finding.severity == "blocking" and finding.context
-                            for field in finding.context.fields
-                        }.values()
-                    ),
-                    proposal={
-                        "campaign_id": campaign_id,
-                        "version": document["version"],
-                        "outputs": [
-                            {
-                                "id": output.id,
-                                "product_id": output.product_id,
-                                "market": output.market,
-                                "ratio": output.ratio,
-                            }
-                            for output in plan.outputs
-                        ],
-                        "findings": [
-                            finding.model_dump(mode="json")
-                            for finding in plan.findings
-                            if finding.severity == "blocking"
-                        ],
+    @staticmethod
+    def same_source_plan(first, second):
+        """Frozen input copies keep the same meaning when their verified bytes match."""
+        from campaign_studio.planning import canonical_hash
+
+        def identity(plan):
+            brief = plan.brief.model_dump(mode="json")
+            assets = plan.assets
+            if "logo" in assets:
+                brief["brand"]["logo_path"] = assets["logo"].sha256
+            for product in brief["products"]:
+                asset = assets.get(f"products/{product['id']}")
+                if asset and "path" in product["source"]:
+                    product["source"]["path"] = asset.sha256
+            for pid, source in (brief.get("replay") or {}).get("sources", {}).items():
+                asset = assets.get(f"masters/{pid}")
+                if asset:
+                    source["path"] = asset.sha256
+            return canonical_hash(
+                {
+                    "brief": brief,
+                    "assets": {
+                        key: asset.model_dump(exclude={"reference"})
+                        for key, asset in assets.items()
                     },
-                )
-            # Reserve ownership and create the run's immutable input snapshot first.
-            document["planned_run"] = workspace.state.create(plan, len(plan.generation_products))
-            # Store the run's actual input snapshot references, so reads before
-            # its first completed revision agree with reads after production.
-            plan = workspace.state.plan(document["planned_run"])
-            document["value"] = plan.brief.model_dump(mode="json")
-            if "authored" in document:
-                # Planning snapshots attachments into this run. Update only
-                # those owned references; raw fields and pending edits stay exact.
-                authored = document["authored"]["brief"]
-                authored["brand"]["logo_path"] = plan.brief.brand.logo_path
-                if authored.get("replay") is not None and plan.brief.replay is not None:
-                    # Explicit saved masters are snapshotted just like supplied
-                    # images. Keep their verified path and authored provenance
-                    # together, without introducing automatic replay metadata.
-                    for product_id, source in authored["replay"]["sources"].items():
-                        if product_id in plan.brief.replay.sources:
-                            source["path"] = plan.brief.replay.sources[product_id].path
-                snapshots = {p.id: p for p in plan.brief.products}
-                for product in authored["products"]:
-                    source = snapshots[product["id"]].source
-                    if source.role != "concept":
-                        product["source"]["path"] = source.path
-                    for item in fitted:
-                        if item["product_id"] == product["id"]:
-                            product["framing"][item["market"]][item["ratio"]]["logo_placement"] = (
-                                item["placement"]
-                            )
-                document["authored_base"] = AuthoredProjects(workspace).base(campaign_id)
-                document["planned_authored_hash"] = canonical_hash(document["authored"]["brief"])
-            # Publish matching draft pointers only after preparation succeeds.
-            self.storage.write(
-                self.storage.project(campaign_id).draft,
-                draft_bytes(document),
+                    "generation_requests": {
+                        key: request.model_dump()
+                        for key, request in plan.generation_requests.items()
+                    },
+                }
             )
-        return plan
+
+        return identity(first) == identity(second)
 
     def fit_replacement_logo(self, brief, previous_reference):
         """A changed Brief attachment uses the same proportional fit as Studio."""
@@ -1002,144 +994,15 @@ class Intake:
 
     def recheck_rules(self, campaign_id, document, run_id, workspace):
         """Recheck only supplied rules against intact current images, under one write lock."""
-        from pydantic import ValidationError
-
-        from campaign_studio.planning import canonical_hash, compare_plans, make_plan
-        from campaign_studio.rendering import render_revision
-
-        with self.storage.exclusive_run():
-            run = workspace.run_for(campaign_id, run_id)
-            if not run or not run["current_revision"]:
-                raise ActionError(
-                    "recheck", "Create a complete image version before rechecking rules."
-                )
-            if run["current_revision"] != document.base_revision:
-                raise ActionError(
-                    "stale_brief", "The images changed. Reopen this brief before rechecking."
-                )
-            previous = self.current_document(campaign_id, workspace)
-            if document.version != (previous["version"] if previous else None):
-                raise ActionError(
-                    "stale_brief", "This brief changed in another tab. Reopen it before rechecking."
-                )
-            old = workspace.state.plan(run_id)
-            value = copy.deepcopy(document.value)
-            prior = old.brief.model_dump(mode="json")
-            automatic_replay = False
-            if value.get("replay") is None and self._automatic_replay(
-                prior, previous, run, workspace
-            ):
-                value["replay"] = prior["replay"]
-                automatic_replay = True
-            languages = value.get("markets")
-            for language in languages.values() if isinstance(languages, dict) else []:
-                if isinstance(language, dict):
-                    rules = language.get("phrase_rules")
-                    for rule in rules if isinstance(rules, list) else []:
-                        if isinstance(rule, dict) and not rule.get("id"):
-                            rule["id"] = f"rule-{uuid4().hex}"
-            try:
-                brief = Brief.model_validate(value)
-            except ValidationError as error:
-                raise ActionError(
-                    "brief_fields",
-                    "Check the rule and required wording fields. Your draft is unchanged.",
-                    422,
-                    field_errors=validation_issues(error),
-                ) from error
-            candidate = brief.model_dump(mode="json")
-            for language in candidate["markets"]:
-                if language in prior["markets"]:
-                    for field in ("phrase_rules",):
-                        candidate["markets"][language][field] = prior["markets"][language][field]
-            if candidate != prior:
-                raise ActionError(
-                    "rule_changes_only",
-                    "Recheck applies only rule changes. Your wording, product, or brand edits "
-                    "are still here; save and review their production plan first.",
-                )
-            # Rules reuse the existing photographs and their original requests,
-            # but every attached file is read again to detect changes on disk.
-            new = make_plan(brief, self.storage, retained_requests=old.generation_requests)
-            impact = compare_plans(old, new)
-            if impact.render_outputs or new.assets != old.assets:
-                raise ActionError(
-                    "recheck", "A source changed. Restore it before rechecking rules."
-                )
-            if not impact.recheck_outputs:
-                raise ActionError("recheck", "No rule changes to recheck.")
-            manifest = render_revision(
-                workspace.state,
-                run_id,
-                new,
-                reuse_revision=document.base_revision,
-                rule_recheck=True,
-            )
-            # Authored work may be saved during rendering. Preserve that latest
-            # envelope; the runner lock still excludes another canonical apply.
-            with self.storage.exclusive_draft():
-                latest = self.read(campaign_id)
-                result = self._write(
-                    campaign_id,
-                    new.brief.model_dump(mode="json"),
-                    latest["version"] if latest else None,
-                )
-                result["base_run"] = run_id
-                result["base_revision"] = workspace.state.run(run_id)["current_revision"]
-                result["planned_run"] = run_id
-                if result.get("authored"):
-                    from campaign_studio.authored import AuthoredProjects
-
-                    AuthoredProjects(workspace).reconcile_applied_fields(result, result["authored"])
-                    captured = (
-                        (previous or {}).get("authored", {}).get("brief", {}).get("markets", {})
-                    )
-                    latest_markets = (
-                        (latest or {}).get("authored", {}).get("brief", {}).get("markets", {})
-                    )
-                    # This command explicitly applies changed rule fields. Its
-                    # acknowledgement must advance unchanged saved intent, while
-                    # a newer rule edit made during local work remains pending.
-                    for market, content in new.brief.markets.items():
-                        if content.phrase_rules == old.brief.markets[market].phrase_rules:
-                            continue
-                        before = captured.get(market)
-                        current = latest_markets.get(market)
-                        if not isinstance(before, dict) or not isinstance(current, dict):
-                            continue
-                        target = result["authored"]["brief"]["markets"][market]
-                        if current.get("phrase_rules") == before.get("phrase_rules"):
-                            target["phrase_rules"] = [
-                                r.model_dump(mode="json") for r in content.phrase_rules or []
-                            ]
-                        elif "phrase_rules" in current:
-                            target["phrase_rules"] = copy.deepcopy(current["phrase_rules"])
-                        else:
-                            target.pop("phrase_rules", None)
-                # The same imagery plan remains admitted under its new rules.
-                # Distinct authored edits retain a different fingerprint and stay pending.
-                result["planned_authored_hash"] = canonical_hash(new.brief.model_dump(mode="json"))
-                if automatic_replay and result.get("authored"):
-                    raw = result["authored"]["brief"]
-                    admitted = new.brief.model_dump(mode="json")
-                    admitted["replay"] = None
-                    try:
-                        matches = Brief.model_validate(raw).model_dump(mode="json") == admitted
-                    except ValidationError:
-                        matches = False
-                    if matches:
-                        # Keep the admitted producer representation, not the
-                        # internal reuse receipt, as the existing dispatch guard.
-                        result["planned_authored_hash"] = canonical_hash(raw)
-                self.storage.write(
-                    self.storage.project(campaign_id).draft,
-                    draft_bytes(result),
-                )
-            return manifest
+        raise ActionError(
+            "autosave",
+            "Phrase rules save automatically. Refresh the current campaign preview.",
+            410,
+        )
 
     def _automatic_replay(self, prior, document, run, workspace):
         """Recognize omitted local reuse bookkeeping, not an edited source mapping."""
-        from campaign_studio.generation import request_for
+        from campaign_studio.plan_storage import generation_inputs
 
         replay = prior.get("replay")
         if (
@@ -1164,17 +1027,11 @@ class Intake:
                 if product_id not in remaining or attempt["state"] != "decoded":
                     continue
                 master = replay["sources"][product_id]
-                source_plan = workspace.state.plan(source_run["id"], current=False)
-                request = source_plan.generation_requests.get(product_id)
-                source_product = next(
-                    (product for product in source_plan.brief.products if product.id == product_id),
-                    None,
-                )
+                source = workspace.state.source_generation(source_run["id"]).get(product_id)
+                request = source["request"] if source else None
                 if (
                     request is not None
-                    and source_product is not None
-                    and request_for(source_plan.brief, source_product)
-                    == request_for(brief, products[product_id])
+                    and source["inputs"] == generation_inputs(brief, products[product_id])
                     and request.model == master["model"]
                     and attempt["source_sha256"] == master["sha256"]
                     and attempt["created_at"][:10] == master["generated_on"]

@@ -7,10 +7,15 @@ MASTER_RECEIPT_BYTES = 64_000_000
 DOCUMENT_BYTES = 1_000_000
 
 
-def revision_bytes(plan) -> int:
+def revision_bytes(plan, output_ids=None) -> int:
     # PNG can be larger than raw pixels. Include filter rows, chunk/deflate
     # overhead, and the largest file's temporary atomic-write footprint.
-    sizes = [int((o.width * o.height * 4 + o.height) * 1.01) + 65_536 for o in plan.outputs]
+    selected = None if output_ids is None else set(output_ids)
+    sizes = [
+        int((o.width * o.height * 4 + o.height) * 1.01) + 65_536
+        for o in plan.outputs
+        if selected is None or o.id in selected
+    ]
     return sum(sizes) + max(sizes, default=0) + DOCUMENT_BYTES
 
 

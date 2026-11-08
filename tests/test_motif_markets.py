@@ -8,7 +8,6 @@ from zipfile import ZipFile
 import pytest
 from campaign_fixtures import authored_edit, zip_root
 from fastapi.testclient import TestClient
-from test_web_workflow import wait_for_work
 
 from campaign_studio.app import create_app
 from campaign_studio.config import Settings
@@ -59,26 +58,15 @@ def test_selected_languages_import_save_produce_correct_export_and_reopen(tmp_pa
         saved = client.post(base + "/authored", json=action)
         assert saved.status_code == 200, saved.text
         assert client.get(base).json()["project"]["authored"]["brief"] == draft
-        planned = client.post(base + "/plan", json={"version": saved.json()["version"]})
-        assert planned.status_code == 200, planned.text
-        plan = planned.json()
         expected = 2 * len(markets) * 3
-        assert plan["plan"]["outputs"] == expected
-        assert plan["plan"]["generation_products"] == []
-        started = client.post(
-            f"/api/campaigns/{campaign}/start",
-            json={"run_id": plan["run"]["id"], "digest": plan["plan"]["digest"], "allowance": 0},
-        )
-        assert started.status_code == 202, started.text
-        status = wait_for_work(client, campaign)
-        assert status["state"] == "complete" and status["completed"] == expected
         before = client.get(base).json()
-        before_hashes = {item["id"]: item["sha256"] for item in before["manifest"]["outputs"]}
+        assert before["manifest"]["complete"] and before["can_edit"]
+        assert before["run"] is None
+        assert before["manifest"]["preview_only"]
         market = markets[-1]
         edit = {
             "ratio": "1:1",
-            "run_id": plan["run"]["id"],
-            "revision_id": before["manifest"]["revision_id"],
+            "revision_id": before["version"],
             "market": market,
             "product_id": before["output_brief"]["products"][0]["id"],
             "field_scopes": {"message": "all_products", "cta": "all_products"},
@@ -89,36 +77,34 @@ def test_selected_languages_import_save_produce_correct_export_and_reopen(tmp_pa
         assert preview.status_code == 200 and not preview.json()["blocked"], preview.text
         assert len(preview.json()["impact"]["render_outputs"]) == 6
         assert preview.json()["impact"]["generation_products"] == []
-        applied = client.post(
-            f"/api/campaigns/{campaign}/text/apply",
-            json=edit | {"preview_digest": preview.json()["digest"]},
-        )
-        assert applied.status_code == 200 and applied.json()["complete"], applied.text
+        saved = client.post(f"/api/campaigns/{campaign}/text/save", json=edit)
+        assert saved.status_code == 200, saved.text
         after = client.get(base).json()
         outputs = after["manifest"]["outputs"]
         assert len(outputs) == expected and {item["market"] for item in outputs} == set(markets)
-        assert sum(item["sha256"] != before_hashes[item["id"]] for item in outputs) == 6
-        assert all(
-            item["sha256"] == before_hashes[item["id"]]
-            for item in outputs
-            if item["market"] != market
-        )
-        target = (
-            f"/api/campaigns/{campaign}/runs/{plan['run']['id']}"
-            f"/revisions/{after['manifest']['revision_id']}"
-        )
+        for output in outputs:
+            if output["market"] == market:
+                assert output["copy"]["message"] == edit["values"]["message"]
+            else:
+                previous = next(o for o in before["manifest"]["outputs"] if o["id"] == output["id"])
+                assert output["copy"] == previous["copy"]
         package = client.post(
-            target + "/zip",
-            json={"snapshot_id": after["metadata"]["snapshot_id"], "allow_partial": False},
+            f"/api/campaigns/{campaign}/delivery/zip", json={"version": after["version"]}
         )
         assert package.status_code == 200, package.text
-        downloaded = client.get(package.json()["url"])
-        assert downloaded.status_code == 200
-        with ZipFile(io.BytesIO(downloaded.content)) as archive:
+        with ZipFile(io.BytesIO(package.content)) as archive:
             assert sum(name.endswith(".png") for name in archive.namelist()) == expected
+            assert archive.testzip() is None
             report = json.loads(archive.read(f"{zip_root(archive)}/manifest.json"))
             assert {item["market"] for item in report["outputs"]} == set(markets)
-        assert ws.state.attempts(plan["run"]["id"]) == []
+            assert {o["id"]: o["copy"] for o in report["outputs"]} == {
+                o["id"]: o["copy"] for o in outputs
+            }
+        with ws.storage.connect() as db:
+            assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+            assert db.execute("SELECT COUNT(*) FROM revisions").fetchone()[0] == 0
+        assert not list(ws.storage.root.glob("Campaigns/*/Outputs"))
+        assert not list(ws.storage.root.glob("Campaigns/*/Exports"))
 
     # Reopen through a fresh application owner, with no in-memory draft or plan.
     with TestClient(application(), base_url="http://127.0.0.1") as client:
@@ -126,7 +112,8 @@ def test_selected_languages_import_save_produce_correct_export_and_reopen(tmp_pa
         assert set(reopened["value"]["markets"]) == set(markets)
         assert reopened["value"]["audience"] == "Saved selected-language audience"
         assert reopened["manifest"]["revision_id"] == after["manifest"]["revision_id"]
-        assert reopened["manifest"]["metrics"]["completed_images"] == expected
+        assert len(reopened["manifest"]["outputs"]) == expected
+        assert reopened["manifest"]["preview_only"]
 
 
 def test_invalid_selected_languages_preserve_drafts_and_five_product_limit(tmp_path):

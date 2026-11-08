@@ -1,3 +1,17 @@
+# Motif v0.3.0 – Autosave and simpler delivery
+
+Campaign and Studio now save changes as you work, and Motif creates the finished campaign images when you download them.
+
+- **Save as you work.** Campaign and Studio autosave into the same current editing instructions. Text, logo, color, and crop changes no longer require Apply or Update Images.
+- **Create finished files at download.** Handoff previews the saved campaign. Download ZIP creates its finished PNGs once, checks them, and sends the package to the browser with progress messages.
+- **Keep one current campaign.** Edits do not create campaign-version folders, retained finished PNG sets, or edit-history rows. Source imagery stays available for further editing.
+- **Clearer image preparation.** Missing images have direct choices to select a photo or generate one. Production keeps progress and the next action together, including resuming after a key update. Uploaded scene guidance explains the background requirement.
+- **Simpler local storage.** SQLite holds the current campaign and editing settings. Original imports, photos, logos, and provider source files stay in their campaign folder. New attachments use readable product or brand names with hyphens and unique identifiers. Working JSON mirrors and retained export archives are no longer created.
+
+The supported upgrade preserves sources, editing choices, original imports, producer-added files, and existing exported packages. It retires verified obsolete working PNGs after the new current instructions are committed. Back up the complete Workspace with Motif stopped before upgrading. See [verification](verification.md) for the checked workflows and installation methods.
+
+The following v0.2.0 notes are preserved as the historical release description.
+
 # Motif v0.2.0 – Windows support and workflow refinements
 
 This release brings Motif to Windows and makes the local workspace easier to navigate, with a single installation folder and refinements across campaign setup, editing, and handoff.

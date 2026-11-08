@@ -1,6 +1,6 @@
 # Verification
 
-Motif is checked through deterministic service tests, controller tests, actual browser actions, clean installations, and exported-file inspection.
+Motif 0.3.0 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
 
 ## Repeatable local checks
 
@@ -22,9 +22,26 @@ The check commands use separate ordinary campaign records and require no provide
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
 
-## Version 0.2.0 verification
+## Version 0.3.0 check coverage
 
-Release preparation includes fresh ZIP installations, independent GPT and Claude Code reviews, browser journeys, service tests, and inspection of the actual exported files. Broad application checks were followed by focused checks for subsequent changes. Historical test totals are not presented as a new full-suite result for every packaging revision; GitHub Actions records the complete suite results for each published commit.
+Automated checks, independent browser journeys, and release-package checks cover the following behavior. Release evidence records the exact source and ZIP checksums, installed dependency versions, and files inspected.
+
+| Area | Checks |
+| --- | --- |
+| Current editing instructions | Campaign and Studio share the current SQLite document. Tests cover inherited color and wording, deliberate individual overrides, refresh persistence, stale saves, lost-response acknowledgements, and repeated editing without accumulated revision rows or campaign folders. |
+| Production decisions and activity | Actual browser brief import preserves the selected source-generation choice. Changing that choice updates the product card and survives refresh. A controlled 12-second request showed an advancing elapsed timer and ongoing activity while the completed-image count stayed accurate. The Production sidebar fit within a 1280 × 800 viewport. |
+| Uploads and credentials | New-product images are validated before storage and remain browser-held until Add. Tests cover rejected transparent images, cancelled forms, failed saves, and retry after a lost response. Local API-key removal preserves other configuration, rejects unauthorized requests, and leaves generation under explicit user control. |
+| Preview continuity | Browser probes cover immediate default-color feedback, preserved individual colors, logo replacement, and tool switching after edits. Delayed-image tests cross an autosave boundary and rapidly change targets; the current display stays visible, and an obsolete response cannot replace the selected image. |
+| Delivery | Tests cover capturing one saved campaign, independently rendering and checking each image, retaining successful renders when others fail, retrying only failures, offline relative image links, ZIP integrity, and cleanup of temporary files. Source edits and local exports do not make provider requests. |
+| Storage | Tests inspect database and campaign-folder counts after repeated saves. Startup does not create an unused smoke folder and removes only an empty legacy placeholder; existing check results remain. |
+| Fresh installation | Release checks compare the ZIP inventory and checksums with its source, extract into a fresh Motif folder, follow both README installation methods, and exercise browser editing, download, offline HTML, and restart on macOS and native Windows. |
+
+Provider failure and timing checks use controlled transport and test credentials. A successful local preview or source test is not substituted for inspection of the downloaded PNGs and offline report.
+
+## Version 0.2.0 verification – historical
+
+
+The v0.2.0 release preparation included fresh ZIP installations, independent GPT and Claude Code reviews, browser journeys, service tests, and inspection of the actual exported files. Broad application checks were followed by focused checks for subsequent changes. Historical test totals are not presented as a new full-suite result for every packaging revision; GitHub Actions records the complete suite results for each published commit.
 
 | Area | Checks performed |
 | --- | --- |
@@ -33,18 +50,18 @@ Release preparation includes fresh ZIP installations, independent GPT and Claude
 | Campaign ownership and deletion | Tests and actual application journeys checked separate campaign copies, registered file ownership, original-import preservation, deletion, interrupted cleanup, and database integrity. Unregistered user files and externally saved exports were preserved. Windows file-in-use refusal and completion after releasing the file handle were checked on Windows. |
 | Studio and Brand | Browser checks exercised text, logo, and framing edits, all three formats, Apply/Cancel, navigation, stale tabs, and failed responses. Brand checks covered Update Images, the three leave choices, inherited and custom colors, logo addition/replacement/removal, and exported results with no new provider attempt. |
 | Layout and input | Desktop checks included 1440 × 900 and 1366 × 768 viewports, the brand/campaign header, text limits, inside-field overage counts, preview controls, and export navigation. These are bounded desktop checks, not universal accessibility or device certification. |
-| Delivery and restart | Downloaded PNGs, ZIPs, folder exports, and offline HTML reports were inspected. PNG bytes, decoded pixels, dimensions, and manifest hashes were compared with accepted images; moved reports retained their relative image links. Restart checks compared persisted campaign records and files. |
+| Delivery and restart | Checks covered downloaded PNGs and ZIPs, report previews, and the offline HTML opened after extracting a ZIP. PNG bytes, decoded pixels, dimensions, and manifest hashes were compared with accepted images; moved reports retained their relative image links. Restart checks compared persisted campaign records and files. |
 | Native Windows behavior | Windows Server 2025 and Edge were used for real installation, browser editing, export, restart, and deletion checks. Platform tests exercised native locking, current-user credential encryption, long paths, junction refusal, and held-open files. This is native Windows execution, not Linux simulation; Windows 11 desktop and every native file-picker interaction were not separately certified. |
 
 The macOS browser evidence includes Chromium and WebKit. WebKit automation is distinguished from hands-on Safari use. Controlled network failures and test credentials are identified separately from live generation; browser tests do not silently make paid requests.
 
-To build the portable source ZIP from a Motif Git checkout, run `python scripts/package_source.py ../motif-campaign-studio.zip`. Supply a new destination. The packager includes tracked distribution files under one `Motif/` root and refuses runtime workspaces, installed environments, and credential files.
+To build the portable source ZIP from a Motif Git checkout, run `python scripts/package_source.py ../motif-campaign-studio.zip`. Supply a new destination. The packager includes Git-tracked distribution files under one `Motif/` root and refuses runtime workspaces, installed environments, and credential files. New source files must be included in the distribution inventory before packaging. Verify the resulting ZIP against its intended source and follow the README installation instructions in a fresh extraction; a successful source test run does not establish that a later ZIP contains those same files.
 
-## Genuine generation and examples
+## Genuine generation and examples – historical evidence
 
-The supplied seasonal imagery was prepared outside Motif. Fresh-workspace setup installs Autumn Winds’ packaged final PNGs with their editable inputs and leaves Bridle & Bough’s missing image planned but unconfirmed. Both included starting campaigns have zero application attempts. Later edits and deliberate local production use the ordinary renderer.
+The supplied seasonal imagery was prepared outside Motif. In v0.2.0, fresh-workspace setup installed Autumn Winds’ packaged final PNGs with their editable inputs and left Bridle & Bough’s missing image planned but unconfirmed. Both included starting campaigns had zero application attempts. Later edits and deliberate local production used the ordinary renderer. The current workflow instead installs the editable inputs and source imagery, then creates final PNGs when they are requested for download.
 
-A separate explicitly authorized Bridle review made one successful application request. One generated source plus two reused scenes produced 18 final PNGs. Recorded usage supports an estimated AI cost of $0.09943. The shipped Bridle starting state is not replaced by that completed review campaign.
+During v0.2.0 preparation, a separate explicitly authorized Bridle review made one successful application request. One generated source plus two reused scenes produced 18 final PNGs. Recorded usage supports an estimated AI cost of $0.09943. The shipped Bridle starting state is not replaced by that completed review campaign.
 
 Separate live framing checks generated one bells, one toboggan, and one blanket source using the configured 1920-square settings. The resulting centered Story and Landscape crops retained the main products, with tight margins on some small details. These three examples support the prompt adjustment; they do not guarantee every generated product will fit without human reframing.
 

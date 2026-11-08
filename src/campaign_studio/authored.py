@@ -1,7 +1,7 @@
 """Lossless current project work, separate from validated execution inputs.
 
 Manual Save and autosave use this same compare-and-write operation. The current
-draft file holds one authored envelope and one last acknowledgement, not history.
+database record holds one authored envelope and one last acknowledgement, not history.
 """
 
 import copy
@@ -11,7 +11,8 @@ from uuid import uuid4
 from pydantic import Field
 
 from campaign_studio.brief import Contract
-from campaign_studio.intake import Intake, draft_bytes
+from campaign_studio.campaign_drafts import write as write_draft
+from campaign_studio.intake import Intake
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import timestamp
 from campaign_studio.text_limits import authored_length_issues
@@ -63,18 +64,10 @@ class AuthoredProjects:
 
     def base(self, campaign_id):
         run = self.workspace.run_for(campaign_id)
-        output = self.workspace.state.current_output(campaign_id)
-        if output:
-            run = self.workspace.state.run(output[0])
-        revision = output[1] if output else None
         return {
             "run_id": run["id"] if run else None,
-            "revision_id": revision,
-            "metadata_snapshot_id": (
-                self.workspace.state.metadata_snapshot(revision)["snapshot_id"]
-                if revision
-                else None
-            ),
+            "revision_id": None,
+            "metadata_snapshot_id": None,
         }
 
     def document(self, campaign_id):
@@ -123,10 +116,10 @@ class AuthoredProjects:
         if not document or "authored" not in document:
             return None
         revision = self.workspace.state.revision(revision_id)
-        manifest = json.loads(self.storage.path(revision["manifest_ref"]).read_bytes())
+        manifest = self.workspace.state.revision_manifest(revision)
         prior = manifest.get("edit_receipt", {}).get("authored_base", {})
-        # Several Applies can precede the next Save. Keep their first comparison
-        # revision only while the exact authored document remains unchanged.
+        # If acknowledgement was interrupted, retain that Apply's comparison
+        # only while the exact current campaign document remains unchanged.
         if prior and prior.get("version") == document["version"]:
             return prior
         return {"version": document["version"], "revision_id": revision_id}
@@ -137,42 +130,11 @@ class AuthoredProjects:
         Matching raw Brief controls follow the applied copy; distinct unfinished
         values stay exact. The recorded authored base is the comparison boundary.
         """
-        base = document.get("authored_base", {})
-        if not base.get("run_id"):
-            return
-        current = self.base(authored["brief"]["campaign_id"])
-        if (base.get("run_id"), base.get("revision_id")) == (
-            current["run_id"],
-            current["revision_id"],
-        ):
-            # No image Apply occurred. Preserve the raw authored representation,
-            # including numbers the browser serializes without a decimal point.
-            return
-        applied = {}
-        if current["revision_id"]:
-            record = self.workspace.state.revision(current["revision_id"])
-            manifest = json.loads(self.storage.path(record["manifest_ref"]).read_bytes())
-            applied = manifest.get("edit_receipt", {}).get("authored_base", {})
-        if applied and applied.get("version") == document["version"]:
-            # Explicit Apply compares against the image that was actually edited,
-            # even when Save still names an earlier run or a newer unstarted plan.
-            base = {"run_id": current["run_id"], "revision_id": applied["revision_id"]}
-        elif not base.get("revision_id") and base["run_id"] != current["run_id"]:
-            # Merely viewing older results must not overwrite a newer plan's draft.
-            return
-        if base.get("revision_id"):
-            record = self.workspace.state.revision(base["revision_id"])
-            before = self.workspace.state.revision_plan(record).brief.model_dump(mode="json")
-        else:
-            before = self.workspace.state.plan(base["run_id"], current=False).brief.model_dump(
-                mode="json"
-            )
-        after = self.workspace.state.plan(current["run_id"]).brief.model_dump(mode="json")
-        superseded = set()
-        if applied and applied.get("version") == document["version"]:
-            superseded = self.reconcile_color_defaults(authored, before, after)
-        if colors_only:
-            return superseded
+        return
+
+    @staticmethod
+    def reconcile_brief_fields(authored, before, after):
+        """Merge accepted fields only where the producer has not changed the raw value."""
         draft = authored["brief"]
         brand = draft.get("brand")
         if isinstance(brand, dict):
@@ -342,40 +304,42 @@ class AuthoredProjects:
         # read() already exposes these server-reconciled saved references. A prior
         # interrupted plan must not make the application's own response unsaveable.
         allowed.update(r for r in attachment_paths(reconciled) if isinstance(r, str))
-        for product in authored.get("brief", {}).get("products", []):
-            if isinstance(product, dict) and isinstance(product.get("id"), str):
-                photo = self.workspace.retained_product_source(campaign_id, product["id"])
-                if photo:
-                    allowed.add(photo["path"])
-        requested = {r for r in attachment_paths(authored) if isinstance(r, str)}
+
+        def replay_paths(value):
+            replay = value.get("brief", {}).get("replay")
+            if isinstance(replay, dict) and isinstance(replay.get("sources"), dict):
+                return [
+                    master.get("path")
+                    for master in replay["sources"].values()
+                    if isinstance(master, dict)
+                ]
+            return []
+
+        for value in ({"brief": previous["value"]}, previous.get("authored", {}), reconciled):
+            allowed.update(ref for ref in replay_paths(value) if isinstance(ref, str))
+        selections = [*attachment_paths(authored), *replay_paths(authored)]
+        if any(ref is not None and not isinstance(ref, str) for ref in selections):
+            raise ActionError(
+                "authored_attachment", "Choose an image with this campaign’s file picker.", 422
+            )
+        requested = {ref for ref in selections if isinstance(ref, str)}
         project = self.storage.project(campaign_id)
-        replay = authored["brief"].get("replay")
-        if isinstance(replay, dict) and isinstance(replay.get("sources"), dict):
-            for master in replay["sources"].values():
-                if (
-                    isinstance(master, dict)
-                    and isinstance(master.get("path"), str)
-                    and master["path"].casefold().startswith("campaigns/")
-                ):
-                    try:
-                        project.require(master["path"])
-                    except ValueError as error:
-                        raise ActionError(
-                            "authored_attachment", "Choose saved imagery from this campaign.", 422
-                        ) from error
         for reference in requested:
-            if not reference.casefold().startswith("campaigns/"):
-                continue
+            if not reference:
+                continue  # Unfinished/imported fields have no selected attachment yet.
             try:
+                # Every nonempty path is a file selection, never a display hint.
+                # Validate before saving or planning retirement of the old image.
                 project.require(reference)
                 if reference not in allowed and any(
                     part in reference for part in ("/Assets/Products/", "/Assets/Brand/")
                 ):
                     self.intake.uploaded_path(project.upload_name(reference))
-                elif reference not in allowed and not reference.lower().endswith(
-                    (".png", ".jpg", ".jpeg")
+                elif reference not in allowed and (
+                    not reference.lower().endswith((".png", ".jpg", ".jpeg"))
+                    or not self.storage.path(reference).is_file()
                 ):
-                    raise ValueError("Choose an image.")
+                    raise ValueError("Choose an available image.")
             except ValueError as error:
                 raise ActionError(
                     "authored_attachment",
@@ -384,11 +348,22 @@ class AuthoredProjects:
                 ) from error
 
     def save(self, campaign_id, action):
+        acknowledgement, cleanup_id = self._save(campaign_id, action)
+        if cleanup_id:
+            from campaign_studio.cleanup import Cleanup
+
+            Cleanup(self.workspace.state).resume_upload(cleanup_id)
+        return acknowledgement
+
+    def _save(self, campaign_id, action):
         self.check_envelope(action.authored)
         if action.authored["brief"].get("campaign_id") != campaign_id:
             raise ActionError("campaign_identity", "A campaign’s identity cannot be changed.", 422)
+        self.document(campaign_id)  # Complete any legacy conversion before taking the save lock.
         with self.storage.exclusive_draft():
-            previous = self.document(campaign_id)
+            previous = self.intake.read(campaign_id)
+            if previous is None:
+                raise ActionError("campaign_data", "Open this campaign before editing it.", 409)
             base = action.base.model_dump()
             current_base = self.base(campaign_id)
             digest = canonical_hash({"authored": action.authored, "base": base})
@@ -401,7 +376,7 @@ class AuthoredProjects:
                 and receipt.get("version") == previous["version"]
                 and base == current_base
             ):
-                return {key: receipt[key] for key in ("version", "saved_at", "authored_hash")}
+                return {key: receipt[key] for key in ("version", "saved_at", "authored_hash")}, None
             if action.version != previous["version"] or base != current_base:
                 raise ActionError(
                     "authored_conflict",
@@ -426,14 +401,24 @@ class AuthoredProjects:
                 and action.authored["brief"] == reconciled["brief"]
             ):
                 result["planned_authored_hash"] = canonical_hash(action.authored["brief"])
+            from campaign_studio.compositions import reconcile_descriptions, retain_replay_bindings
+
+            retain_replay_bindings(result, old_authored["brief"])
+            reconcile_descriptions(result, old_authored["brief"], action.authored["brief"])
+            result["composition_schema"] = 1
             result["authored"] = copy.deepcopy(action.authored)
+            from campaign_studio.compositions import fit_changed_logo
+
+            fit_changed_logo(
+                self.workspace, campaign_id, old_authored["brief"], result["authored"]["brief"]
+            )
             result["authored_base"] = base
             result["version"] = uuid4().hex
             result["saved_at"] = timestamp()
             acknowledgement = {
                 "version": result["version"],
                 "saved_at": result["saved_at"],
-                "authored_hash": canonical_hash(action.authored),
+                "authored_hash": canonical_hash(result["authored"]),
             }
             result["authored_receipt"] = {
                 **acknowledgement,
@@ -441,8 +426,18 @@ class AuthoredProjects:
                 "request_version": action.version,
             }
             project = self.storage.project(campaign_id)
-            project.write(
-                project.draft,
-                draft_bytes(result, allow_nan=False),
-            )
-            return acknowledgement
+            from campaign_studio.cleanup import Cleanup
+            from campaign_studio.output_files import sync_draft_comparisons
+
+            with self.storage.connect() as db:
+                write_draft(self.storage, campaign_id, result, db=db)
+                sync_draft_comparisons(self.workspace.state, db, project, result)
+                detached = {
+                    ref for ref in attachment_paths(old_authored) if isinstance(ref, str)
+                } - {ref for ref in attachment_paths(result["authored"]) if isinstance(ref, str)}
+                cleanup_id = (
+                    Cleanup(self.workspace.state).plan_upload_retirement(db, project, detached)
+                    if detached
+                    else None
+                )
+            return acknowledgement, cleanup_id

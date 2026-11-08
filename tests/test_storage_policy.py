@@ -1,7 +1,9 @@
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
+from zipfile import ZipFile
 
 import httpx
 import pytest
@@ -11,24 +13,28 @@ from test_workflow import setup_case
 
 from campaign_studio.app import create_app
 from campaign_studio.config import Settings
-from campaign_studio.handoff import Handoff, PackageAction
+from campaign_studio.handoff import Handoff
 from campaign_studio.intake import Intake
 from campaign_studio.planning import make_plan
 from campaign_studio.provider import OpenAIImages
-from campaign_studio.review import CreativeUpdate, RevisionTarget
+from campaign_studio.review import CreativeUpdate
 from campaign_studio.storage import CapacityError
 
 
 @pytest.mark.parametrize("kind", ["workspace_budget", "disk_space"])
-def test_launched_recovery_returns_measured_capacity_without_changing_saved_work(tmp_path, kind):
+def test_completed_source_recovery_does_not_allocate_finished_images_when_capacity_is_low(
+    tmp_path, kind
+):
     from test_web_workflow import wait_for_work
+
+    from campaign_studio.workspace import Workspace
 
     state, runner, run, brief = setup_case(tmp_path, one_market=True)
     assert asyncio.run(runner.execute(run))["complete"]
     app = create_app(
         Settings(data_dir=state.storage.root),
         key_available=lambda: False,
-        provider_factory=lambda: pytest.fail("Capacity refusal must not construct a provider"),
+        provider_factory=lambda: pytest.fail("Completed recovery must not construct a provider"),
     )
     with TestClient(app, base_url="http://127.0.0.1") as client:
         storage = app.state.storage
@@ -42,30 +48,23 @@ def test_launched_recovery_returns_measured_capacity_without_changing_saved_work
             for p in storage.root.rglob("*")
             if p.is_file() and not p.name.startswith("state.sqlite3")
         }
-        with storage.connect() as db:
-            rows_before = list(db.iterdump())
+        current = Workspace(state).current_composition(brief.campaign_id)
         client.headers["x-campaign-token"] = app.state.csrf
         accepted = client.post(f"/api/campaigns/{brief.campaign_id}/recover", json={"run_id": run})
-        assert accepted.status_code == 202
+        assert accepted.status_code == 202, accepted.text
         result = wait_for_work(client, brief.campaign_id)
-        assert result["notice_code"] == "storage_capacity"
-        capacity = result["capacity"]
-        assert capacity["kind"] == kind and capacity["projected_bytes"] > 0
-        assert capacity["budget_bytes"] == storage.budget_bytes
-        assert capacity["reserve_bytes"] == storage.reserve_bytes
-        assert capacity["used_bytes"] >= measured["used_bytes"]
-        assert capacity["free_bytes"] > 0
-        assert result["attempted"] == 0
+        assert not result["active"]
+        assert result.get("notice_code") != "storage_capacity"
+        assert state.attempts(run) == []
         assert (
-            client.get(f"/api/campaigns/{brief.campaign_id}/status").json()["capacity"] == capacity
+            Workspace(state).current_composition(brief.campaign_id)["version"] == current["version"]
         )
         assert {
             p.relative_to(storage.root): p.read_bytes()
             for p in storage.root.rglob("*")
             if p.is_file() and not p.name.startswith("state.sqlite3")
         } == before
-        with storage.connect() as db:
-            assert list(db.iterdump()) == rows_before
+        assert not list(storage.root.glob("Campaigns/*/Outputs"))
 
 
 def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, monkeypatch):
@@ -88,12 +87,9 @@ def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, mon
     for reference, data in saved.items():
         assert state.storage.path(reference).read_bytes() == data
     assert state.run(run)["state"] == "confirmed"
-    # A private plan can outlive its output directory. It still protects identity.
+    # An interrupted output write protects its identity before any revision row exists.
     orphan = uuid4().hex
-    state.storage.write(
-        state.storage.project(brief.campaign_id).ref(f"Runs/{run}/Revisions/{orphan}/plan.json"),
-        b"preserved",
-    )
+    relative = state.write_output(run, orphan, state.plan(run).outputs[0], b"preserved")
     first = True
 
     def colliding_revision():
@@ -105,12 +101,8 @@ def test_namespace_and_upload_collisions_never_replace_old_records(tmp_path, mon
 
     monkeypatch.setattr("campaign_studio.storage.uuid4", colliding_revision)
     assert state.reserve_revision(run) != orphan
-    assert (
-        state.storage.path(
-            state.storage.project(brief.campaign_id).ref(f"Runs/{run}/Revisions/{orphan}/plan.json")
-        ).read_bytes()
-        == b"preserved"
-    )
+    output = state.storage.project(brief.campaign_id).ref(f"Outputs/{relative}")
+    assert state.storage.path(output).read_bytes() == b"preserved"
     intake = Intake(state.storage)
     payload = state.storage.path(brief.brand.logo_path).read_bytes()
     upload = intake.upload(payload, "image/png", brief.campaign_id)
@@ -196,8 +188,8 @@ def test_free_disk_guard_and_returned_result_preservation(tmp_path, monkeypatch)
         return httpx.Response(200, json=response)
 
     provider = OpenAIImages("synthetic-only", transport=httpx.MockTransport(transport))
-    with pytest.raises(CapacityError, match="storage limit"):
-        asyncio.run(runner.execute(run, provider))
+    result = asyncio.run(runner.execute(run, provider))
+    assert result["complete"] and result["outputs"] == []
     attempt = state.attempts(run)[0]
     assert len(requests) == 1 and attempt["state"] == "decoded"
     assert state.storage.path(attempt["response_ref"]).is_file()
@@ -208,58 +200,52 @@ def test_free_disk_guard_and_returned_result_preservation(tmp_path, monkeypatch)
     assert recovered["complete"] and len(state.attempts(run)) == len(requests) == 1
 
 
-def test_exact_package_reuse_over_budget_and_changed_snapshot_requires_new_space(tmp_path):
-    state, runner, run, _ = setup_case(tmp_path)
-    manifest = asyncio.run(runner.execute(run))
-    revision = manifest["revision_id"]
-    target = RevisionTarget(
-        campaign_id="80d58cbe-5e57-5544-9b07-a4f018714dde",
-        run_id=run,
-        revision_id=revision,
-        mode="saved_version",
-    )
+def test_downloads_and_report_previews_work_over_budget_without_writing_to_workspace(tmp_path):
+    from campaign_studio.campaign_drafts import read
+    from campaign_studio.handoff import DeliveryAction
+    from campaign_studio.workspace import Workspace
+
+    state, runner, run, brief = setup_case(tmp_path)
+    assert asyncio.run(runner.execute(run))["complete"]
+    workspace = Workspace(state)
     handoff = Handoff(state)
-    action = PackageAction(snapshot_id=handoff.metadata(target)["snapshot_id"])
-    archive = handoff.create_zip(target, action)
-    folder = handoff.create_folder(target, action)
-    original_zip = handoff.download(target, archive["artifact_id"])
-    assert handoff.create_zip(target, action) == archive
-    assert handoff.create_folder(target, action) == folder
-    with state.storage.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM package_exports").fetchone()[0] == 2
-        assert (
-            db.execute(
-                "SELECT COUNT(*) FROM package_exports WHERE reference LIKE '%.zip'"
-            ).fetchone()[0]
-            == 1
-        )
-        assert (
-            db.execute(
-                "SELECT COUNT(*) FROM package_exports WHERE reference LIKE '%/index.html'"
-            ).fetchone()[0]
-            == 1
-        )
+
+    def read_download():
+        version = read(state.storage, brief.campaign_id)["version"]
+        with (
+            handoff.create_current_zip(
+                brief.campaign_id, DeliveryAction(version=version)
+            ) as download,
+            ZipFile(download.stream) as archive,
+        ):
+            name = next(n for n in archive.namelist() if n.endswith("/manifest.json"))
+            return json.loads(archive.read(name))
+
+    original = read_download()
     state.storage.budget_bytes = 1
-    assert handoff.create_zip(target, action) == archive
-    assert handoff.create_folder(target, action) == folder
-    assert handoff.download(target, archive["artifact_id"]) == original_zip
-    state.update_creative(
-        revision,
-        "product-1/en-US/1x1",
-        CreativeUpdate(expected_version=0, description="Retained while over budget."),
+    assert {o["id"]: o["pixel_sha256"] for o in read_download()["outputs"]} == {
+        o["id"]: o["pixel_sha256"] for o in original["outputs"]
+    }
+    version = read(state.storage, brief.campaign_id)["version"]
+    description = CreativeUpdate(expected_version=0, description="Retained while over budget.")
+    from campaign_studio.compositions import save_metadata
+
+    save_metadata(workspace, brief.campaign_id, version, "product-1/en-US/1x1", description)
+    updated = read_download()
+    assert "Retained while over budget." in json.dumps(updated["outputs"])
+    current = workspace.current_composition(brief.campaign_id)
+    report = handoff.create_current_preview(
+        brief.campaign_id, DeliveryAction(version=current["version"])
     )
-    new_action = PackageAction(snapshot_id=handoff.metadata(target)["snapshot_id"])
-    with pytest.raises(CapacityError):
-        handoff.create_zip(target, new_action)
-    with pytest.raises(CapacityError):
-        handoff.create_folder(target, new_action)
-    state.storage.budget_bytes = 10_000_000_000
-    new_folder = handoff.create_folder(target, new_action)
-    assert new_folder != folder and handoff.create_folder(target, new_action) == new_folder
-    (Path(new_folder["location"]) / "index.html").write_text("altered report")
-    repaired = handoff.create_folder(target, new_action)
-    assert repaired != new_folder and handoff.create_folder(target, new_action) == repaired
-    assert handoff.download(target, archive["artifact_id"]) == original_zip
+    assert report["url"].startswith("/reports/current/")
+    project = state.storage.project(brief.campaign_id)
+    assert not state.storage.path(project.ref("Exports")).exists()
+    assert not state.storage.path(project.ref("Outputs")).exists()
+    with state.storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM package_exports").fetchone()
+        assert not db.execute(
+            "SELECT 1 FROM file_owners WHERE reference LIKE '%/Exports/%'"
+        ).fetchone()
 
 
 def test_inventory_permission_failure_refuses_growth_without_partial_usage(tmp_path, monkeypatch):
@@ -291,27 +277,6 @@ def test_inventory_permission_failure_refuses_growth_without_partial_usage(tmp_p
     with pytest.raises(StorageError, match="measured completely") as error:
         state.storage.require_capacity(1)
     assert "PRIVATE_FILE_CANARY" not in str(error.value)
-
-
-def test_package_identity_exhaustion_is_bounded_and_preserves_existing_rows(tmp_path, monkeypatch):
-    from campaign_studio.state import StateError
-
-    state, _, run, _ = setup_case(tmp_path)
-    target = RevisionTarget(
-        campaign_id="80d58cbe-5e57-5544-9b07-a4f018714dde",
-        run_id=run,
-        revision_id="a" * 32,
-        mode="saved_version",
-    )
-    calls = []
-    monkeypatch.setattr(
-        state, "identity_exists", lambda table, identity: calls.append(identity) or True
-    )
-    with pytest.raises(StateError, match="identity could not be reserved"):
-        state.register_package(target, "exports/example.zip", "0" * 64, "1" * 64)
-    assert len(calls) == 100
-    with state.storage.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM package_exports").fetchone()[0] == 0
 
 
 def test_capacity_scans_do_not_block_async_start_status_or_stop(tmp_path, monkeypatch):
@@ -352,6 +317,15 @@ def test_capacity_scans_do_not_block_async_start_status_or_stop(tmp_path, monkey
 
     # Exercise the independent HTTP admission boundary with a concurrent request.
     second = state.create(plan, 1)
+    from campaign_studio.campaign_drafts import read, write
+    from campaign_studio.planning import canonical_hash
+
+    current = read(state.storage, plan.brief.campaign_id)
+    current.update(
+        planned_run=second, planned_authored_hash=canonical_hash(current["authored"]["brief"])
+    )
+    current["authored_base"] = {"run_id": second, "revision_id": None, "metadata_snapshot_id": None}
+    write(state.storage, plan.brief.campaign_id, current)
     app = create_app(
         Settings(data_dir=state.storage.root),
         key_available=lambda: False,
@@ -427,4 +401,39 @@ def test_stop_during_per_attempt_admission_finishes_as_stopped(tmp_path, monkeyp
     assert not result["complete"]
     assert state.run(run)["state"] == "stopped"
     assert state.attempts(run) == []
-    assert result["metrics"]["completed_images"] == 6
+    assert result["metrics"]["completed_images"] == 0
+    assert result["sources_ready"] == 1
+    assert not list(state.storage.root.glob("Campaigns/*/Outputs"))
+
+
+def test_edit_capacity_tracks_other_process_writes_without_rescanning(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    from campaign_studio.storage import Storage
+
+    storage = Storage(tmp_path / "runtime")
+    storage.refresh_edit_capacity()
+    storage.write("private/asset.bin", b"first")
+    writer = """
+import sys
+from pathlib import Path
+from campaign_studio.storage import Storage
+
+storage = Storage(Path(sys.argv[1]))
+storage.write("private/asset.bin", bytes(27))
+storage.write_new("private/another.bin", bytes(19))
+storage.unlink(storage.path("private/asset.bin"))
+"""
+    subprocess.run([sys.executable, "-c", writer, str(storage.root)], check=True)
+    measured = storage.summary()
+    monkeypatch.setattr(storage, "summary", lambda: pytest.fail("An edit walked the workspace"))
+    current = storage.require_edit_capacity(1)
+    assert (current["used_bytes"], current["file_count"]) == (
+        measured["used_bytes"],
+        measured["file_count"],
+    )
+    storage.budget_bytes = current["used_bytes"]
+    with pytest.raises(CapacityError) as error:
+        storage.require_edit_capacity(1)
+    assert error.value.details["kind"] == "workspace_budget"

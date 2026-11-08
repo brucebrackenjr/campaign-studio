@@ -18,6 +18,13 @@ from campaign_studio.config import Settings
 from campaign_studio.intake import UPLOAD_LIMIT
 
 
+def stored_draft(storage, campaign_id):
+    with storage.connect() as db:
+        return db.execute(
+            "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (campaign_id,)
+        ).fetchone()
+
+
 def test_repeated_png_exif_is_bounded_and_refused_without_losing_valid_upload(tmp_path):
     exif = Image.Exif()
     exif[274] = 6
@@ -174,13 +181,25 @@ def test_commit_receipt_precedes_unlink_and_restart_resumes_only_that_deletion(t
             json={"name": "Disposable campaign", "brand": "Brand", "audience": "Audience"},
         ).json()
         campaign = created["campaign_id"]
-        draft = app.state.storage.path(app.state.storage.project(campaign).draft)
-        before = draft.read_bytes()
+        storage = app.state.storage
+        before = stored_draft(storage, campaign)
+        with io.BytesIO() as buffer:
+            Image.new("RGB", (2, 2)).save(buffer, format="PNG")
+            image_bytes = buffer.getvalue()
+        attached = client.post(
+            "/api/uploads",
+            content=image_bytes,
+            headers={"content-type": "image/png", "x-campaign-id": campaign},
+        )
+        assert attached.status_code == 200, attached.text
+        image = storage.path(attached.json()["reference"])
         base = f"/api/campaigns/{campaign}/cleanup"
         preview = client.post(base + "/preview", json={}).json()
         accepted = client.post(base + "/confirm", json={"token": preview["token"]}).json()
         assert accepted["state"] == "committed"
-        assert draft.read_bytes() == before  # The response records commit, not invented completion.
+        # The response records the accepted deletion, before its owned file is removed.
+        assert stored_draft(storage, campaign) == before
+        assert image.read_bytes() == image_bytes
         assert client.get(base + "/status").json()["campaign_state"] == "pending"
         assert client.get(f"/api/motif/campaigns/{campaign}").status_code == 409
         for page in ("campaign", "production", "studio", "handoff"):
@@ -201,7 +220,8 @@ def test_commit_receipt_precedes_unlink_and_restart_resumes_only_that_deletion(t
     ) as client:
         deleted = client.get(base + "/status")
         assert deleted.status_code == 404 and deleted.json()["code"] == "not_found"
-        assert not draft.exists()
+        assert not image.exists()
+        assert stored_draft(client.app.state.storage, campaign) is None
         with client.app.state.workspace.storage.connect() as db:
             assert db.execute("SELECT id FROM campaigns WHERE id=?", (campaign,)).fetchone() is None
     assert not list((settings.data_dir / "Campaigns").glob("*/Brief/draft.json"))
@@ -220,9 +240,7 @@ def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):
             png = buffer.getvalue()
         valid = client.post("/api/uploads", content=png, headers=headers).json()
         stored = app.state.workspace.storage.path(valid["reference"])
-        draft = app.state.workspace.storage.path(
-            app.state.storage.project(campaign).draft
-        ).read_bytes()
+        draft = stored_draft(app.state.storage, campaign)
         with io.BytesIO() as buffer:
             Image.new("RGB", (2, 2)).save(buffer, format="GIF")
             gif = buffer.getvalue()
@@ -257,12 +275,7 @@ def test_upload_cause_fields_preserve_existing_owned_input_and_draft(tmp_path):
                 assert response.json()["input_image"]["width"] == 10001
                 assert response.json()["input_image"]["height"] == 4000
             assert stored.read_bytes() == png
-            assert (
-                app.state.workspace.storage.path(
-                    app.state.storage.project(campaign).draft
-                ).read_bytes()
-                == draft
-            )
+            assert stored_draft(app.state.storage, campaign) == draft
         # A valid header above Pillow's generic bomb threshold still reports
         # pixel dimensions, without decoding or publishing this refused image.
         over_pixels[16:24] = struct.pack(">II", 20000, 10000)

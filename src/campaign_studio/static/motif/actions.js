@@ -18,6 +18,7 @@ function guardNavigation(destination) {
     return true;
   }
   if (!hasPendingNavigationWork()) return false;
+  if (getSaveState()?.problem?.phase === "conflict") return true;
   pendingNav = destination;
   navigationError = "";
   openModal("unsaved");
@@ -25,14 +26,16 @@ function guardNavigation(destination) {
 }
 async function savePendingNavigation() {
   try {
+    if (getSaveState()?.problem?.phase === "conflict") { closeModal(); pendingNav = null; return; }
     if (await saveProject()) await finishPendingNavigation();
     else {
       const state = getSaveState();
       navigationError = state?.busy && state.problem?.phase !== "conflict"
         ? "Saving will finish in a moment. Try again."
-        : "Saving is paused. Keep editing, then review the update.";
+        : "Your changes are still here. Try saving again.";
     }
   } catch (error) {
+    if (getSaveState()?.problem?.phase === "conflict") { closeModal(); pendingNav = null; return; }
     navigationError = error.message;
   }
   if (pendingNav && modal === "unsaved") openModal("unsaved");
@@ -212,10 +215,11 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
   if (modal === "remove-product" && retain) return cancelProductRemoval();
   const closingKind = modal;
   if (modal === "draft-wording" && draftWording?.saving) return;
+  if (modal === "product" && modalProduct?.adding) return;
   const navigationChoice = modal === "unsaved";
   const authoring = ["rule", "rename", "inspect"].includes(modal);
-  // Product edits are local until Add/Update. Every dismissal discards them.
-  if (modal === "product") { cancelProductUpload(); cancel = false; retain = false; }
+  // Existing product edits save as they are entered; Add remains explicit for a new product.
+  if (modal === "product") { captureProductInputs(); projectChanged(); cancelProductUpload(); discardLocalProductPhoto(modalProduct); cancel = false; retain = false; }
   if (
     modal === "storage" &&
     (deletionSubmitting || storageView?.state === "delete-pending")
@@ -275,10 +279,23 @@ async function navigate(target) {
   if (studioWorkspace && !await leaveStudioWorkspace()) return;
   if (target !== "campaign" && typeof guardBrandNavigation === "function" &&
       guardBrandNavigation({ kind: "page", target })) return;
-  if (guardNavigation(target)) return;
+  if (draft && !await flushCurrentWork()) {
+    if (getSaveState()?.problem?.phase !== "conflict")
+      toast("Your changes are still here. Finish saving or try again before leaving this page.");
+    return;
+  }
+  if (typeof briefLogoUploadPending === "function" && briefLogoUploadPending()) {
+    toast("Wait for the logo upload to finish, or cancel the upload in Brand."); return;
+  }
   // Workbench order comes from successful server saves, including image review.
   // Opening a campaign does not write or advance that activity timestamp.
   if (target === "library") await refreshCatalog();
+  if (target === "handoff" && model.file_integrity?.verified === false) {
+    const campaign = draft.campaign_id;
+    const verified = await api(`/api/motif/campaigns/${encodeURIComponent(campaign)}`);
+    if (draft?.campaign_id !== campaign) return;
+    useData(verified);
+  }
   page = target === "products" ? "production" : ["copy", "brand"].includes(target) ? "campaign" : target;
   if (target === "copy" || target === "brand") tab = target;
   if (target === "review") {
@@ -382,14 +399,14 @@ modalView = function () {
     const names = retry.generation_products
       .map((id) => C.products.find((p) => p.id === id)?.name || "Product")
       .join(", ");
-    const additional = Math.max(0, retry.allowance - model.run.allowance);
+    const unknown = (model.run_attempts || []).some(attempt => ["unknown", "dispatching"].includes(attempt.state));
     return dialog(
-      "A new attempt is a new decision.",
-      `${notice("The previous attempts remain in the record.", `${retry.previous_attempts} used of ${model.run.allowance} request slots. Charges are not confirmed. No automatic retry has occurred.`)}${dataRow("New work", `${names} · ${retry.generation_products.length} additional image ${retry.generation_products.length === 1 ? "request" : "requests"}`)}${dataRow("Additional allowance", `${additional} ${additional === 1 ? "slot" : "slots"} · ${retry.allowance} cumulative`)}${dataRow("Provider charges", "Check your provider account.")}${dataRow("New-request estimate", Number.isFinite(retry.cost_estimate.estimated_usd) ? compactUSD(retry.cost_estimate.estimated_usd) : "Not estimated")}<p class="small muted" style="margin-top:20px">${Number.isFinite(retry.cost_estimate.estimated_usd) ? "" : "No verified estimate is available for these model settings. "}First look for saved imagery, attach a suitable replacement, or hand off available files. Reviewing the revised plan does not dispatch a request.</p>`,
-      btn("Look for saved result", "recover") +
-        btn("Review the revised plan", "reviewRetryPlan", "primary"),
+      "Resume image generation?",
+      `<p>Generate ${retry.generation_products.length === 1 ? "the missing image" : `${retry.generation_products.length} missing images`} for ${esc(names)}. Existing images will be kept.</p>${dataRow("New AI requests", retry.generation_products.length)}${dataRow("Estimated cost", Number.isFinite(retry.cost_estimate.estimated_usd) ? compactUSD(retry.cost_estimate.estimated_usd) : "Not available")}${unknown ? notice("The earlier request’s result is unknown.", "It may still have been charged. Continuing sends a new request.") : ""}<p class="small muted">Actual charges may differ.</p>`,
+      btn("Cancel", "close") + btn("Resume generation", "confirmResume", "primary"),
     );
   }
+
   if (modal === "settings") return settingsModal();
   if (modal === "inspect") return inspectorModal();
   if (modal === "export-failure") return exportFailureModal();
@@ -402,15 +419,21 @@ modalView = function () {
         btn(
           pendingExport === "zip"
             ? "Download partial ZIP"
-            : "Create partial package",
+            : "Preview partial report",
           "confirmPartial",
           "primary",
         ),
     );
+  if (modal === "open-report")
+    return dialog(
+      "Your report is ready.",
+      `<a href="${esc(reportPreviewURL)}" target="_blank" rel="noopener">Open report in a new tab ↗</a>`,
+      btn("Back to campaign", "close"),
+    );
   if (modal === "export-success")
     return dialog(
-      "The work is ready to travel.",
-      `<div class="empty-symbol">↗</div><h3 style="font-size:24px;margin:12px 0;overflow-wrap:anywhere">${esc(exportReceipt?.filename || "Saved campaign folder")}</h3><p class="muted">${model.manifest.metrics.completed_images} full-size PNGs, the offline overview, manifest, and provenance belong to this saved revision and description snapshot.</p><div class="rule"></div><p class="small muted">${exportReceipt?.kind === "zip" ? "Extract the ZIP anywhere." : "Take the complete saved folder with you."} Open index.html to review without this application, an API key, or a network.</p>`,
+      "ZIP sent to your browser.",
+      `<div class="empty-symbol">↗</div><h3 style="font-size:24px;margin:12px 0;overflow-wrap:anywhere">${esc(exportReceipt?.filename || "Motif.zip")}</h3><p class="muted">${model.manifest.metrics.completed_images} full-size PNGs, the offline overview, and the delivery details were created from your saved campaign settings.</p><div class="rule"></div><p class="small muted">Extract the ZIP anywhere. Open index.html to review without this application, an API key, or a network.</p>`,
       btn("Preview offline overview", "report") +
         btn("Back to campaign", "close", "primary"),
     );
@@ -472,15 +495,15 @@ function cancelProductRemoval() {
   else closeModal({ retain: false });
   productRemovalFromEditor = false;
 }
-function saveProductDraft() {
-  if (modalProduct?.uploading) return;
+async function saveProductDraft() {
+  if (modalProduct?.uploading || modalProduct?.adding) return;
   const name = $("#product-name").value,
     description = $("#product-description").value;
   if (!MotifTextLimits.guardFields(["product-name", "product-description", "product-origin", "product-rights"])) return;
   const invalidFields = [];
   if (!name.trim()) invalidFields.push("name");
   if (!description.trim()) invalidFields.push("description");
-  if (modalProduct.treatment !== "concept" && !modalProduct.source.path)
+  if (modalProduct.treatment !== "concept" && !modalProduct.source.path && !modalProduct.localFile)
     invalidFields.push("image");
   if (invalidFields.length) {
     captureProductInputs();
@@ -530,6 +553,8 @@ function saveProductDraft() {
     source,
     copy_overrides: old?.copy_overrides || {},
   };
+  if (!old && role !== "concept" && modalProduct.localFile)
+    return addProductPhoto(product, modalProduct);
   if (old) draft.products[index] = product;
   else {
     if (draft.products.length >= productLimit)
@@ -543,6 +568,44 @@ function saveProductDraft() {
   closeModal({ retain: false });
   markDirty();
   render();
+}
+function discardLocalProductPhoto(target) {
+  if (target?.localImage) URL.revokeObjectURL(target.localImage);
+  if (target) { delete target.localImage; delete target.localFile; }
+}
+async function addProductPhoto(product, target) {
+  const owner = draft;
+  target.adding = true;
+  target.error = "";
+  openModal("product");
+  try {
+    await withProjectApply(async () => {
+      const encoded = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",", 2)[1]);
+        reader.onerror = () => reject(new Error("The selected photo could not be read. Choose it again."));
+        reader.readAsDataURL(target.localFile);
+      });
+      const result = await api(`/api/motif/campaigns/${encodeURIComponent(owner.campaign_id)}/products/photo`, {
+        version: projectQueue.version(), base: copy(model.project.base), product, image_base64: encoded,
+      });
+      if (draft !== owner || modalProduct !== target) return;
+      target.adding = false;
+      closeModal({ retain: false });
+      model = result.campaign;
+      model.concept_preview_version = model.version;
+      restoreProject(result.project.authored, { restoreContext: false });
+      projectQueue.applied(result.project);
+      viewModel();
+      render();
+    });
+  } catch (error) {
+    if (draft !== owner || modalProduct !== target) return;
+    target.error = error.message || "There was an issue adding this product. Your photo and details are still here. Try again.";
+  } finally {
+    target.adding = false;
+    if (modalProduct === target && modal === "product") openModal("product");
+  }
 }
 function openInputField(field) {
   const path = field.path;
@@ -577,8 +640,9 @@ function cancelProductUpload() {
   pending.controller.abort();
 }
 async function upload(file, owner = draft, target = modalProduct) {
-  if (!file || !target) return;
+  if (!file || !target || target.adding) return;
   cancelProductUpload();
+  const localOnly = !owner.products?.some(product => product.id === target.id);
   const sequence = ++productUploadSequence;
   const pending = { target, controller: new AbortController(), timer: null };
   pendingProductUpload = pending;
@@ -589,13 +653,16 @@ async function upload(file, owner = draft, target = modalProduct) {
   const current = () => draft === owner && modalProduct === target &&
     pendingProductUpload === pending && sequence === productUploadSequence;
   try {
-    const result = await withBriefPreviewPaused(() => api("/api/uploads", undefined, {
+    const result = await withBriefPreviewPaused(() => api(localOnly ? "/api/uploads/validate" : "/api/uploads", undefined, {
       method: "POST",
       signal: pending.controller.signal,
       headers: {
         "Content-Type": file.type || "application/octet-stream",
         "X-Campaign-Token": $('meta[name="campaign-token"]').content,
         "X-Campaign-Id": owner.campaign_id,
+        "X-Asset-Name": encodeURIComponent(target.name || file.name),
+        "X-Image-Role": "product",
+        "X-Source-Role": target.treatment === "prepared" ? "prepared_product" : "finished_scene",
       },
       body: file,
     }), () => current() && !pending.controller.signal.aborted);
@@ -605,11 +672,22 @@ async function upload(file, owner = draft, target = modalProduct) {
         target.error = "The photo upload took too long. Choose the image again.";
       return;
     }
-    target.source.path = result.reference;
-    target.image = result.url;
+    if (result.opaque === false && target.treatment !== "prepared") {
+      throw Object.assign(new Error("This image has transparent areas. Select a product image without transparency."), {
+        input_image: { kind: "transparent_scene" },
+      });
+    }
+    if (localOnly) {
+      discardLocalProductPhoto(target);
+      target.localFile = file;
+      target.localImage = URL.createObjectURL(file);
+    } else {
+      target.source.path = result.reference;
+      target.image = result.url;
+    }
     target.error = "";
     target.invalidFields = [];
-    if (target.treatment !== "concept") target.treatment = "reuse";
+    if (target.treatment === "concept") target.treatment = "reuse";
   } catch (error) {
     if (!current()) return;
     if (pending.controller.signal.aborted) {
@@ -624,6 +702,7 @@ async function upload(file, owner = draft, target = modalProduct) {
       pendingProductUpload = null;
       if (modal === "product") {
         captureProductInputs();
+        projectChanged();
         openModal("product");
       }
     }
@@ -672,7 +751,10 @@ async function prepareCurrentPlan(retry = false) {
     if (!held) throw new Error("Finish saving your changes before preparing this estimate.");
     before = copy(projectQueue.authored().brief);
     version = model.version;
-    const result = await withBriefPreviewPaused(() => api(`/api/motif/campaigns/${campaign}/plan`, { version }), owns);
+    const result = await boundedEstimateRequest(signal => withBriefPreviewPaused(
+      () => api(`/api/motif/campaigns/${campaign}/plan`, { version }, { signal }),
+      () => !signal.aborted && owns(),
+    ));
     if (!result || draft !== owner || model.version !== version || projectQueue.version() !== version) return;
     const unchanged = owns();
     if (unchanged) {
@@ -680,6 +762,8 @@ async function prepareCurrentPlan(retry = false) {
       useData(result, { applied: true });
       retryContext = null;
       blockedProposal = null;
+      if (model.unplanned_draft || productionNeedsRun())
+        throw Object.assign(new Error("The estimate could not be updated for these products. Try again, or check the campaign details."), { status: 409 });
       preparation.status = "ready";
     } else {
       // This plan owns its attachment normalization, not newer authored input.
@@ -691,7 +775,7 @@ async function prepareCurrentPlan(retry = false) {
       try {
         // A lost response can hide a completed local snapshot. Read it once;
         // never repeat planning or generation as part of this acknowledgement.
-        const current = await api(`/api/motif/campaigns/${campaign}`);
+        const current = await boundedEstimateRequest(signal => api(`/api/motif/campaigns/${campaign}`, undefined, { signal }), 5000);
         reportError = owns();
         const base = current.project.base, prior = held.base;
         const normalized = copy(before);
@@ -734,14 +818,21 @@ async function poll(id = draft.campaign_id, runId = model?.run?.id) {
       setTimeout(() => poll(id, runId), 700);
       return;
     }
+    const observedModel = model, observedVersion = model.version;
     const result = await api(`/api/motif/campaigns/${id}`);
     if (!isCurrentRun(id, runId) || result.run?.id !== runId) return;
+    if (model !== observedModel || model.version !== observedVersion) {
+      // A save finished while the read was in flight. Read current facts again
+      // instead of replacing its newer preview with this older response.
+      setTimeout(() => poll(id, runId), 700);
+      return;
+    }
     // Publish terminal status together with its saved result. The prior active
     // presentation must not expose an old planned model's Start in between.
     operation = status;
     // Shared Save owns authored buffers. Refresh result facts without replacing
     // a live editor, its input focus, or its pending draft handlers.
-    useData(result);
+    useData(result, { sourceCompletion: runId });
     if (operation.notice) toast(operation.notice);
     updateURL();
     if (page === "production") refreshProductionStatus();
@@ -830,7 +921,8 @@ document.addEventListener("keydown", (event) => {
   controls[next].focus();
 });
 window.addEventListener("beforeunload", (event) => {
-  if (projectQueue?.isDirty() || pendingProductUpload ||
+  if (window.MotifSave?.refreshing()) return;
+  if (projectQueue?.isDirty() || studioSave?.dirty() || pendingProductUpload ||
       (typeof brandChangesPending === "function" && brandChangesPending()) ||
       (typeof briefLogoUploadPending === "function" && briefLogoUploadPending())) {
     event.preventDefault();
@@ -852,8 +944,12 @@ async function dispatchAction(data) {
     return;
   }
   const [action, index, second, third] = data.action.split(":");
-  if (["openCampaign", "new", "import"].includes(action) &&
-      typeof guardBrandNavigation === "function" && guardBrandNavigation(data)) return;
+  if (["openCampaign", "new", "import"].includes(action) && studioWorkspace && !await leaveStudioWorkspace()) return;
+  if (["openCampaign", "new", "import"].includes(action) && draft && !await flushCurrentWork()) {
+    if (getSaveState()?.problem?.phase !== "conflict")
+      toast("Your changes are still here. Try saving again before switching campaigns.");
+    return;
+  }
   if (action === "tab" && index !== "brand" && typeof guardBrandNavigation === "function" &&
       guardBrandNavigation({ kind: "tab", target: index })) return;
   const lengthFields = {
@@ -917,6 +1013,39 @@ async function dispatchAction(data) {
       case "updateKey": {
         const code = operation?.notice_code || model?.notice?.code;
         await openKeySetup(true, code === "access_denied" ? operation?.notice || model.notice.message : null);
+        break;
+      }
+      case "addProductImage":
+        await navigate("production");
+        requestAnimationFrame(() => {
+          const button = $(`[data-pr-id="${CSS.escape(index)}"][data-pr-action="choose"]`);
+          button?.scrollIntoView({ block: "nearest" });
+          button?.focus({ preventScroll: true });
+        });
+        break;
+      case "resumeGeneration": {
+        if (!await flushCurrentWork()) break;
+        const owner = draft.campaign_id;
+        const result = await api(`/api/motif/campaigns/${owner}`);
+        if (owner !== draft.campaign_id) break;
+        useData(result);
+        if (!model.retry_plan) { render(); break; }
+        if (!keyAvailable || productionCredentialState().credentialIssue) {
+          await openKeySetup(!!keyAvailable);
+          break;
+        }
+        openModal("retry-plan");
+        break;
+      }
+      case "confirmResume": {
+        const confirmed = JSON.stringify(model.retry_plan);
+        await reviewRetryPlan();
+        if (confirmed !== JSON.stringify(model.retry_plan)) {
+          openModal("retry-plan");
+          toast("The remaining images or estimate changed. Review them before continuing.");
+          break;
+        }
+        await startDisplayedPlan();
         break;
       }
       case "reviewRetryPlan":
@@ -1046,7 +1175,7 @@ async function dispatchAction(data) {
         picker();
         break;
       case "saveProduct":
-        saveProductDraft();
+        await saveProductDraft();
         break;
       case "remove":
         openProductRemoval(index);
@@ -1096,11 +1225,8 @@ async function dispatchAction(data) {
         clearProjectTarget("rule");
         closeModal({ retain: false });
         markDirty();
-        if (model?.manifest) await withProjectApply(recheckRules);
-        else {
-          closeModal();
-          render();
-        }
+        await saveProject();
+        render();
         break;
       }
       case "deleteRule":
@@ -1109,11 +1235,13 @@ async function dispatchAction(data) {
         clearProjectTarget("rule");
         closeModal({ retain: false });
         markDirty();
-        if (model?.manifest) await withProjectApply(recheckRules);
-        else render();
+        await saveProject();
+        render();
         break;
       case "recheck":
-        await withProjectApply(recheckRules);
+        await saveProject();
+        useData(await api(`/api/motif/campaigns/${C.id}`));
+        render();
         break;
       case "discardLeave":
         clearStorageContext();
@@ -1161,6 +1289,15 @@ async function dispatchAction(data) {
         if (reviewTab === "product")
           $(`#product-format-${second}`)?.focus({ preventScroll: true });
         break;
+      case "repairLayout":
+        if (!await flushCurrentWork()) break;
+        currentProduct = Number(index);
+        currentFormat = Number(second);
+        lang = third;
+        page = "review";
+        updateURL();
+        await openStudioWorkspace(data.action.split(":")[4]);
+        break;
       case "inspect":
         currentProduct = Number(index);
         currentFormat = Number(second);
@@ -1196,8 +1333,8 @@ async function dispatchAction(data) {
         clearFrameSubject();
         break;
       case "recoverFrame":
-        // The editor owns this read and permits Close while it is pending.
-        recoverFraming();
+        // Recovery reads stay editable; a confirmed failed Apply retries explicitly.
+        await recoverFraming();
         break;
       case "saveFrame":
         await withProjectApply(saveFraming);
@@ -1246,6 +1383,9 @@ async function dispatchAction(data) {
         if (!model.manifest.complete) openModal("partial-export");
         else await downloadZIP(false);
         break;
+      case "cancelExport":
+        await cancelExport();
+        break;
       case "retryExport":
         await retryExport();
         break;
@@ -1264,13 +1404,10 @@ async function dispatchAction(data) {
       }
       case "confirmPartial":
         if (pendingExport === "zip") await downloadZIP(true);
-        else await createFolder(pendingExport === "report", true);
-        break;
-      case "exportFolder":
-        await createFolder(false);
+        else await previewReport(true);
         break;
       case "report":
-        await createFolder(true);
+        await previewReport();
         break;
       case "recover":
         recoveryTarget = model.run.id;

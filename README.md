@@ -1,6 +1,6 @@
 # Motif – Campaign Studio
 
-**Version 0.2.0** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.3.0** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
 
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 
@@ -14,7 +14,7 @@ The central decision is to **generate source imagery only when needed, then comp
 
 The application includes two seasonal campaigns: Autumn Winds provides a completed key-free example; Bridle & Bough provides a deliberate missing-image generation journey. The [example and import guide](examples/README.md) distinguishes these campaigns from engineering fixtures.
 
-[Download the latest version](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) to install Motif locally. You can also [watch the walkthrough](https://motif.brucebracken.com/#walkthrough), [browse the source](https://github.com/brucebrackenjr/campaign-studio), or [read the verification notes](docs/verification.md).
+Use the supplied ZIP to install this version locally. The [public release download](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides the published version. You can also [watch the walkthrough](https://motif.brucebracken.com/#walkthrough), [browse the source](https://github.com/brucebrackenjr/campaign-studio), or [read the verification notes](docs/verification.md).
 
 ## Contents
 
@@ -50,7 +50,7 @@ The assessment separates minimum pipeline requirements from three optional bonus
 | Three aspect ratios | Square **1080 × 1080 (1:1)**, Story **1080 × 1920 (9:16)**, and Landscape **1920 × 1080 (16:9)** PNGs. | Minimum: at least three formats. |
 | Printed campaign message | Compose exact supplied English copy locally; Spanish (Mexico) copy can be supplied separately. | English is the minimum; supplied localization is an additional capability, without translation or language detection. |
 | Local execution | A Python application serves the browser interface and CLI checks on the evaluator’s machine. | Minimum: a local CLI or app. No hosted service is required. |
-| Organized delivery | Save a folder or ZIP organized by product and format, with language-specific PNGs, an offline HTML overview, and a manifest. | Minimum: clearly organized output files. |
+| Organized delivery | Download a ZIP organized by product and format, with language-specific PNGs, an offline HTML overview, and a manifest. | Minimum: clearly organized output files. |
 | Documentation | Setup, inputs/outputs, decisions, assumptions, and limitations are explained here and in the linked references. | Minimum README and the requested comprehensive submission documentation. |
 | Brand checks | Check supplied logo presence and approved text colors, with layout and rendering validation. | Optional bonus. |
 | Legal content checks | Match configured prohibited phrases in printed headlines and CTAs and require correction or a deliberate rule change before export. | Optional bonus. |
@@ -59,7 +59,7 @@ The assessment separates minimum pipeline requirements from three optional bonus
 Additional controls serve concrete production needs:
 
 - **Direct composition editing** lets the producer move and resize the logo, headline, and CTA, adjust framing, and choose from two packaged fonts and brand-palette colors. Different image compositions need different placements to keep the product and wording readable.
-- **Preview, Apply, and Cancel** let the producer inspect a local correction before replacing accepted output, while retaining the source image for further edits.
+- **Autosave and live previews** keep Campaign and Studio connected. Editing saves the current instructions; downloading creates the finished PNGs from those instructions and the retained sources.
 - **Request planning and source reuse** make the proposed generation work visible and keep copy or layout corrections separate from another paid image request.
 
 These workflow assumptions come from the supplied scenario and hands-on prototype use, not external customer research. The prototype concentrates on producing and correcting assets.
@@ -81,7 +81,7 @@ The trash button on each Workbench card shows the files Motif will remove and as
 - A current desktop browser. Connected verification includes Chromium journeys at 1440 × 900 and 1366 × 768; this is not a mobile or universal browser certification.
 - An OpenAI API key only if you choose to generate new imagery. It is unnecessary for local composition, corrections, exports, or the key-free checks below.
 
-Download and extract [motif-campaign-studio.zip](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip). In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
+Extract the supplied ZIP. The [public release download](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides the published version. In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
 
 ```sh
 cd Motif
@@ -138,19 +138,23 @@ Motif keeps its code, installed environment, and default data together:
 Motif/
   .venv/
   src/
+  Walkthrough Assets/
+    Winter at the Ranch.json
+    Bentwood toboggan.png
+    Long Ride sleigh blanket.png
+    Bridle and Bough logo.png
   Workspace/
     Campaigns/
       Autumn Winds-901f13e2/
         Brief/
         Assets/
         Runs/
-        Exports/
+
     private/
       state.sqlite3
-    smoke/
 ```
 
-Campaign subfolders appear as their files are created. The `private` folder holds the shared database and application control files; `smoke` is reserved for installation checks and can be empty.
+Campaign subfolders appear only when their files are needed. The `private` folder holds the shared database and application control files. SQLite stores one current editable campaign, including its text, logo, crop, and style settings, alongside source references and request records. Motif does not maintain finished PNGs or write working `draft.json`, `plan.json`, or `manifest.json` copies in the campaign folder. An imported original brief remains in `Brief/Imports/`. Finished images and their delivery manifest are created for the download.
 
 Both installation methods find this workspace from the installed environment. On macOS and Linux, to start from another directory, use `uv run --project "/path/to/Motif" --locked campaign-studio serve` or invoke `"/path/to/Motif/.venv/bin/campaign-studio" serve`. If you move Motif, recreate its .venv at the new location using either install sequence. Back up the whole Workspace folder together while the server is stopped. On macOS and Linux, keep the installation’s private .env separately if you want to retain its settings. Deleting the extracted Motif folder removes its local installation and default workspace. Explicit external workspaces and exports you saved elsewhere remain at their chosen locations.
 
@@ -162,26 +166,28 @@ uv run --locked campaign-studio serve --data-dir ./motif-evaluation-data
 
 To use a different port on any platform, set `CAMPAIGN_STUDIO_PORT=8001` in `Motif/.env` before starting the server.
 
-The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in `Motif/.env`. The data directory path must not pass through a symbolic link or Windows junction. Motif leaves earlier workspaces in place. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
+The `--data-dir` argument takes precedence over `CAMPAIGN_STUDIO_DATA_DIR`; environment settings take precedence over values in `Motif/.env`. The data directory path must not pass through a symbolic link or Windows junction. The Python package, executable, and configuration prefix remain `campaign_studio`, `campaign-studio`, and `CAMPAIGN_STUDIO_*`.
 
-Versions 0.2.x use the campaign-folder layout for fresh workspaces. To revisit an existing 0.1.x workspace, open it with its original Motif version. For a new project workspace, run `uv run --locked campaign-studio serve --data-dir ./motif-projects` from the installation folder. With Option B, add the same `--data-dir` argument to its installed executable.
+When this build opens a supported v0.2.0 workspace, it transfers the current editing settings and source references into the current campaign document, then removes verified obsolete working PNGs and edit records. Original imports, source imagery, existing exported packages, and files you added yourself are preserved. Back up the complete Workspace with Motif stopped before upgrading. Earlier 0.1.x layouts require their original application. Use `--data-dir ./motif-projects` with the server command to select a separate workspace.
 
 If Motif reports a missing or incomplete workspace database, stop the app and restore the complete Workspace folder from backup. Its private/state.sqlite3 and Campaigns folder belong together.
 
 ## Try a complete workflow without a key
 
-On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. Autumn’s 30 finished PNGs are included in the package and copied with their editable sources, wording, and layouts. First setup does not render those images or make an API request.
+On its first launch into an absent or empty data directory, the official server command installs two ordinary campaigns before Home is ready. It imports their sources, wording, and layouts without creating finished campaign PNGs or making an API request.
 
 | Included campaign | Initial state | Useful evaluation path |
 | --- | --- | --- |
-| **Autumn at Home** · Autumn Winds | Five products, English (United States) and Spanish (Mexico), and **30 completed PNGs**. Zero application requests. | Choose **Continue working**, inspect the images in Studio, make a local correction, and use Handoff to export. |
-| **Winter at the Ranch** · Bridle & Bough | Three products and both markets; **18 planned outputs**. The **Brass sleigh-bell strap** concept is missing, and its one-request plan is unconfirmed. Zero application requests. | Open its Campaign or Production page to inspect the supplied assets and missing-image plan. Generating the missing concept requires your own key and separate explicit confirmation. |
+| **Autumn at Home** · Autumn Winds | Five products, two markets, and sources ready for **30 variations**. Zero application requests. | Choose **Continue working**, edit in Studio, and download the finished campaign from Handoff. |
+| **Winter at the Ranch** · Bridle & Bough | Three products and two markets; **18 planned variations**. The Brass sleigh-bell strap source is missing. Zero application requests. | Inspect the supplied sources and the missing-image plan. Generating that source requires your key and explicit confirmation in Production. |
 
-The supplied seasonal imagery was prepared externally with built-in image generation. Autumn’s final PNGs were composed from those sources during package preparation. They remain editable through the normal Studio tools. Bridle does not start with 18 completed images.
+The supplied seasonal imagery was prepared externally with built-in image generation. Its provenance does not represent a new request made by this installation.
 
 Setup is once per fresh workspace, not whenever the campaign count reaches zero. Existing workspaces are not automatically populated, and deleting a bundled campaign does not bring it back. If setup is interrupted, the next launch resumes unfinished examples. Motif preserves examples you edited or deleted.
 
 To work from your own inputs, use **Create campaign** or **Import brief** from Home. Supply product photographs and the copy for each market. Add a logo if the campaign uses one. A plan with no new sources can compose and export locally.
+
+For an import walkthrough, open **Walkthrough Assets** directly inside the extracted **Motif** folder. Choose **Import brief** and select **Winter at the Ranch.json**. In Campaign, attach **Bentwood toboggan.png** and **Long Ride sleigh blanket.png** to their matching products, then attach **Bridle and Bough logo.png** in Brand. The third product, **Brass sleigh-bell strap**, intentionally has no supplied image; Production explains the request and cost before you confirm generation with your own API key. The brief includes English and Spanish copy for all three formats. These four input files remain separate from the campaigns you create, so you can use them again for another walkthrough.
 
 For a repeatable installation check, use a separate data directory:
 
@@ -207,7 +213,7 @@ The geometric examples and saved-source replay are verification fixtures. They a
 
 For a product without an image, select **Generate new image** and describe the subject. Production shows the source requests, output count, request allowance, and estimate before confirmation. The current provider request sends the concept description, audience, and creative direction as text; this path does not upload supplied photographs or the logo.
 
-If a key is missing, use **Add your OpenAI API key**. On macOS and Linux, the masked dialog saves the key in the installation’s private `.env`. On Windows it encrypts the key for the current Windows user and writes the ciphertext to `Workspace/private/openai-key.dpapi`. A successful save activates the key. If you move a Windows workspace to another account or computer, its campaigns remain editable. Enter a new key in Production when you need generation. **Saving a key does not test provider access, confirm a plan, or start generation.** Return to Production and make that separate choice.
+If a key is missing, use **Add your OpenAI API key**. On macOS and Linux, the masked dialog saves the key in the installation’s private `.env`. On Windows it encrypts the key for the current Windows user and writes the ciphertext to `Workspace/private/openai-key.dpapi`. A successful save activates the key. If you move a Windows workspace to another account or computer, its campaigns remain editable. Enter a new key in Production when you need generation. **Saving a key does not test provider access, confirm a plan, or start generation.** After a rejected key is replaced, Production shows **Resume generation**. Review the request count and estimate, then confirm to try again. A newly saved key has not yet been verified by the provider. To remove a locally stored key, open **OpenAI key** in Production and choose **Remove API key**. This removes Motif’s stored credential; it does not revoke the key in your OpenAI account. An environment-managed key must be changed outside Motif.
 
 Alternatively, configure `OPENAI_API_KEY` in the process environment before starting. On macOS and Linux you can also configure the installation’s private `.env`. An explicitly supplied environment value wins, including an empty value. In that case, update the launch environment and restart; the dialog explains that the environment manages the key. Manual edits to `.env` also require a restart. The launcher reads that one file, without parent-directory discovery.
 
@@ -221,25 +227,23 @@ The four campaign pages are **Campaign → Production → Studio → Handoff**. 
 
 ### 1. Campaign – establish the campaign
 
-Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, and brand palette. Attach a logo in Brand if you want it on the images. JSON briefs define the included markets; both bundled campaigns include English and Spanish. The subtabs are Brief, Products, Brand, and Copy & Rules. Campaign previews provide feedback while editing; they are not a claim that production has already happened. An imported brief opens here. In Products, attach each named photo when you have it. You can return to the Workbench and pick up the campaign later.
+Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, and brand palette. The subtabs are **Brief → Products → Brand → Copy & Rules**. Attach the product photographs you have and a logo if the campaign uses one. Each market has its own supplied wording.
 
-After images exist, use **Update Images** in Brand to apply a logo or campaign color change to those images locally. This makes no AI request. Leaving Brand with unapplied changes offers **Update and continue**, **Discard and continue**, or **Stay on Brand**. The default text color applies to text that inherits it; custom colors chosen in Studio remain unchanged. When the preview uses custom colors, **Use default for this image** restores inheritance for that product, market, and format.
+Campaign and Studio use the same current saved instructions. Campaign form fields autosave after a short typing pause, including unfinished values. Routine saves are silent. A save failure or conflicting browser tab remains visible with a recovery action. Saving does not make an AI request or create finished PNGs.
 
-Ordinary campaign fields autosave through the shared project queue, including unfinished values. Routine Save/Saved indicators are omitted; real save failures and conflicts still identify the problem and recovery action. Product-dialog changes commit through Add/Update, and image-editor changes through Apply. Saving authored work does not render new images or spend an API request.
+Changing Brand's default text color updates text that inherits that color. A color deliberately customized in Studio remains specific to that image. **Use default for this image** restores inheritance. There is no separate Update Images action: saved changes are available when opening Studio or Handoff.
 
 ### 2. Production – inspect and confirm the work
 
-Add or edit up to five products from Campaign’s Products subtab or Production. Both open the same product editor. Choose an existing image or describe a new image to generate; the description works with the campaign direction. **Add product** or **Update product** commits the changes through the campaign’s save queue. Cancel, ×, and Escape discard uncommitted product edits. Switching image modes keeps the open dialog’s fields and selected photo, without saving them. Committed photos remain available when returning from generation mode. Existing campaign images stay unchanged until explicit production or Studio Apply.
+Add or edit up to five products from Campaign’s Products subtab or Production. Both open the same product editor. Choose an existing image or describe the missing source you want generated. Adding or removing a product is a deliberate action; edits to existing product fields use autosave. Saving a generation description does not send it to the provider.
 
-In Campaign, click a product photo or image-state tile to edit it; the Edit image caption appears on hover and keyboard focus. The card’s remove button opens a confirmation before removing the product. At five products, Add remains available and explains how to remove or edit an existing product. A committed product without an image says **Image will be generated.** when generation is selected; saving it does not send a request.
+Production identifies which sources can be reused and which require an AI request. Review the request count, prompt, data-transfer details, and estimate before confirming generation. Production saves the resulting source photographs so they can serve multiple formats and markets. It does not create the finished branded PNGs.
 
-Production prepares the plan and estimate automatically. Check the request count and estimate, then choose **Generate campaign images**. When OpenAI is needed, review its prompt and data-transfer details here. Progress and completion remain on Production; choose **Next: Studio** when ready. Known invalid input, unusable assets, text-fit problems, or prohibited copy must be corrected at the relevant action boundary.
+A confirmed request uses fixed inputs and settings. Relevant changes before dispatch require a fresh plan. A request already underway finishes its confirmed work while newer campaign edits remain saved. Sources are reused only when their identity, content, and generation inputs still match.
 
-The confirmed request uses fixed inputs and settings. Changing relevant inputs before dispatch requires a fresh plan. If a run is already underway, it finishes its confirmed snapshot while you can save newer ordinary project work separately.
+### 3. Studio – compose the campaign
 
-### 3. Studio – correct the actual images
-
-Studio displays the rendered PNGs. Open a product to keep its image in one workspace: tools are on the left, the canvas is in the center, selected-tool controls are on the right, and the three formats are below the canvas. Inspect opens first. Choose a market and format, then select a tool:
+Studio displays previews built from the current sources and saved editing instructions. Open a product to keep its image in one workspace: tools are on the left, the canvas is in the center, selected-tool controls are on the right, and the three formats are below the canvas. Inspect opens first. Choose a market and format, then select a tool:
 
 | Control | Scope and behavior |
 | --- | --- |
@@ -248,17 +252,21 @@ Studio displays the rendered PNGs. Open a product to keep its image in one works
 | Logo | Move or proportionally resize the logo for the selected output. Replacement is a separate campaign-wide action with an explicit affected scope. |
 | Text | Select **Headline** or **Call to action** to edit its wording, font, palette color, position, and size together. Wording changes affect the selected product and market across three formats; each field’s **All products** checkbox extends only that wording to other products in the market. Font, color, and geometry remain specific to the selected product, market, and format. Choose Noto Sans Regular or Barlow Condensed Semibold; drag the text to move it, and pull a corner or use the keyboard to resize it. |
 
-Checking **All products** is explicit field intent: if other products differ, the displayed value can be propagated without fake typing. Untouched unchecked fields and other languages remain unchanged. A wholly unchanged target set is a no-op. If an intended target lacks the source material needed for correction, the application refuses the scope rather than silently skipping that product or generating a replacement.
+Checking **All products** deliberately extends the selected wording to the other products in that market. Untouched fields, other languages, and individual layout choices remain unchanged.
 
-Text, framing, and logo changes remain temporary until **Apply**. Text submits wording and appearance as one candidate and validates every wording-affected output before publication. Apply requires the current settled preview and keeps the same tool, controls, and selected text block in place while adopting the saved image. **Cancel** discards the current transient edits and returns to Inspect; it does not undo an earlier successful Apply. Escape first belongs to an active gesture or nested dialog, then follows Cancel. Switching tools, formats, or markets, or leaving the workspace with changes, offers **Apply and switch**, **Discard and switch**, or **Keep editing**. A failed Apply keeps the draft and current target. Dragging gives immediate local feedback while the exact preview loads. Further gestures on that same text block remain available; wording or font changes wait for updated measurements. Apply waits for the current validated preview.
+Studio autosaves text, color, font, logo, crop, and description changes. A drag saves when the gesture ends; typing saves after a pause. The canvas gives immediate visual feedback while saving. There is no Apply button. Reopening the image restores the saved instructions and original source, so its text and logo remain editable.
 
-### 4. Handoff – export the accepted result
+Navigation waits for pending saves. If a save fails, the proposed edits remain available and the interface offers a retry. If the campaign was updated elsewhere, Motif pauses saving and offers **Refresh** to load the latest changes, warning that this window’s unsaved edits will be discarded. A lost response is checked before retrying the same request. Temporary previews share the compositor used for export; ordinary saves do not write finished images to the campaign folder.
 
-Download individual images or create a complete ZIP/folder. For a generation failure, a partial package may contain the available valid outputs and clearly record omissions. A zero-image result cannot produce an image package.
+### 4. Handoff – create and download the finished files
 
-**Configured prohibited wording is a campaign-wide export gate.** A match anywhere in the current output coverage blocks ZIP, folder, individual, partial, and application-served existing-package downloads. It is not bypassed by choosing another image. The correction message identifies the phrase, product, language, and printed field, with a direct action into Studio or the relevant Campaign or Production field. Correct the text, or deliberately change the rule, then Apply/Recheck.
+Handoff shows previews from the current saved instructions. **Download ZIP** captures one consistent set of settings and source images, creates the finished PNGs, prepares the ZIP, checks it, and starts the browser download. Progress messages identify the actual stage. Individual image downloads create only the requested finished PNG. There is no separate Generate Images or Export Folder action.
 
-Saved invalid or unapplied rule changes also prevent export until resolved. Unrelated unfinished brief copy and canceled editor scratch do not replace the copy already printed in accepted images. Image display remains available for correction. Previously downloaded external packages remain independent files.
+The ZIP contains images, an offline HTML overview, and a delivery manifest. A partial package can include valid available images and explicitly list missing outputs. Export never generates a missing source with AI; that remains a deliberate Production action.
+
+**Configured prohibited wording is a campaign-wide export gate.** A match blocks ZIPs, individual PNGs, and the offline report preview. Correct the named text or deliberately edit the rule, allow autosave to finish, then retry. Invalid current settings must also be corrected before delivery. A saved draft is allowed to be incomplete while you work; incomplete or invalid data is not silently replaced by older image settings during export.
+
+Downloads already saved outside Motif remain independent files. Later changes affect the next export, not an existing download.
 
 ## Brief, copy, and asset contract
 
@@ -284,13 +292,13 @@ For example, this **market-content fragment** configures an ordinary whole-word 
 }
 ```
 
-Matching uses Unicode normalization and the configured literal/word-boundary semantics. It scans accepted printed headlines and CTAs, not generation instructions or arbitrary descriptions. It is a simple configured-text check, not a legal-compliance engine.
+Matching uses Unicode normalization and the configured literal/word-boundary semantics. It scans the current resolved headlines and CTAs, not generation instructions or arbitrary descriptions. It is a simple configured-text check, not a legal-compliance engine.
 
-Structurally valid prohibited content can still be imported, opened, edited, and saved. Validation occurs when the producer asks to plan, produce, apply, or export. A prohibited phrase does not make the campaign impossible to open for correction.
+Structurally valid prohibited content can still be imported, opened, edited, and saved. Validation occurs when the producer requests a preview, prepares sources, or exports. A prohibited phrase does not make the campaign impossible to open for correction.
 
 ### Asset handling
 
-- Upload **PNG or JPEG**, up to **20 MiB per file** and **40 megapixels**. Logos may be opaque or transparent; a fully transparent logo is refused.
+- Upload **PNG or JPEG**, up to **20 MiB per file** and **40 megapixels**. A finished product scene must have a background and no transparent areas. Logos may be opaque or transparent; a fully transparent logo is refused. The separate prepared-product input described above intentionally accepts a transparent cutout.
 - The server inspects the decoded content, applies orientation, and handles supported color profiles. Original source files are retained. A filename or MIME label alone is not proof that an image is usable.
 - Imported asset paths do not grant filesystem access. Reattach the corresponding assets through the image and logo controls; imports do not read arbitrary paths from another machine.
 - Replacement failure preserves the previous usable logo. Basic provenance remains factual; replacing an image does not establish ownership or inherit an unsupported rights claim.
@@ -314,17 +322,21 @@ Autumn Winds-a1b2c3d4/
             └── ...
 ```
 
-The ZIP and its extracted root use the brand name and a short snapshot suffix, such as `Autumn Winds-a1b2c3d4`. Folder exports use the same name. Product names stay readable; unsafe characters are replaced, long names are bounded, and duplicate names receive stable suffixes. Individual PNG downloads include the product, market, format, and dimensions.
+Download ZIP renders the current campaign into temporary storage and sends the completed package to the browser. Its temporary files and stream close after the response. No ZIP archive, output folder, or export-history record is retained in the workspace. Preview offline report uses temporary previews of the current saved composition; it creates no files in the campaign.
 
-Exports include the available images from the current saved revision. Missing outputs are recorded as omissions rather than represented by invented files. The manifest records the output matrix, dimensions, file hashes, actual supplied copy, source provenance, accessible descriptions, omissions, and relevant metrics. It does not include API credentials or raw provider responses.
+The ZIP and its extracted root use the brand name and a short snapshot suffix, such as `Autumn Winds-a1b2c3d4`. Product names stay readable; unsafe characters are replaced, long names are bounded, and duplicate names receive stable suffixes. Individual PNG downloads include the product, market, format, and dimensions.
+
+Exports create the available images from one captured version of the current editing instructions. Missing outputs are recorded as omissions rather than represented by invented files. The manifest records the output matrix, dimensions, file hashes, actual supplied copy, source provenance, accessible descriptions, omissions, and relevant metrics. It does not include API credentials or raw provider responses.
 
 Extract the ZIP, then open `index.html` in a browser. Keep the folder structure together when moving it. Images use relative references; the overview needs no running Motif server, API key, external font service, or network connection. The manifest is useful for programmatic inspection, while the HTML provides a readable handoff.
 
 The overview labels these same formats Instagram post (Square, 1:1), Story (9:16), and Facebook post (Landscape, 16:9).
 
-Packages capture their image and description/metadata snapshot. A later change produces a new artifact instead of rewriting a previous download. An intact identical package can be reused; matching only the image revision is insufficient if its descriptions or report facts changed. Export rechecks named file hashes and current wording admission. The browser report uses a UUID address. Its saved image and metadata snapshot, internal fingerprint, and permitted files remain bound in the export registry; the fingerprint is not part of the browser URL.
+Each download contains the images and descriptions captured when that export started. The export verifies source hashes, checks the rendered PNGs, and validates the ZIP before delivery. An edit made during export cannot mix newer text or a newer logo into the package being prepared. A stale offline-preview link asks for a new preview rather than mixing saves. Current exports create no database history; packages registered by v0.2.0 retain their existing records for compatibility.
 
 **Import another seasonal campaign.** The [Autumn brief and assets](src/campaign_studio/resources/campaigns/autumn-winds/) and [Bridle brief and assets](src/campaign_studio/resources/campaigns/bridle-and-bough/) are included in the Motif folder. Choose **Import brief**, select the campaign’s `brief.json`, and attach its named product images and optional logo through their controls. Import opens Campaign so you can fill in the remaining details at your own pace. Each import receives a fresh identity, even when its display name matches another campaign. Motif imports JSON; a ZIP exported from Handoff contains finished outputs and is not an import brief.
+
+If a local image render fails during ZIP creation, Motif continues creating the other images and retries the failed image. The counter shows how many images have been created and checked. A persistent failure identifies the image and offers **Retry failed images**; successfully checked images remain in one temporary export job for that retry. Motif never silently omits a failed image or starts a paid AI request during export. Changing the campaign starts a new export from the current settings. Temporary export files are removed after delivery, cancellation, expiration, or application exit.
 
 ## Architecture and data flow
 
@@ -332,36 +344,35 @@ Motif is one local Python process serving a browser interface. The browser handl
 
 ```mermaid
 flowchart TD
-    Browser[Motif browser interface] --> Intake[Create/import and owned uploads]
-    Intake --> Draft[Current authored project JSON]
-    Draft --> Plan[Validated plan and input hashes]
-    Plan --> Confirm[Explicit confirmation]
-    Confirm --> Runner[Serial runner]
-    Runner -->|Planned generation| Provider[OpenAI Images adapter]
-    Provider --> Receipt[Saved response and decoded source]
-    Runner -->|Supplied or saved sources| Compose[Pillow composition]
-    Receipt --> Compose
-    Compose --> Result[Accepted PNGs and manifest]
-    Result --> Preview[Local correction preview]
-    Preview -->|Apply exact preview| Result
-    Result --> Gate[Current-result and prohibited-copy gate]
-    Gate --> Export[PNG / ZIP / offline HTML package]
-    Runner <--> DB[(SQLite identity, runs, and attempts)]
-    Result <--> DB
-    Export <--> DB
+    Campaign[Campaign forms] -->|Autosave| Current
+    Studio[Studio text, logo, crop, and style controls] -->|Autosave| Current
+    subgraph Database[SQLite]
+        Current[One current editable campaign]
+        Requests[Confirmed source requests and attempt facts]
+    end
+    Current --> Planning[Check source readiness]
+    Planning -->|Explicit generation confirmation| Provider[Image provider]
+    Provider --> Sources[Saved source photographs]
+    Provider --> Requests
+    Upload[Owned photos and logos] --> Sources
+    Current --> Preview[Temporary visual previews]
+    Sources --> Preview
+    Current -->|Download| Capture[Capture consistent settings and source bytes]
+    Sources --> Capture
+    Capture --> Render[Pillow creates finished PNGs]
+    Render --> Check[Check images and prepare ZIP]
+    Check --> Browser[Browser download]
 ```
 
-Three states are deliberately distinct:
+One current campaign document contains both Campaign fields and Studio editing instructions. The same saved values drive previews, source planning, and exports. There is no separate accepted image version to update after saving a form.
 
-1. **Authored project** – what the producer is currently writing, including unfinished values.
-2. **Confirmed plan** – the fixed input and request snapshot authorized for a production run.
-3. **Accepted output** – the images and metadata that Studio and Handoff currently use.
+Paid generation has a different responsibility. Its confirmed request must remain fixed while the provider is working, so the application retains that request and its outcome separately. Those records explain actual external requests and charges; they are not a history of logo movements or text edits.
 
-This prevents an unfinished draft, a new unstarted plan, or a failed Apply from displacing useful accepted images. An explicit rule decision can legitimately withhold every output; preserved fallback pixels do not override that decision’s export restrictions.
+An export captures the current settings and verified source bytes before rendering. It uses that snapshot throughout the download, even if another tab saves a change while the files are being prepared.
 
 The server binds to loopback and checks allowed hosts, request origin, a per-process mutation token, file ownership, and expected versions. Motif assumes a trusted local computer and does not authenticate individual operating-system accounts. Campaigns and supplied assets remain on the machine except for text deliberately sent in a confirmed concept-generation request.
 
-The canonical campaign pages are `/campaigns/<uuid>/campaign`, `/production`, `/studio`, and `/handoff`, all beneath the same campaign prefix. A malformed, unknown, or deleted identity receives the Motif **Campaign not found** page. A registered draft can open before its first run. Old page aliases and old-schema migrations are not part of this prototype.
+The canonical campaign pages are `/campaigns/<uuid>/campaign`, `/production`, `/studio`, and `/handoff`, all beneath the same campaign prefix. A malformed, unknown, or deleted identity receives the Motif **Campaign not found** page. A registered draft can open before its first run. Old page aliases are not supported. The v0.2.0 workspace layout is upgraded in place; older incompatible 0.1.x layouts require their original application.
 
 ## Stack and decisions
 
@@ -373,13 +384,13 @@ Alternative entries are explanatory architectural comparisons. Only the selected
 | FastAPI, Uvicorn, and Pydantic | Typed input contracts and explicit local HTTP operations, with generated JSON Schema. | A CLI alone would simplify presentation but make visual editing harder. A larger service framework is unnecessary for one local producer. |
 | Jinja2 and plain JavaScript | A served page shell and direct controls without a frontend build or dependency tree. | A frontend framework could help a larger interface, but adds tooling. Plain JavaScript still requires careful ownership of async state, focus, and stale responses; it is not automatically simple. |
 | Pillow and fontTools | Deterministic local crop, font coverage, text metrics, overlays, and PNG output. | Rendering text inside a generated image would make exact copy changes unreliable. Browser-only drawing would need a second authority for final pixels. |
-| SQLite plus files | Short transactions protect identities and attempts; image files and packages remain inspectable. | Cloud object storage and a shared database suit multi-user hosting, but add services and operating concerns outside this local workflow. There is no S3 or simulated S3 layer. |
+| SQLite plus files | Short transactions keep the current editing document, file ownership, and request records consistent; source images remain ordinary files. | Cloud object storage and a shared database suit multi-user hosting, but add services and operating concerns outside this local workflow. There is no S3 or simulated S3 layer. |
 | One serial runner | Clear allowance accounting and bounded local resource use without a task queue. | Parallel generation could improve throughput but would complicate Stop, cumulative allowance, and partial failure. Serial execution trades speed for a smaller execution model. |
 | Official OpenAI SDK with one small adapter | Keeps provider transport separate from planning and rendering without building a general provider framework. | Another provider would need its own parameter, error, cost, and image-quality verification. Provider interchangeability is not claimed. |
 | `uv.lock` and a hashed requirements export | Reproducible development and a conventional evaluator installation from the same dependency set. | Two independent dependency lists would be easier to drift. The export must remain synchronized with the lock. |
 | Offline HTML and PNG delivery | The recipient can inspect the actual images without installing the application or sharing a key. | A hosted team-review system could coordinate approvals, but would require accounts, access control, and synchronization absent from this prototype. |
 
-The stack is small; the interactive workflow is still substantial. Save conflicts, paid-request uncertainty, exact-preview Apply, and safe deletion are real responsibilities. Their guards are kept explicit rather than replaced with a claim that the whole application is trivially portable or production-ready. [Architecture notes](docs/architecture.md) explain these choices and their boundaries.
+The stack is small; the interactive workflow is still substantial. Save conflicts, paid-request uncertainty, consistent export snapshots, and safe deletion are real responsibilities. Their guards are kept explicit rather than replaced with a claim that the whole application is trivially portable or production-ready. [Architecture notes](docs/architecture.md) explain these choices and their boundaries.
 
 ## Where prompts and pixels come from
 
@@ -397,30 +408,31 @@ The local compositor handles image loading, crop geometry, text wrapping, glyph 
 
 The two packaged output families are **Noto Sans Regular** and **Barlow Condensed Semibold**. Each headline and CTA can select its own family and palette color. Default typography and color apply when no override exists. Font upload, system-font enumeration, arbitrary editor colors, rich text, and effects are outside scope.
 
-Temporary previews and accepted PNGs use the same compositor. Publication saves the checked images and their manifest. The browser may display clean image layers while a handle moves, but Apply is tied to the settled decoded final PNG and its request identity. Selection frames, guides, and handles do not enter the exported image.
+Temporary previews and exported PNGs use the same compositor, fonts, and geometry rules. The browser also uses separate layers for immediate feedback while a handle moves. Autosave records the instructions; it does not retain a finished PNG. Downloading runs the final composition and integrity checks. Selection frames, guides, and handles do not enter the exported image.
 
 ## Persistence, identity, and cleanup
 
-Motif uses one continuously saved project, not a version-history product. Quiet autosave and deliberate product commits share version-checked authored persistence. A stale browser tab cannot silently overwrite a newer save; a lost acknowledgement can be reconciled without treating a repeated request as a different edit.
+Motif keeps current campaign work rather than an image-edit history. Campaign and Studio autosave replace one current document, with a version token to detect another tab's newer save. A lost acknowledgement can be reconciled without creating another edit record.
 
-Campaign identity is a canonical hyphenated UUID, separate from its display name. SQLite records the full campaign ID and its permanent project folder before production. Duplicate names are allowed, and renaming leaves the identity and URL unchanged. Draft content stays in JSON; the registry does not duplicate creative content.
+Campaign identity is a canonical hyphenated UUID, separate from its editable display name. SQLite records that identity and its permanent folder. Duplicate names are allowed. Renaming a campaign leaves its identity, folder, and URL unchanged.
 
-The workspace holds uploads, source snapshots, received material, execution records, accepted PNGs, and app-created packages. Keep a backup of the complete Workspace folder before replacing or deleting the extracted Motif installation.
-
-Open `Campaigns/` in the workspace to find a folder for each campaign, such as `Autumn Winds-901f13e2/`. The label comes from the brand or campaign name at creation. The suffix identifies the project. Renaming a campaign keeps its folder and links stable.
-
-| Inside a project | Contents |
+| Inside a campaign folder | Contents |
 | --- | --- |
-| `Brief/` | The editable draft and the original imported JSON, when supplied. |
-| `Assets/` | This project’s copies of uploaded product photos and logos. |
-| `Runs/<id>/` | The production plan, frozen inputs, request records, received source images, and revisions with finished PNGs. |
-| `Exports/` | Managed delivery ZIPs and offline report folders. |
+| `Brief/Imports/` | An original imported JSON brief, when one was supplied. |
+| `Assets/Products/` and `Assets/Brand/` | Supplied photographs and logos, named with the product or brand label plus a unique identifier. |
+| `Runs/<id>/` | Inputs and response/source files associated with explicit source production. Autosave does not create these folders. |
 
-One SQLite database in `private/state.sqlite3` records every campaign’s identity, production state, attempts, descriptions, and managed file locations. Pick the same photo in two campaigns and each receives its own copy. Back up the whole workspace, including SQLite, with Motif stopped.
+New attachments keep a readable label, such as `leaflight-lantern-<identifier>.png`, while the identifier distinguishes separate files with the same label. Editing text, color, or framing does not rename the source file. Earlier registered asset names remain usable.
 
-After successful image publication, exact cleanup retains the newest usable output set and a distinct necessary complete fallback. Source imagery, small records, and independent exported packages remain available. Empty failures do not replace usable images. Startup resumes only a previously confirmed cleanup with its existing target list; it does not choose additional files to delete.
+Folders appear only as needed. Current editing creates no `Outputs/`, `Exports/`, or archive folders. A supported older workspace may retain previously exported packages or files you added yourself.
 
-**Delete campaign** lists the registered files and estimates the space to reclaim. Confirmation removes those files and the empty project folder. A file you added yourself keeps its folder on disk. Packages you copied elsewhere remain available. An interrupted deletion resumes its confirmed file list after restart or retry.
+One SQLite database in `Workspace/private/state.sqlite3` serves the application workspace. Its current campaign document contains the brief fields, per-image editing instructions, accessible descriptions, source references, and save version. Separate records track confirmed source requests, actual provider attempts, usage, and file ownership. Ownership identifies which campaign may use or delete a file; it is not a multiple-user permission system.
+
+The current instructions determine what appears in Campaign, Studio, and Handoff. A temporary preview is a display of those instructions. Export captures them, verifies its sources, creates final PNGs, checks those files, and packages them for download. No edit needs to copy the other images or create another campaign folder.
+
+A **delivery manifest** accompanies the downloaded images. It identifies each PNG's product, market, format, dimensions, checksum, and printed copy. It helps the recipient inspect or verify the package without Motif. It is created for that download, not maintained as a redundant working JSON file.
+
+Back up the complete Workspace with Motif stopped. A campaign folder alone omits its current database settings. **Delete campaign** removes the registered campaign files and database records, then removes directories that are empty. Files you added outside Motif stay in place. An interrupted deletion resumes its confirmed inventory after restart or retry.
 
 ### Capacity
 
@@ -430,13 +442,13 @@ The default growth budget is **10 GB**, with a **1 GB free-disk reserve**, both 
 uv run --locked campaign-studio workspace
 ```
 
-Large uploads, snapshots, image publications, packages, and paid attempts check conservative disk estimates. Received provider material and essential control records are preserved when possible even if a result exceeds its estimate; subsequent growth can then be refused. Intact existing work remains usable, subject to the ordinary wording and integrity gates.
+Large uploads, source snapshots, temporary exports, and paid attempts check conservative disk estimates. Received provider material and essential control records are preserved when possible even if a result exceeds its estimate; subsequent growth can then be refused. Intact existing work remains usable, subject to the ordinary wording and integrity gates.
 
 This is disk admission, not an operating-system quota, a RAM limit, or a guarantee against another process filling the disk. Large compressed inputs can require much more memory when decoded. No automatic destructive retention policy substitutes for deliberate campaign deletion.
 
 ## Paid requests, Stop, and recovery
 
-The saved plan records the exact request. Confirmation binds its digest and allowance. Immediately before dispatch, the runner reserves an attempt durably, rechecks relevant state and capacity, and then calls the provider outside the short database transaction.
+An unfinished production plan records the exact request. Confirmation binds its digest and allowance. Immediately before dispatch, the runner reserves an attempt durably, rechecks relevant state and capacity, and then calls the provider outside the short database transaction.
 
 - **No automatic paid retry.** The SDK has retries disabled. A retry is an explicit producer action against the saved run, request, and remaining cumulative allowance.
 - **Stop prevents unsent work.** It cannot promise that a request already accepted by the provider was canceled or uncharged.
@@ -483,12 +495,12 @@ Then run the isolated smoke, synthetic, and saved-replay commands above. JavaScr
 | --- | --- |
 | Python tests | Deterministic validation, source/copy handling, image composition, storage, identity, export, provider-transport failures, and durability cases. Mocked transport is not live provider generation. |
 | JavaScript tests | Controller, editor, event, stale-response, and presentation behaviors. They do not replace actual browser interaction. |
-| Connected browser journeys | Create/import, attachments, local production, autosave, Add/Update, Apply/Cancel, failure recovery, and actual exports within recorded viewport/input coverage. Finite journeys do not prove every possible control state or platform. |
+| Connected browser journeys | Create/import, attachments, local production, autosave, structured product actions, Studio autosave, failure recovery, and actual exports within recorded viewport/input coverage. Finite journeys do not prove every possible control state or platform. |
 | Package verification | Actual file counts, dimensions, file hashes, decoded pixels, and moved offline reports, rather than screenshot-only proof. |
 | Installation checks | Locked dependency and conventional package installation, resource parity, and key-free smoke. A successful installation is distinct from provider-account access. |
 | Genuine generation | Separately recorded actual provider work. Replaying its saved source proves reuse, not a new call. |
 
-Verification includes deterministic tests, controlled provider failures, actual desktop browser journeys, clean installations, and inspection of exported PNGs and offline reports. [Verification notes](docs/verification.md) distinguish what was run on the current package from unchanged evidence carried forward. Saved-source replay is not a new provider call, and test totals are not a quality score.
+Verification uses deterministic tests, controlled provider failures, actual desktop browser journeys, clean installations, and inspection of exported PNGs and offline reports. [Verification notes](docs/verification.md) identify the checked workflows, installation methods, and remaining verification work. Saved-source replay is not a new provider call, and test totals are not a quality score.
 
 The [GitHub Actions workflow](.github/workflows/checks.yml) runs the full application checks on Ubuntu. A native Windows job runs the full Python suite, including storage, encrypted credentials, and bundled campaigns, followed by installed sample commands. [Workflow runs](https://github.com/brucebrackenjr/campaign-studio/actions) show results for each commit.
 
@@ -496,12 +508,12 @@ Useful focused test groups include:
 
 - `test_campaign_identity.py`, `test_authored.py`, and `test_process_durability.py` – identity, stale/lost saves, and actual process boundaries.
 - `test_provider_runner.py` and `test_production_disclosures.py` – request intent, Stop, allowance, failures, and useful recovery state.
-- `test_direct_editing.py`, `test_partial_editing.py`, `test_logo_editing.py`, and `test_rule_decisions.py` – exact correction scopes and accepted-result behavior.
+- `test_direct_editing.py`, `test_partial_editing.py`, `test_logo_editing.py`, and `test_rule_decisions.py` – exact correction scopes and current-composition behavior.
 - `test_prohibited_exports.py`, `test_offline_report.py`, and `test_cleanup.py` – whole-campaign export admission, portable reports, exact deletion, and interrupted cleanup.
 
 ### Debugging a local run
 
-- **Production or provider failures:** Start with the reported state and recovery action in Production. SQLite retains request-attempt records; saved plans and any retained provider responses supply the corresponding request and outcome evidence. Use these together before deciding whether another request is appropriate.
+- **Production or provider failures:** Start with the reported state and recovery action in Production. SQLite retains exact requests in the unfinished plan or completed production record, alongside attempt states and reported usage. Retained provider response files supply additional outcome evidence. Use these together before deciding whether another request is appropriate.
 - **Browser behavior:** Use the browser’s Network panel to inspect the affected local request, status, and error response, and its Console for unexpected JavaScript errors.
 - **Startup or server errors:** Check the terminal that launched Motif for startup messages and unexpected exceptions.
 
@@ -517,15 +529,15 @@ Useful focused test groups include:
 | The image chooser starts in another folder | The browser/operating system chooses the native file dialog’s starting folder. Browse to the intended file; Motif cannot force this ordinary picker into a campaign directory. A previously committed photo remains available when switching back from generation mode. |
 | A logo upload is refused | Use a decodable PNG/JPEG within the size limits and with visible artwork. An unsuccessful replacement should leave the previous usable logo in place. |
 | Text or a protected source area does not fit | Adjust the actual copy, text layout, crop, or important-area bounds. Motif does not silently truncate copy or relax the constraint. |
-| Export asks for a wording correction | Use the direct correction action for the named product/language/field, or deliberately edit the applicable rule. Apply/Recheck; selecting an unblocked subset cannot bypass the campaign gate. |
-| Export says rule changes are pending | Resolve and apply the saved rule edits. A saved form is not an accepted rule decision. |
-| Another tab changed the campaign | Preserve the current text, then use the conflict/reload path. Do not keep resubmitting an old base as if it were current. |
+| Export asks for a wording correction | Use the direct correction action for the named product/language/field, or deliberately edit the applicable rule. Let autosave finish, then retry; selecting an unblocked subset cannot bypass the campaign gate. |
+| Export reports invalid current settings | Correct the identified fields and allow autosave to finish before retrying. |
+| Campaign updated elsewhere | Choose **Refresh** to load the latest saved campaign. Unsaved edits in this window will be discarded; Motif does not merge or overwrite the newer work automatically. |
 | A request timed out or the connection failed | Inspect the saved attempt and recovery option. Do not assume there was no charge or immediately repeat the request. Local recovery is appropriate only when usable material was saved. |
-| A saved output is damaged | Use offered local recovery when its verified sources remain. If the source itself is missing or changed, reattach a valid source; Motif will not buy one silently. |
+| A downloaded output is damaged or lost | Download it again from the current campaign. If a source is missing or changed, reattach it; export will not buy a replacement. |
 | New work is refused for storage capacity | Inspect Local workspace, free disk space, or deliberately delete an unneeded campaign. Configuration changes require restart. Existing intact downloads still require current content admission. |
 | A campaign link is not found | Return to the Workbench or create a campaign. Display names are not URL IDs; old route/ID aliases are not supported. |
 | An offline report has missing images | Extract the whole package and move its HTML, manifest, and images together. Do not open only a detached `index.html`. |
-| A bundled composition font is missing or corrupt | Restore/reinstall the complete package before new rendering. Existing saved PNGs do not need to be generated again just to view them. |
+| A bundled composition font is missing or corrupt | Restore/reinstall the complete package before new rendering. Preview and export require the bundled fonts; existing external downloads remain usable. |
 
 ## Scope and limitations
 
@@ -535,8 +547,8 @@ Useful focused test groups include:
 - **Deliberate editing.** Headline and CTA have independent font/palette controls, but there is no arbitrary font upload, free color picker in the image editor, rich text, effects, rotation, or layer-order tool. Brand owns the palette.
 - **Simple configured legal check.** Prohibited-phrase matching is not legal advice, trademark clearance, fact-checking, or comprehensive compliance review.
 - **No approval workflow.** There are no human-review status markers, warning-center tasks, history controls, fixed version allowance, or saved image-editor draft queue.
-- **No automatic retry or model switching.** Provider failures require deliberate decisions. Account access, response time, output quality, and exact charges are not guaranteed.
-- **No legacy migration promise.** This prototype uses its current schema and supported routes. It does not upgrade incompatible old test workspaces.
+- **No automatic paid retry or model switching.** Provider failures require deliberate decisions. Account access, response time, output quality, and exact charges are not guaranteed. Failed local image renders can be retried without a provider request.
+- **Bounded workspace upgrades.** v0.2.0 workspaces are supported by the current upgrade. Incompatible 0.1.x test workspaces require their original application; arbitrary older layouts are not automatically repaired.
 - **Technical correctness is not creative approval.** Correct dimensions, exact text, and verified files do not establish an effective campaign. Crop/readability judgment, asset permission, and publication remain human decisions.
 
 ## AI assistance and attribution

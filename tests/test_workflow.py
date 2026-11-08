@@ -1,17 +1,18 @@
 import asyncio
 import hashlib
+import io
 import json
-import shutil
 from html.parser import HTMLParser
+from uuid import uuid4
+from zipfile import ZipFile
 
 import pytest
-from campaign_fixtures import export_ref
 from PIL import Image, ImageDraw
 
 from campaign_studio.brief import Brief
-from campaign_studio.exporting import export_package
+from campaign_studio.campaign_drafts import write as write_draft
 from campaign_studio.imaging import load_image, logo_placement, save_srgb
-from campaign_studio.planning import compare_plans, make_plan
+from campaign_studio.planning import canonical_hash, make_plan
 from campaign_studio.rendering import inspect_png
 from campaign_studio.runner import Runner
 from campaign_studio.sample import write_sample
@@ -24,128 +25,157 @@ def setup_case(tmp_path, count=2, one_market=False):
     _, brief = write_sample(storage, count, one_market)
     state = State(storage)
     run_id = state.create(make_plan(brief, storage), 0)
+    prepared = state.plan(run_id).brief.model_dump(mode="json")
+    write_draft(
+        storage,
+        brief.campaign_id,
+        {
+            "authored": {"brief": prepared},
+            "composition_schema": 1,
+            "version": uuid4().hex,
+            "planned_run": run_id,
+            "planned_authored_hash": canonical_hash(prepared),
+            "authored_base": {"run_id": run_id, "revision_id": None, "metadata_snapshot_id": None},
+        },
+    )
     state.confirm(run_id, state.plan(run_id).digest)
     return state, Runner(state), run_id, brief
 
 
-def pixel_hashes(state, manifest):
-    prefix = state.revision(manifest["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    values = []
-    for output in manifest["outputs"]:
-        with Image.open(state.storage.path(f"{prefix}/{output['file']}")) as image:
-            values.append(hashlib.sha256(image.convert("RGB").tobytes()).hexdigest())
-    return values
-
-
 def edit_copy(state, run_id, message):
-    value = state.plan(run_id).brief.model_dump()
+    from campaign_studio.workspace import Workspace
+
+    value = (
+        Workspace(state)
+        .current_composition(state.run(run_id)["campaign_id"])["plan"]
+        .brief.model_dump()
+    )
     value["markets"]["es-MX"]["copy"]["message"] = message
     return Brief.model_validate(value)
 
 
 def revise(state, runner, run_id, brief):
-    current = state.run(run_id)["current_revision"]
-    preview = make_plan(brief, state.storage)
-    return runner.revise(run_id, brief, current, preview.digest)
+    from campaign_studio.authored import AuthoredProjects, AuthoredSave
+    from campaign_studio.workspace import Workspace
+
+    workspace = Workspace(state)
+    projects = AuthoredProjects(workspace)
+    current = projects.read(brief.campaign_id)
+    projects.save(
+        brief.campaign_id,
+        AuthoredSave(
+            version=current["version"],
+            base=current["base"],
+            authored=current["authored"] | {"brief": brief.model_dump(mode="json")},
+        ),
+    )
+    return workspace.current_composition(brief.campaign_id)
 
 
-def test_complete_local_run_is_idempotent_and_reopens_without_originals(tmp_path):
+def delivery(state, cid):
+    from campaign_studio.handoff import DeliveryAction, Handoff
+    from campaign_studio.workspace import Workspace
+
+    workspace = Workspace(state)
+    current = workspace.current_composition(cid)
+    with (
+        Handoff(state).create_current_zip(
+            cid, DeliveryAction(version=current["version"])
+        ) as result,
+        ZipFile(result.stream) as archive,
+    ):
+        files = {name: archive.read(name) for name in archive.namelist()}
+        manifest_name = next(name for name in files if name.endswith("/manifest.json"))
+        manifest = json.loads(files[manifest_name])
+        prefix = manifest_name.removesuffix("manifest.json")
+        pixels = {}
+        for output in manifest["outputs"]:
+            if output["file"]:
+                with Image.open(io.BytesIO(files[prefix + output["file"]])) as image:
+                    pixels[output["id"]] = hashlib.sha256(
+                        image.convert("RGB").tobytes()
+                    ).hexdigest()
+        return manifest, pixels, files, prefix
+
+
+def test_complete_local_sources_are_idempotent_and_export_after_restart_without_originals(tmp_path):
     state, runner, run_id, original = setup_case(tmp_path)
     for product in original.products:
         state.storage.path(product.source.path).unlink()
     first = asyncio.run(runner.execute(run_id))
-    assert first["complete"] and first["metrics"]["completed_images"] == 12
-    assert first["evidence"] == "synthetic"
-    assert state.attempts(run_id) == []
-    assert asyncio.run(runner.execute(run_id))["revision_id"] == first["revision_id"]
-    previous_pixels = pixel_hashes(state, first)
-    reopened = Runner(State(state.storage)).recover_local(run_id)
-    assert reopened["complete"]
-    # Recovery renders again; ICC creation metadata may differ, but pixels must not.
-    assert pixel_hashes(state, reopened) == previous_pixels
+    assert first["complete"] and first["metrics"]["completed_images"] == 0
+    assert first["sources_ready"] == 2 and state.attempts(run_id) == []
+    assert asyncio.run(runner.execute(run_id))["complete"]
+    assert state.run(run_id)["current_revision"] is None
+    before = delivery(state, original.campaign_id)
+    reopened = State(state.storage)
+    after = delivery(reopened, original.campaign_id)
+    assert len(before[1]) == 12 and before[1] == after[1]
+    assert not list(state.storage.root.glob("Campaigns/*/Outputs"))
 
 
-def test_three_product_us_only_campaign_produces_nine_real_pngs(tmp_path):
-    _, runner, run_id, _ = setup_case(tmp_path, 3, True)
+def test_three_product_us_only_campaign_exports_nine_real_pngs(tmp_path):
+    state, runner, run_id, brief = setup_case(tmp_path, 3, True)
     result = asyncio.run(runner.execute(run_id))
-    assert result["complete"]
-    assert len(result["outputs"]) == 9
-    assert result["metrics"]["attempted_requests"] == 0
+    assert result["complete"] and result["outputs"] == []
+    manifest, pixels, _, _ = delivery(state, brief.campaign_id)
+    assert len(pixels) == 9 and state.attempts(run_id) == []
 
 
-def test_shared_six_override_three_and_rule_only_revision(tmp_path, monkeypatch):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    first = asyncio.run(runner.execute(run_id))
-    corrected = revise(state, runner, run_id, edit_copy(state, run_id, "Para cada día."))
-    assert corrected["complete"] and len(corrected["outputs"]) == 12
-    changed = [
-        new["id"]
-        for old, new in zip(first["outputs"], corrected["outputs"], strict=True)
-        if old["sha256"] != new["sha256"]
-    ]
-    assert len(changed) == 6 and all("es-MX" in item for item in changed)
-    value = state.plan(run_id).brief.model_dump()
+def test_shared_six_override_three_and_rule_only_metadata_save(tmp_path, monkeypatch):
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
+    first = delivery(state, brief.campaign_id)[1]
+    revise(state, runner, run_id, edit_copy(state, run_id, "Para cada día."))
+    second = delivery(state, brief.campaign_id)[1]
+    changed = [key for key in first if first[key] != second[key]]
+    assert len(changed) == 6 and all("es-MX" in key for key in changed)
+    value = edit_copy(state, run_id, "Para cada día.").model_dump()
     value["products"][0]["copy_overrides"] = {"es-MX": {"message": "Sólo para hoy."}}
-    third = revise(state, runner, run_id, Brief.model_validate(value))
-    assert (
-        sum(
-            a["sha256"] != b["sha256"]
-            for a, b in zip(corrected["outputs"], third["outputs"], strict=True)
-        )
-        == 3
-    )
-    value = state.plan(run_id).brief.model_dump()
+    revise(state, runner, run_id, Brief.model_validate(value))
+    third = delivery(state, brief.campaign_id)[1]
+    assert sum(second[key] != third[key] for key in third) == 3
     value["markets"]["es-MX"]["phrase_rules"] = [{"id": "absent", "phrase": "Never printed"}]
     monkeypatch.setattr(
-        "campaign_studio.rendering.compose",
-        lambda *args: pytest.fail("Rule-only edit rendered imagery"),
+        "campaign_studio.rendering.compose", lambda *args: pytest.fail("Autosave rendered imagery")
     )
     fourth = revise(state, runner, run_id, Brief.model_validate(value))
-    assert fourth["complete"]
-    assert all(
-        item["severity"] == "pass" for item in fourth["findings"] if item["rule"] == "absent"
-    )
+    assert all(f.severity == "pass" for f in fourth["plan"].findings if f.rule == "absent")
     assert state.attempts(run_id) == []
-    # The saved override round trip must retain omitted-field inheritance.
-    assert state.plan(run_id).brief.products[0].copy_overrides["es-MX"].model_fields_set == {
-        "message"
-    }
+    assert fourth["plan"].brief.products[0].copy_overrides["es-MX"].model_fields_set == {"message"}
+    with state.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
 
 
-def test_blocking_edit_preserves_current_and_exports_explicit_partial(tmp_path):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    first = asyncio.run(runner.execute(run_id))
+def test_blocking_copy_is_saved_but_cannot_be_exported_as_partial(tmp_path):
+    from campaign_studio.handoff import DeliveryAction, Handoff
+
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
     value = state.plan(run_id).brief.model_dump()
     value["markets"]["en-US"]["copy"]["message"] = "TESTBLOCK"
-    blocked = make_plan(Brief.model_validate(value), state.storage)
-    with pytest.raises(StateError, match="Correct the campaign details"):
-        state.create(blocked, 0)
-    partial = revise(state, runner, run_id, blocked.brief)
-    assert not partial["complete"]
-    assert partial["metrics"]["completed_images"] == 6
-    assert state.run(run_id)["current_revision"] == first["revision_id"]
-    assert all(item["file"] is None for item in partial["outputs"] if item["market"] == "en-US")
-    with pytest.raises(StateError, match="explicitly"):
-        export_package(
-            state, partial["revision_id"], export_ref(state, partial["revision_id"], "not-allowed")
-        )
-    index = export_package(
-        state,
-        partial["revision_id"],
-        export_ref(state, partial["revision_id"], "partial"),
-        allow_partial=True,
-    )
-    assert "Partial" in state.storage.path(index).read_text()
+    current = revise(state, runner, run_id, Brief.model_validate(value))
+    assert current["plan"].blocked
+    for partial in (False, True):
+        with pytest.raises(StateError, match="prohibited|wording"):
+            Handoff(state).create_current_zip(
+                brief.campaign_id, DeliveryAction(version=current["version"], allow_partial=partial)
+            )
+    value["markets"]["en-US"]["copy"]["message"] = "Corrected wording"
+    revise(state, runner, run_id, Brief.model_validate(value))
+    assert len(delivery(state, brief.campaign_id)[1]) == 12
+    assert not state.attempts(run_id)
 
 
 def test_moved_complete_package_has_only_local_files_and_escaped_content(tmp_path):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    result = asyncio.run(runner.execute(run_id))
-    export_package(
-        state, result["revision_id"], export_ref(state, result["revision_id"], "complete")
-    )
-    moved = tmp_path / "moved"
-    shutil.copytree(state.storage.path(export_ref(state, result["revision_id"], "complete")), moved)
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
+    manifest, pixels, files, prefix = delivery(state, brief.campaign_id)
+    moved = tmp_path / "moved-delivery"
+    for name, payload in files.items():
+        target = moved / name.removeprefix(prefix)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
 
     class Links(HTMLParser):
         references = []
@@ -157,27 +187,28 @@ def test_moved_complete_package_has_only_local_files_and_escaped_content(tmp_pat
 
     parser = Links()
     parser.feed((moved / "index.html").read_text())
-    assert len(list(moved.rglob("*.png"))) == 12
+    assert len(pixels) == 12
     assert all(
         f'id="{item[1:]}"' in (moved / "index.html").read_text()
         if item.startswith("#")
         else ":" not in item and (moved / item).is_file()
         for item in parser.references
     )
-    manifest = (moved / "manifest.json").read_text()
-    assert "creative_direction" not in manifest and "response.json" not in manifest
-    assert "private/" not in manifest and "api_key" not in manifest
-    assert json.loads(manifest)["complete"] is True
+    serialized = json.dumps(manifest)
+    assert all(
+        secret not in serialized
+        for secret in ("creative_direction", "response.json", "private/", "api_key")
+    )
+    assert manifest["complete"] is True
 
 
 def test_exported_pixel_checks_detect_removed_logo_and_wrong_text_color(tmp_path):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    result = asyncio.run(runner.execute(run_id))
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
+    manifest, _, files, prefix = delivery(state, brief.campaign_id)
     plan = state.plan(run_id)
-    revision = state.revision(result["revision_id"])
-    path = state.storage.path(
-        revision["manifest_ref"].rsplit("/", 1)[0] + "/" + result["outputs"][0]["file"]
-    )
+    path = tmp_path / "damaged-export.png"
+    path.write_bytes(files[prefix + manifest["outputs"][0]["file"]])
     logo, _ = load_image(state.storage.path(plan.assets["logo"].reference))
     with Image.open(path) as image:
         damaged = image.convert("RGB")
@@ -191,40 +222,38 @@ def test_exported_pixel_checks_detect_removed_logo_and_wrong_text_color(tmp_path
         "logo_pixels",
         "controlled_text_color",
     }
-    with pytest.raises(StateError, match="saved output changed"):
-        export_package(
-            state, result["revision_id"], export_ref(state, result["revision_id"], "damaged")
+    assert delivery(state, brief.campaign_id)[0]["complete"]
+
+
+def test_stale_tab_save_is_rejected_without_changing_current_instructions(tmp_path):
+    from campaign_studio.authored import AuthoredProjects, AuthoredSave
+    from campaign_studio.workspace import Workspace
+
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
+    projects = AuthoredProjects(Workspace(state))
+    old = projects.read(brief.campaign_id)
+    current = revise(state, runner, run_id, edit_copy(state, run_id, "Para cada día."))
+    with pytest.raises(ValueError, match="changed|saved"):
+        projects.save(
+            brief.campaign_id,
+            AuthoredSave(version=old["version"], base=old["base"], authored=old["authored"]),
         )
+    assert Workspace(state).current_composition(brief.campaign_id)["version"] == current["version"]
 
 
-def test_stale_edit_preview_is_rejected_without_changing_revision(tmp_path):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    result = asyncio.run(runner.execute(run_id))
-    brief = edit_copy(state, run_id, "Para cada día.")
-    impact = compare_plans(state.plan(run_id), make_plan(brief, state.storage))
-    assert len(impact.render_outputs) == 6
-    with pytest.raises(StateError, match="preview changed"):
-        runner.revise(run_id, brief, result["revision_id"], "outdated")
-    assert state.run(run_id)["current_revision"] == result["revision_id"]
-
-
-def test_local_recovery_rebuilds_pixels_then_cleans_superseded_output_files(tmp_path):
-    state, runner, run_id, _ = setup_case(tmp_path)
-    first = asyncio.run(runner.execute(run_id))
-    revision = state.revision(first["revision_id"])
-    prefix = revision["manifest_ref"].rsplit("/", 1)[0]
-    damaged = state.storage.path(f"{prefix}/{first['outputs'][0]['file']}")
-    expected_pixels = pixel_hashes(state, first)
-    old_manifest = state.storage.path(revision["manifest_ref"]).read_bytes()
-    damaged.write_bytes(b"synthetic damaged PNG")
-    recovered = runner.recover_local(run_id)
-    assert recovered["complete"] and recovered["revision_id"] != first["revision_id"]
-    assert pixel_hashes(state, recovered) == expected_pixels
-    assert not damaged.exists()
-    assert state.storage.path(revision["manifest_ref"]).read_bytes() == old_manifest
-    assert state.revision(first["revision_id"])["images_retired"]
-    assert state.run(run_id)["current_revision"] == recovered["revision_id"]
-    assert state.attempts(run_id) == []
+def test_repeated_exports_recreate_finished_pixels_without_retained_output_history(tmp_path):
+    state, runner, run_id, brief = setup_case(tmp_path)
+    asyncio.run(runner.execute(run_id))
+    first = delivery(state, brief.campaign_id)
+    second = delivery(state, brief.campaign_id)
+    assert first[1] == second[1]
+    assert not list(state.storage.root.glob("Campaigns/*/Outputs"))
+    assert not list(state.storage.root.glob("Campaigns/*/Exports"))
+    with state.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM package_exports").fetchone()[0] == 0
+    assert not state.attempts(run_id)
 
 
 def test_contact_shadow_uses_visible_base_and_keeps_product_pixels():

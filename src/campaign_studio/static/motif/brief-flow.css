@@ -1258,3 +1258,26 @@
   margin-bottom: 16px;
 }
 .bf-brand-heading h2 { margin: 0; }
+
+/* Saving feedback stays with the Campaign form, above its controls. */
+.bf-panel, .bf-products-top { position: relative; }
+[data-bf-autosave] { position: absolute; top: 6px; right: 20px; color: var(--muted); font-size: 12px; line-height: 16px; pointer-events: none; }
+
+.ws-autosave { padding: .35rem 0 .7rem; color: #50684b; font-size: .875rem; text-align: right; }
+.ws-autosave.is-error { color: #a72e20; text-align: left; }
+.ws-autosave p { margin: .4rem 0; }
+.ws-autosave button { margin-top: .5rem; }
+.ws-autosave[hidden] { display: none; }
+
+.bf-preview-stage > canvas { display:block; max-width:100%; max-height:100%; width:100%; height:100%; object-fit:contain; }
+
+/* Image refusals stay centered until dismissed, above the preserved form. */
+.modal.image-input-warning {
+  background: #fff0df;
+  border-color: #bf6139;
+  color: #4b2518;
+}
+.image-input-warning .modal-head,
+.image-input-warning .modal-foot { border-color: #e5b696; }
+.image-input-warning .close { background: #f3cfb4; color: #4b2518; }
+.bf-key-presence { font-weight: 650; }

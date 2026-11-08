@@ -55,6 +55,7 @@ def test_private_save_preserves_unrelated_multiline_settings_and_removes_duplica
     assert environment[KEY] == special and stat.S_IMODE(target.stat().st_mode) == 0o600
     assert result == {
         "saved": True,
+        "saved_at": helper.saved_at,
         "available": True,
         "managed_by_environment": False,
         "can_save": True,
@@ -340,6 +341,7 @@ def test_api_save_is_private_and_only_deliberate_start_uses_dummy_key(
         assert result.status_code == 200 and result.json()["saved"]
         assert result.headers["Cache-Control"] == "no-store" and DUMMY not in result.text
         assert client.get("/api/openai-key").json() == {
+            "saved_at": helper.saved_at,
             "available": True,
             "managed_by_environment": False,
             "can_save": True,
@@ -354,3 +356,95 @@ def test_api_save_is_private_and_only_deliberate_start_uses_dummy_key(
     assert all(
         DUMMY.encode() not in p.read_bytes() for p in state.storage.root.rglob("*") if p.is_file()
     )
+
+
+def test_key_save_time_survives_restart_and_failed_save_does_not_advance(tmp_path):
+    helper, target, environment = setup(tmp_path, existing=None)
+    assert helper.status()["saved_at"] is None
+    result = helper.save(DUMMY)
+    assert isinstance(result["saved_at"], float)
+    reopened = LocalCredentials(target, environment=environment)
+    assert abs(reopened.status()["saved_at"] - result["saved_at"]) < 1
+    with pytest.raises(CredentialError):
+        helper.save("not a valid key")
+    assert helper.status()["saved_at"] == result["saved_at"]
+    assert DUMMY not in json.dumps(result)
+
+
+def test_environment_key_load_time_changes_only_with_process_setup(tmp_path, monkeypatch):
+    monkeypatch.setattr("campaign_studio.credentials.time.time", lambda: 100.0)
+    credentials = LocalCredentials(
+        managed_by_environment=True, environment={"OPENAI_API_KEY": DUMMY}
+    )
+    assert credentials.loaded_at == 100.0
+    assert credentials.status()["saved_at"] is None
+    monkeypatch.setattr("campaign_studio.credentials.time.time", lambda: 200.0)
+    assert credentials.loaded_at == 100.0
+    restarted = LocalCredentials(managed_by_environment=True, environment={"OPENAI_API_KEY": DUMMY})
+    assert restarted.loaded_at == 200.0
+    assert restarted.status()["saved_at"] is None
+    assert LocalCredentials(environment={"OPENAI_API_KEY": DUMMY}).loaded_at is None
+    assert LocalCredentials(managed_by_environment=True, environment={}).loaded_at is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows removes a DPAPI key file")
+def test_remove_key_preserves_other_settings_and_does_not_restore_on_restart(tmp_path):
+    other = b"# Keep settings\nCAMPAIGN_STUDIO_PORT=8000\nOTHER='two\nlines'\n"
+    helper, target, environment = setup(
+        tmp_path, other + b"OPENAI_API_KEY=old\nexport OPENAI_API_KEY=duplicate\n"
+    )
+    result = helper.remove()
+    assert result["removed"] is True and result["available"] is False
+    assert KEY not in environment and target.read_bytes() == other
+    assert not read_saved_key(target)
+    assert not list(tmp_path.glob("*.tmp"))
+    helper.save(DUMMY)
+    assert helper.current_key() == DUMMY
+
+
+def test_remove_key_is_guarded_and_never_calls_provider(tmp_path):
+    helper = LocalCredentials(local_root(tmp_path) / "local-key", environment={})
+    helper.save(DUMMY)
+    app = create_app(
+        Settings(data_dir=tmp_path / "runtime"),
+        credentials=helper,
+        provider_factory=lambda: pytest.fail("Provider forbidden"),
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        assert client.request("DELETE", "/api/openai-key", json={}).status_code == 403
+        client.headers["X-Campaign-Token"] = app.state.csrf
+        assert (
+            client.request(
+                "DELETE", "/api/openai-key", json={}, headers={"Origin": "https://other.example"}
+            ).status_code
+            == 403
+        )
+        assert helper.current_key() == DUMMY
+        result = client.request("DELETE", "/api/openai-key", json={})
+        assert result.status_code == 200 and result.json()["removed"] is True
+        assert DUMMY not in result.text
+        assert client.get("/api/openai-key").json()["available"] is False
+        if os.name == "nt":
+            assert not helper.destination.exists()
+        else:
+            assert not read_saved_key(helper.destination)
+
+
+def test_remove_failure_or_environment_key_preserves_current_key(tmp_path, monkeypatch):
+    helper, target, environment = setup(tmp_path)
+    helper.save(DUMMY)
+    before = target.read_bytes()
+
+    def fail(_value):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(helper, "_persist", fail)
+    with pytest.raises(CredentialError) as error:
+        helper.remove()
+    assert error.value.code == "credential_remove_failed"
+    assert target.read_bytes() == before and environment[KEY] == DUMMY
+    helper.managed_by_environment = True
+    with pytest.raises(CredentialError) as error:
+        helper.remove()
+    assert error.value.code == "credential_environment_managed"
+    assert target.read_bytes() == before and environment[KEY] == DUMMY

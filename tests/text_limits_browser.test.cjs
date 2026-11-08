@@ -15,7 +15,7 @@ function control(){
  };
  const input=make('campaign-name');
  const document={body:{append:node=>live.push(node)},getElementById:id=>elements.get(id),querySelectorAll:()=>[...elements.values()].filter(n=>n.id&&n.attributes),addEventListener:(event,fn)=>{listener=fn;},createElement:()=>({textContent:'',style:{setProperty(){}},setAttribute(){},getBoundingClientRect(){return{width:this.textContent.length*7}},append(...nodes){this.children=nodes;for(const node of nodes){node.parentElement=this;elements.set(node.id,node)}}})};
- const context=vm.createContext({document,window:{},MutationObserver:class{observe(){}}});
+ const context=vm.createContext({scheduleStudioSave(){},document,window:{},MutationObserver:class{observe(){}}});
  vm.runInContext(readFileSync('src/campaign_studio/static/motif/text-limits.js','utf8'),context);
  return{api:context.window.MotifTextLimits,document,input,elements,attributes:input.attributes,make,live,type:(value,field=input)=>{field.value=value;listener({target:field});}};
 }
@@ -57,9 +57,9 @@ test('a separate field validity error survives correction of the length',()=>{
 
 test('a raw field and its pending buffer produce one readable save error',async()=>{
  const issues=[{path:['name'],label:'Campaign name',message:'Use no more than 60 characters.'},{path:[],label:'Campaign name',message:'Use no more than 60 characters.'}];
- const context=vm.createContext({$:()=>({content:'csrf'}),fetch:async()=>({ok:false,status:422,json:async()=>({code:'text_too_long',field_errors:issues})})});
+ const context=vm.createContext({scheduleStudioSave(){},$:()=>({content:'csrf'}),fetch:async()=>({ok:false,status:422,json:async()=>({code:'text_too_long',field_errors:issues})})});
  const source=readFileSync('src/campaign_studio/static/motif/api.js','utf8');
- vm.runInContext(source.slice(source.indexOf('async function api('),source.indexOf('function assetURL(')),context);
+ vm.runInContext(source.slice(source.indexOf('async function apiResponse('),source.indexOf('function assetURL(')),context);
  await assert.rejects(context.api('/authored',{}),error=>{
   assert.equal(error.message,'Campaign name: Use no more than 60 characters.');
   assert.equal(error.fields.length,2,'both field addresses remain available');return true;
@@ -71,7 +71,7 @@ for (const [field,limit] of [['name',80],['description',1000],['origin',200],['r
  const inputs=Object.fromEntries(['name','description','origin','rights'].map(key=>['#product-'+key,h.make('product-'+key,'Allowed')]));
  const invalid=inputs['#product-'+field];h.type('🦊'.repeat(limit+1),invalid);
  const draft={products:[{id:'item',name:'Original'}]},before=structuredClone(draft);
- const context=vm.createContext({draft,modalProduct:{id:'item',treatment:'concept',source:{}},MotifTextLimits:h.api,$:id=>inputs[id],openModal(){throw Error('Invalid Update reopened editor')},closeModal(){throw Error('Invalid Update closed editor')}});
+ const context=vm.createContext({scheduleStudioSave(){},draft,modalProduct:{id:'item',treatment:'concept',source:{}},MotifTextLimits:h.api,$:id=>inputs[id],openModal(){throw Error('Invalid Update reopened editor')},closeModal(){throw Error('Invalid Update closed editor')}});
  const source=readFileSync('src/campaign_studio/static/motif/actions.js','utf8');
  vm.runInContext(source.slice(source.indexOf('function saveProductDraft('),source.indexOf('function openInputField(')),context);
  context.saveProductDraft();assert.equal(invalid.focused,true);assert.equal(invalid.reported,true);
@@ -101,7 +101,7 @@ for(const [purpose,setup] of [
 for(const [action,field,purpose] of [['create','new-name','campaign_name'],['create','new-brand','brand_name'],['create','new-audience','audience'],['saveName','rename-name','campaign_name'],['saveRule','mw-rule-phrase','phrase'],['saveDescription','image-description','description'],['applyText','mf-word-message','headline'],['applyText','mf-word-cta','cta'],['applyDraftWording','draft-wording-value','cta']]) test(`${action} stops an invalid ${field} before dispatch`,async()=>{
  const h=control(),input=h.make(field,'🦊'.repeat(h.api.contract.limits[purpose]+1));
  if(field==='draft-wording-value')input.dataset.lengthPurpose=purpose;
- const context=vm.createContext({MotifTextLimits:h.api,localDialog:false,draft:null,busy:false,guardImageCleanup(){throw Error('Invalid field escaped its action guard');}});
+ const context=vm.createContext({scheduleStudioSave(){},MotifTextLimits:h.api,localDialog:false,draft:null,busy:false,guardImageCleanup(){throw Error('Invalid field escaped its action guard');}});
  const source=readFileSync('src/campaign_studio/static/motif/actions.js','utf8');
  vm.runInContext(source.slice(source.indexOf('async function dispatchAction('),source.indexOf('document.addEventListener("click", event => {',source.indexOf('async function dispatchAction('))),context);
  await context.dispatchAction({action});assert.equal(input.focused,true);assert.equal(input.reported,true);
@@ -110,7 +110,7 @@ for(const [action,field,purpose] of [['create','new-name','campaign_name'],['cre
 
 test('Text over-limit wording never queues preview or applies an obsolete preview, and correction resumes preview',async()=>{
  const h=control(),timers=[],editor={campaign:'campaign',values:{message:'W'.repeat(121),cta:'Explore'},sequence:0,saving:false,recovery:null,input:{active:()=>false},preview:{displayed:true,result:{impact:{render_outputs:[1]}}}};
- const context=vm.createContext({document:{addEventListener(){}},MotifTextLimits:h.api,clearTimeout(){},setTimeout:fn=>{timers.push(fn)},MotifEditorControls:{copy:{previewing:'Preparing preview'}},C:{id:'campaign'},modal:'text',api(){throw Error('Invalid wording sent to server')},editor});
+ const context=vm.createContext({scheduleStudioSave(){},document:{addEventListener(){}},MotifTextLimits:h.api,clearTimeout(){},setTimeout:fn=>{timers.push(fn)},MotifEditorControls:{copy:{previewing:'Preparing preview'}},C:{id:'campaign'},modal:'text',api(){throw Error('Invalid wording sent to server')},editor});
  vm.runInContext(readFileSync('src/campaign_studio/static/motif/text.js','utf8'),context);
  vm.runInContext('textEditor=editor;paintText=()=>{};scheduleTextPreview()',context);
  assert.equal(timers.length,0);assert.equal(editor.preview,null);assert.match(editor.message,/Headline.*120/);

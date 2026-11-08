@@ -6,10 +6,11 @@ import re
 import shutil
 import sqlite3
 import stat
+import struct
 import tempfile
 import unicodedata
 from collections.abc import Iterator
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, suppress
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ from campaign_studio.local_files import (
     publish_file,
 )
 
-WORKSPACE_SCHEMA = 9
+WORKSPACE_SCHEMA = 16
 
 
 class CapacityError(ValueError):
@@ -80,6 +81,17 @@ def delivery_component(value: str, fallback: str) -> str:
     if ntpath.isreserved(value):
         value = "_" + value
     return value
+
+
+def asset_component(value: str, fallback: str = "image") -> str:
+    """Lowercase asset stem; the caller appends its stable collision-safe identity."""
+
+    def clean(text):
+        ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+        return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:80].rstrip("-")
+
+    stem = clean(value) or clean(fallback) or "image"
+    return "image-" + stem if ntpath.isreserved(stem) else stem
 
 
 class Storage:
@@ -162,15 +174,114 @@ class Storage:
             "free_bytes": shutil.disk_usage(existing).free,
         }
 
-    def require_capacity(self, projected_bytes: int) -> dict:
-        """Admit one large operation; essential control and received-result writes bypass this.
+    @contextmanager
+    def _usage_counter(self, *, create=False):
+        """A fixed-size shared estimate. Its lock also orders full scans against file changes."""
+        path = self.path("private/usage.lock")
+        if create:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_RDWR | (os.O_CREAT if create else 0), 0o600)
+        except FileNotFoundError:
+            yield None
+            return
+        with os.fdopen(fd, "r+b") as stream, file_lock(stream, wait=True):
+            stream.seek(0)
+            yield stream
 
-        Call once at the serial operation boundary, not for every file or pixel.
-        Recheck before each paid attempt because another process can consume disk.
-        """
+    @staticmethod
+    def _saved_usage(stream):
+        payload = stream.read(16) if stream is not None else b""
+        return struct.unpack(">QQ", payload) if len(payload) == 16 else None
+
+    @staticmethod
+    def _save_usage(stream, size, count):
+        stream.seek(0)
+        stream.write(struct.pack(">QQ", max(0, size), max(0, count)))
+        stream.truncate()
+        stream.flush()
+
+    @staticmethod
+    def _file_usage(path):
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return 0, 0
+        return (info.st_size, 1) if stat.S_ISREG(info.st_mode) and not is_link(info) else (0, 0)
+
+    def _live_control_usage(self):
+        # SQLite can grow independently from Motif's file writer. Always measure
+        # its few control files directly, along with the usage counter itself.
+        size = count = 0
+        for name in (
+            "state.sqlite3",
+            "state.sqlite3-journal",
+            "state.sqlite3-shm",
+            "state.sqlite3-wal",
+            "usage.lock",
+        ):
+            file_size, file_count = self._file_usage(self.root / "private" / name)
+            size += file_size
+            count += file_count
+        return size, count
+
+    def refresh_edit_capacity(self):
+        with self._usage_counter(create=True) as counter:
+            measured = self.summary()
+            live_size, live_count = self._live_control_usage()
+            self._save_usage(
+                counter, measured["used_bytes"] - live_size, measured["file_count"] - live_count
+            )
+            return measured
+
+    @contextmanager
+    def changing_file(self, path):
+        """Debit or credit the size of this one changed file, including replacements."""
+        with self._usage_counter() as counter:
+            usage = self._saved_usage(counter)
+            if usage is None:
+                yield
+                return
+            old_size, old_count = self._file_usage(path)
+            try:
+                yield
+            finally:
+                size, count = self._file_usage(path)
+                self._save_usage(counter, usage[0] + size - old_size, usage[1] + count - old_count)
+
+    def unlink(self, path, *, missing_ok=False):
+        with self.changing_file(path):
+            path.unlink(missing_ok=missing_ok)
+
+    def require_capacity(self, projected_bytes: int) -> dict:
+        """Full operations reconcile the estimate with the entire workspace."""
+        return self._check_capacity(projected_bytes, self.refresh_edit_capacity())
+
+    def require_edit_capacity(self, projected_bytes: int) -> dict:
+        with self._usage_counter() as counter:
+            usage = self._saved_usage(counter)
+            if usage is not None:
+                live_size, live_count = self._live_control_usage()
+                used = usage[0] + live_size
+                measured = {
+                    "location": display_path(self.root),
+                    "location_notice": self.location_notice,
+                    "used_bytes": used,
+                    "file_count": usage[1] + live_count,
+                    "budget_bytes": self.budget_bytes,
+                    "reserve_bytes": self.reserve_bytes,
+                    "over_budget": used >= self.budget_bytes,
+                    "free_bytes": shutil.disk_usage(self.root).free,
+                }
+        if usage is None:
+            # A directly used State or an interrupted counter write can arrive
+            # without the baseline normally established on opening the workspace.
+            return self.require_capacity(projected_bytes)
+        return self._check_capacity(projected_bytes, measured)
+
+    def _check_capacity(self, projected_bytes, measured):
         if projected_bytes < 0:
             raise ValueError("A storage estimate cannot be negative.")
-        measured = self.summary()
         if measured["used_bytes"] + projected_bytes > self.budget_bytes:
             raise CapacityError("workspace_budget", measured, projected_bytes)
         if measured["free_bytes"] < self.reserve_bytes + projected_bytes:
@@ -240,7 +351,8 @@ class Storage:
                 output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
-            publish_file(temporary, destination, replace=False)
+            with self.changing_file(destination):
+                publish_file(temporary, destination, replace=False)
         finally:
             if created:
                 temporary.unlink(missing_ok=True)
@@ -255,6 +367,7 @@ class Storage:
         )
         version, tables = 0, set()
         old_schema = False
+        missing_plan_column = False
         if database.is_file() and database.stat().st_size:
             with closing(
                 sqlite3.connect(
@@ -267,7 +380,19 @@ class Storage:
                 }
                 columns = {r[1] for r in db.execute("PRAGMA table_info(campaigns)")}
                 old_schema = "campaigns" in tables and "folder" not in columns
-        if old_schema or (legacy and version == 0) or version not in (0, WORKSPACE_SCHEMA):
+                missing_plan_column = version in (14, 15, WORKSPACE_SCHEMA) and "plan_json" not in {
+                    r[1] for r in db.execute("PRAGMA table_info(runs)")
+                }
+        if version > WORKSPACE_SCHEMA:
+            raise StorageError(
+                "This workspace was saved by a newer version of Motif. "
+                "Open it with that version or a newer one."
+            )
+        if (
+            old_schema
+            or (legacy and version == 0)
+            or version not in (0, 9, 10, 11, 12, 13, 14, 15, WORKSPACE_SCHEMA)
+        ):
             raise EarlierWorkspace(
                 "This workspace uses an earlier Motif layout. Open it with the Motif version "
                 "that created it. To start a fresh workspace, use a new folder:\n"
@@ -285,8 +410,20 @@ class Storage:
             "uploads",
             "cleanup_intents",
         }
+        if version in (10, 11, 12, 13, 14, 15, WORKSPACE_SCHEMA):
+            required.update(
+                {
+                    "staging_output_files",
+                    "workspace_migrations",
+                    "withheld_output_sources",
+                }
+            )
+        if version in (14, 15, WORKSPACE_SCHEMA):
+            required.add("campaign_drafts")
         if (campaign_files or version or tables) and (
-            version != WORKSPACE_SCHEMA or not required.issubset(tables)
+            version not in (9, 10, 11, 12, 13, 14, 15, WORKSPACE_SCHEMA)
+            or not required.issubset(tables)
+            or missing_plan_column
         ):
             raise IncompleteWorkspace(
                 "The workspace database is missing or incomplete. Stop Motif and restore the "
@@ -330,18 +467,20 @@ class Storage:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if not self.root.is_dir():
             raise StorageError("Runtime storage must be a directory.")
-        for name in ("Campaigns", "private", "smoke"):
+        for name in ("Campaigns", "private"):
             self.path(name).mkdir(exist_ok=True, mode=0o700)
+        # The optional installation check owns this directory. Normal launches
+        # must not create it; remove an old empty placeholder without touching
+        # any check results a user chose to keep.
+        with suppress(OSError):
+            self.path("smoke").rmdir()
         with self.connect() as connection:
             if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise StorageError("The local database failed its integrity check.")
 
-    def path(self, reference: str) -> Path:
-        """Resolve application-owned relative references, rejecting aliases and symlinks.
-
-        This guards ordinary local inputs, not a hostile process changing files
-        concurrently. Only the current user's process should own runtime storage.
-        """
+    @staticmethod
+    def reference_parts(reference: str) -> list[str]:
+        """Validate a stored relative name without opening any part of the path."""
         parts = reference.split("/")
         # Delivery names are human-readable; private application references stay
         # deliberately ASCII. Both retain the same traversal and symlink boundary.
@@ -364,6 +503,15 @@ class Storage:
             or any(ntpath.isreserved(part) for part in parts)
         ):
             raise StorageError("Use a plain relative storage reference without traversal.")
+        return parts
+
+    def path(self, reference: str) -> Path:
+        """Resolve application-owned relative references, rejecting aliases and symlinks.
+
+        This guards ordinary local inputs, not a hostile process changing files
+        concurrently. Only the current user's process should own runtime storage.
+        """
+        parts = self.reference_parts(reference)
         candidate = self.root.joinpath(*parts)
         _reject_symlinks(candidate)
         if not candidate.resolve().is_relative_to(self.root.resolve()):
@@ -383,7 +531,8 @@ class Storage:
                 output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
-            publish_file(temporary, destination, replace=True)
+            with self.changing_file(destination):
+                publish_file(temporary, destination, replace=True)
         finally:
             if created:
                 temporary.unlink(missing_ok=True)

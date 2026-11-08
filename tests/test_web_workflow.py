@@ -1,8 +1,8 @@
 import asyncio
-import json
+import io
 import re
 import time
-from pathlib import Path
+from zipfile import ZipFile
 
 import httpx
 import pytest
@@ -133,135 +133,68 @@ def test_empty_tasks_and_mutation_protection(ui):
     assert client.get("/private/state.sqlite3").status_code == 404
 
 
-def test_http_local_run_copy_preview_stale_guard_and_offline_export(ui):
+def test_http_source_ready_copy_autosave_stale_guard_and_offline_export(ui):
     client, workspace = ui
     data = sample_plan(client)
-    assert (
-        page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio"))[
-            "manifest"
-        ]
-        is None
-    )
-    assert (
-        page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/handoff"))[
-            "manifest"
-        ]
-        is None
-    )
-    assert start(client, data).status_code == 202
-    assert start(client, data).status_code in (200, 202)
-    result = wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    assert result["state"] == "complete" and result["attempted"] == 0
-    before = page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio"))
-    assert before["manifest"]["metrics"]["completed_images"] == 12
+    cid = data["campaignId"]
+    base = f"/api/campaigns/{cid}"
+    before = page_data(client, client.get(f"/campaigns/{cid}/studio"))
+    assert before["manifest"]["complete"] and before["run"] is None
+    assert len(before["manifest"]["outputs"]) == 12
     assert all(client.get(item["url"]).status_code == 200 for item in before["manifest"]["outputs"])
+    assert not list(workspace.storage.root.glob("Campaigns/*/Outputs"))
     values = before["brief"]["markets"]["es-MX"]["copy"] | {"message": "Para cada día."}
     edit = {
         "ratio": "1:1",
-        "run_id": data["runId"],
         "revision_id": before["currentRevision"],
         "market": "es-MX",
         "product_id": "product-1",
         "field_scopes": {"message": "all_products", "cta": "all_products"},
         "values": values,
     }
-    preview = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview", json=edit
-    )
-    assert preview.status_code == 200
+    preview = client.post(base + "/text/preview", json=edit)
+    assert preview.status_code == 200, preview.text
     assert len(preview.json()["impact"]["render_outputs"]) == 6
     assert preview.json()["impact"]["generation_products"] == []
+    saved = client.post(base + "/text/save", json=edit)
+    assert saved.status_code == 200, saved.text
     assert (
-        client.post(
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply",
-            json=edit | {"preview_digest": "stale"},
-        ).status_code
-        == 409
+        client.post(base + "/text/save", json=edit).status_code == 200
+    )  # Lost acknowledgement retry.
+    stale = client.post(
+        base + "/text/save", json=edit | {"values": values | {"message": "Outdated tab"}}
     )
-    applied = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply",
-        json=edit | {"preview_digest": preview.json()["digest"]},
+    assert stale.status_code == 409
+    after = page_data(client, client.get(f"/campaigns/{cid}/studio"))
+    assert after["brief"]["markets"]["es-MX"]["copy"]["message"] == "Para cada día."
+    assert all(
+        item["copy"]["message"] == "Para cada día."
+        for item in after["manifest"]["outputs"]
+        if item["market"] == "es-MX"
     )
-    assert applied.status_code == 200
-    after = page_data(client, client.get(f"/campaigns/{data['campaignId']}/studio"))
-    assert after["manifest"]["complete"]
-    assert (
-        sum(
-            a["sha256"] != b["sha256"]
-            for a, b in zip(
-                before["manifest"]["outputs"], after["manifest"]["outputs"], strict=True
-            )
-        )
-        == 6
-    )
-    assert (
-        client.post(
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply",
-            json=edit | {"preview_digest": preview.json()["digest"]},
-        ).status_code
-        == 409
-    )
-    same = edit | {"revision_id": after["currentRevision"]}
-    unchanged = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview", json=same
-    )
-    assert unchanged.status_code == 200 and unchanged.json()["impact"]["render_outputs"] == []
-    refused = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply",
-        json=same | {"preview_digest": unchanged.json()["digest"]},
-    )
-    assert refused.status_code == 409 and refused.json()["code"] == "no_changes"
-    body = {
-        "run_id": data["runId"],
-        "revision_id": after["currentRevision"],
-        "allow_partial": False,
-    }
-    exported = client.post("/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/export", json=body)
-    assert exported.status_code == 200
-    assert exported.json()["included"] == 12
-    assert (
-        client.post("/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/export", json=body).json()[
-            "location"
-        ]
-        == exported.json()["location"]
-    )
-    overview = client.get(exported.json()["url"])
+    body = {"version": after["version"]}
+    preview = client.post(base + "/delivery/report-preview", json=body)
+    assert preview.status_code == 200, preview.text
+    overview = client.get(preview.json()["url"])
     assert overview.status_code == 200 and 'href="manifest.json"' in overview.text
-    assert "unsafe-inline" in overview.headers["content-security-policy"]
-    damaged_package = Path(exported.json()["location"])
-    exported_manifest = json.loads((damaged_package / "manifest.json").read_text())
-    damaged_output = next(
-        item
-        for item in exported_manifest["outputs"]
-        if item["id"] == after["manifest"]["outputs"][0]["id"]
-    )
-    (damaged_package / damaged_output["file"]).unlink()
-    repaired = client.post("/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/export", json=body)
-    assert repaired.status_code == 200 and repaired.json()["included"] == 12
-    assert repaired.json()["location"] != exported.json()["location"]
-    assert len(list(Path(repaired.json()["location"]).rglob("*.png"))) == 12
-    assert len(list(damaged_package.rglob("*.png"))) == 11
-    assert workspace.state.attempts(data["runId"]) == []
-    revision = workspace.state.revision(after["currentRevision"])
-    prefix = revision["manifest_ref"].rsplit("/", 1)[0]
-    workspace.storage.path(f"{prefix}/{after['manifest']['outputs'][0]['file']}").unlink()
-    missing = page_data(
-        client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio")
-    )
-    assert missing["manifest"]["outputs"][0]["url"] is None
-    assert "missing or changed" in missing["manifest"]["outputs"][0]["omission"]
-    assert missing["manifest"]["metrics"]["completed_images"] == 11
-    assert (
-        client.post(
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/recover",
-            json={"run_id": data["runId"]},
-        ).status_code
-        == 202
-    )
-    restored = wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    assert restored["state"] == "complete" and restored["completed"] == 12
-    assert restored["revision_id"] != after["currentRevision"]
-    assert restored["attempted"] == 0
+    manifest = client.get(preview.json()["url"].removesuffix("index.html") + "manifest.json").json()
+    assert len([o for o in manifest["outputs"] if o["file"]]) == 12
+    package = client.post(base + "/delivery/zip", json=body)
+    assert package.status_code == 200, package.text
+    with ZipFile(io.BytesIO(package.content)) as archive:
+        assert sum(n.endswith(".png") for n in archive.namelist()) == 12
+    assert not list(workspace.storage.root.glob("Campaigns/*/Exports"))
+    assert not list(workspace.storage.root.glob("Campaigns/*/Outputs"))
+    with workspace.storage.connect() as db:
+        assert db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
+    # Removing a source affects every format that depends on it. A preview is
+    # never treated as a replacement source, and export cannot silently use it.
+    source = workspace.current_composition(cid)["sources"]["product-1"]
+    workspace.storage.path(source.reference).unlink()
+    missing = page_data(client, client.get(f"/campaigns/{cid}/studio"))
+    assert sum(bool(item["url"]) for item in missing["manifest"]["outputs"]) == 6
+    assert client.post(base + "/delivery/zip", json=body).status_code == 409
 
 
 def concept_plan(workspace):
@@ -277,7 +210,26 @@ def concept_plan(workspace):
             "synthetic": True,
         },
     }
-    return workspace.state.create(make_plan(Brief.model_validate(value), workspace.storage), 1)
+    from uuid import uuid4
+
+    from campaign_studio.campaign_drafts import write
+    from campaign_studio.planning import canonical_hash
+
+    run_id = workspace.state.create(make_plan(Brief.model_validate(value), workspace.storage), 1)
+    prepared = workspace.state.plan(run_id).brief.model_dump(mode="json")
+    write(
+        workspace.storage,
+        brief.campaign_id,
+        {
+            "authored": {"brief": prepared},
+            "composition_schema": 1,
+            "version": uuid4().hex,
+            "planned_run": run_id,
+            "planned_authored_hash": canonical_hash(prepared),
+            "authored_base": {"run_id": run_id, "revision_id": None, "metadata_snapshot_id": None},
+        },
+    )
+    return run_id
 
 
 def test_missing_key_blocks_dispatch_and_local_recovery_still_works(ui):
@@ -322,14 +274,12 @@ def test_missing_key_blocks_dispatch_and_local_recovery_still_works(ui):
     assert sum(bool(item["url"]) for item in data["manifest"]["outputs"]) == 6
     assert all(item.get("omission") for item in data["manifest"]["outputs"] if not item["url"])
     package = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/export",
-        json={
-            "run_id": run_id,
-            "revision_id": data["currentRevision"],
-            "allow_partial": True,
-        },
+        f"/api/campaigns/{data['manifest']['campaign_id']}/delivery/zip",
+        json={"allow_partial": True, "version": data["version"]},
     )
-    assert package.status_code == 200 and package.json()["included"] == 6
+    assert package.status_code == 200
+    with ZipFile(io.BytesIO(package.content)) as archive:
+        assert sum(name.endswith(".png") for name in archive.namelist()) == 6
     assert workspace.state.attempts(run_id) == []
 
 
@@ -371,58 +321,28 @@ def test_provider_failures_have_safe_distinct_messages_and_do_not_retry(tmp_path
         assert "Saved" in status["notice"]
 
 
-def test_status_reads_current_images_before_recovery_retires_them(tmp_path, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-
+def test_source_status_remains_readable_when_a_concurrent_save_changes_composition(
+    tmp_path, monkeypatch
+):
     from test_workflow import setup_case
 
-    from campaign_studio.local_files import file_lock
+    from campaign_studio.workspace import ActionError
 
     state, runner, run_id, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run_id))
+    asyncio.run(runner.execute(run_id))
     app = create_app(Settings(data_dir=state.storage.root))
-    selected, resume_reader, publishing = Event(), Event(), Event()
-    url = f"/api/campaigns/{brief.campaign_id}/status"
-    with TestClient(app, base_url="http://127.0.0.1") as client, ThreadPoolExecutor(2) as pool:
-        reader_state = app.state.workspace.state
-        select = reader_state.effective_revision
-        publish = state.publish_revision
-
-        def pause_once(run):
-            revision = select(run)
-            if not selected.is_set():
-                selected.set()
-                assert resume_reader.wait(30)
-            return revision
-
-        def announce(*args, **kwargs):
-            publishing.set()
-            return publish(*args, **kwargs)
-
-        monkeypatch.setattr(reader_state, "effective_revision", pause_once)
-        monkeypatch.setattr(state, "publish_revision", announce)
-        reading = pool.submit(client.get, url)
-        try:
-            assert selected.wait(30)
-            # The same cross-process guard protects the selected files until this read finishes.
-            with (
-                state.storage.path("private/authored.lock").open("a+b") as lock,
-                pytest.raises(BlockingIOError),
-                file_lock(lock, wait=False),
-            ):
-                pass
-            recovering = pool.submit(runner.recover_local, run_id)
-            assert publishing.wait(30)
-        finally:
-            resume_reader.set()
-        response = reading.result(30)
-        assert response.status_code == 200, response.text
-        assert response.json()["revision_id"] == first["revision_id"]
-        assert response.json()["completed"] == 6
-        new_revision = recovering.result(30)["revision_id"]
-        assert state.revision(first["revision_id"])["images_retired"]
-        latest = client.get(url)
-        assert latest.status_code == 200, latest.text
-        assert latest.json()["revision_id"] == new_revision and latest.json()["completed"] == 6
-        assert not state.attempts(run_id)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                "campaign_studio.motif.campaign_data",
+                lambda *args: (_ for _ in ()).throw(
+                    ActionError("composition_conflict", "Changed while reading")
+                ),
+            )
+            response = client.get(f"/api/campaigns/{brief.campaign_id}/status")
+            assert response.status_code == 200, response.text
+            assert response.json()["state"] == "complete" and response.json()["attempted"] == 0
+        current = client.get(f"/api/campaigns/{brief.campaign_id}/status")
+        assert current.status_code == 200
+        assert current.json()["completed"] == 6
+        assert state.run(run_id)["current_revision"] is None

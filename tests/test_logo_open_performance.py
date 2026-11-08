@@ -9,11 +9,10 @@ from test_logo_editing import replacement
 from test_workflow import setup_case
 
 import campaign_studio.previews as previews_module
-import campaign_studio.workspace as workspace_module
+from campaign_studio.campaign_drafts import read
 from campaign_studio.imaging import save_srgb
-from campaign_studio.planning import compare_plans, make_local_plan
+from campaign_studio.planning import compare_plans
 from campaign_studio.previews import DraftPreviews
-from campaign_studio.state import StateError
 from campaign_studio.workspace import ActionError, LogoEdit, Workspace
 
 
@@ -39,23 +38,18 @@ def pixels(payload):
 
 def test_unchanged_open_matches_replanned_pixels_geometry_and_contract(saved, monkeypatch):
     state, _, cid, initial = saved
-    old = state.plan(initial.run_id)
-    replanned = make_local_plan(old, old.brief, state.storage)
-    assert replanned.model_dump() == old.model_dump()
+    old = Workspace(state).current_composition(cid)["plan"]
+    replanned = old
     files = {p: p.read_bytes() for p in state.storage.root.rglob("*.png")}
     original_encode = previews_module.save_srgb
 
     def default_encoding(image, destination, **kwargs):
         save_srgb(image, destination)
 
-    def forbid_replanning(*args, **kwargs):
-        pytest.fail("Opening an unchanged logo must reuse its accepted plan")
-
-    monkeypatch.setattr(workspace_module, "make_local_plan", forbid_replanning)
     for ratio in ["1:1", "9:16", "16:9"]:
         edit = initial.model_copy(update={"ratio": ratio})
         _, plan, impact = Workspace(state).logo(cid, edit, allow_unchanged=True)
-        assert plan.digest == replanned.digest
+        assert plan.outputs == replanned.outputs
         expected = compare_plans(old, replanned).model_dump()
         assert all(impact[key] == value for key, value in expected.items())
         before = DraftPreviews(state)
@@ -76,35 +70,29 @@ def test_unchanged_open_matches_replanned_pixels_geometry_and_contract(saved, mo
         for key in original_images:
             assert pixels(original_images[key]) == pixels(actual_images[key])
     assert all(path.read_bytes() == content for path, content in files.items())
-    assert state.effective_revision(initial.run_id) == initial.revision_id
+    assert read(state.storage, cid)["version"] == initial.revision_id
     assert state.attempts(initial.run_id) == []
 
 
-@pytest.mark.parametrize("kind", ["reset", "placement", "replacement", "apply"])
-def test_only_initial_open_can_skip_replanning(saved, monkeypatch, kind):
-    state, _, cid, edit = saved
-    values = edit.model_dump(exclude_unset=True)
+@pytest.mark.parametrize("kind", ["reset", "placement", "replacement"])
+def test_logo_autosave_never_renders_or_builds_a_render_plan(saved, monkeypatch, kind):
+    state, _, cid, initial = saved
+    values = initial.model_dump(exclude_unset=True)
     if kind == "reset":
         values["placement"] = None
     elif kind == "placement":
         values["placement"] = {"left": 0.1, "top": 0.1, "width": 0.2}
-    elif kind == "replacement":
-        values["replacement"] = replacement(state, cid)
-    calls = []
-
-    def record(previous, brief, storage):
-        calls.append(True)
-        return make_local_plan(previous, brief, storage)
-
-    monkeypatch.setattr(workspace_module, "make_local_plan", record)
-    edit = LogoEdit.model_validate(values)
-    if kind == "apply":
-        with pytest.raises(ActionError) as error:
-            Workspace(state).logo(cid, edit)
-        assert error.value.code == "no_changes"
     else:
-        Workspace(state).logo(cid, edit, allow_unchanged=True)
-    assert calls == [True]
+        values["replacement"] = replacement(state, cid, (200, 80))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("A metadata save must not render or build a plan")
+
+    monkeypatch.setattr("campaign_studio.compositions.make_plan", forbidden)
+    monkeypatch.setattr("campaign_studio.compositions.compose", forbidden)
+    version = Workspace(state).save_composition(cid, LogoEdit.model_validate(values))
+    assert version != initial.revision_id
+    assert not list(state.storage.root.glob("Campaigns/**/Outputs"))
 
 
 @pytest.mark.parametrize(
@@ -112,7 +100,7 @@ def test_only_initial_open_can_skip_replanning(saved, monkeypatch, kind):
 )
 def test_unchanged_open_still_checks_current_input_bytes(saved, damage):
     state, _, cid, edit = saved
-    plan = state.plan(edit.run_id)
+    plan = Workspace(state).current_composition(cid)["plan"]
     logo = damage.endswith("logo")
     asset = plan.assets["logo" if logo else "products/product-1"]
     path = state.storage.path(asset.reference)
@@ -126,8 +114,11 @@ def test_unchanged_open_still_checks_current_input_bytes(saved, damage):
         items = DraftPreviews(state).render(cid, edit, proposed, impact, logo_preview=True)
         assert items[0]["layers"]["logo_url"] is None
     else:
-        with pytest.raises(StateError, match="missing or changed"):
-            Workspace(state).logo(cid, edit, allow_unchanged=True)
+        _, proposed, impact = Workspace(state).logo(cid, edit, allow_unchanged=True)
+        assert any(
+            f.severity == "blocking" and edit.product_id in f.item for f in proposed.findings
+        )
+        assert DraftPreviews(state).render(cid, edit, proposed, impact, logo_preview=True) == []
 
 
 def test_unchanged_open_cannot_reuse_another_tabs_superseded_revision(saved):
@@ -139,10 +130,10 @@ def test_unchanged_open_cannot_reuse_another_tabs_superseded_revision(saved):
         }
     )
     brief, plan, _ = Workspace(state).logo(cid, moved)
-    runner.revise(edit.run_id, brief, edit.revision_id, plan.digest, logo_edit=moved)
+    Workspace(state).save_composition(cid, moved)
     with pytest.raises(ActionError) as error:
         Workspace(state).logo(cid, edit, allow_unchanged=True)
-    assert error.value.code == "logo_stale_revision"
+    assert error.value.code == "composition_conflict"
 
 
 def test_only_logo_previews_use_fast_compression(saved, monkeypatch):

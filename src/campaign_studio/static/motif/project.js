@@ -1,8 +1,10 @@
 "use strict";
 
-// One queue for both manual and automatic project saves. Image Apply operations
-// remain separate; this controller only persists authored state.
-function projectSaveQueue({ capture, restore, send, read, changed, autosave, acknowledged: onAcknowledged, validate, delay = 1200 }) {
+const PROJECT_PROJECTION_FIELDS = ["composition_version", "composition_issues", "source_urls", "output_brief", "manifest", "output_run_id", "editable_products", "logo_editable_products", "can_edit", "can_describe", "metadata", "wording_issue", "rule_withheld_outputs", "metrics", "file_integrity", "plan", "plan_brief", "run", "unplanned_draft", "retry_plan", "notice", "run_attempts", "concept_previews"];
+
+// Campaign forms save through one version-checked queue. Studio uses the same
+// current document through focused metadata patches.
+function projectSaveQueue({ capture, restore, send, changed, autosave, acknowledged: onAcknowledged, validate, canAutosave = () => true, delay = 2000 }) {
   let record = null,
     acknowledged = "",
     acknowledgedContext = "",
@@ -11,6 +13,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     pending = null,
     flight = null,
     observed = null,
+    observedSourceCompletion = false,
     timer = null,
     paused = false,
     held = false,
@@ -22,6 +25,14 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
   const listeners = new Set();
   const serialize = (value) => {
     const { ui_context, ...work } = value;
+    // Fresh imports and bundled campaigns can omit empty browser buffers.
+    // Opening their controls supplies those empty objects locally; that is not
+    // an edit and must not schedule a save during source generation.
+    for (const key of ["form_drafts", "review_drafts", "feedback"]) {
+      const buffer = work[key];
+      if (buffer && typeof buffer === "object" && !Array.isArray(buffer) &&
+          Object.keys(buffer).length === 0) delete work[key];
+    }
     return JSON.stringify(work);
   };
   const contextOf = value => JSON.stringify(value.ui_context || {});
@@ -61,6 +72,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     lastSeen = acknowledged;
     pending = null;
     observed = null;
+    observedSourceCompletion = false;
     paused = false;
     held = false;
     autosaveSuspended = false;
@@ -74,6 +86,7 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     // still belongs to the old record and cannot capture or restore Home/new work.
     cancelTimer();
     record = pending = observed = null;
+    observedSourceCompletion = false;
     contextRequested = false;
     held = paused = autosaveSuspended = false;
     validationMessage = "";
@@ -99,8 +112,10 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     cancelTimer();
     if (paused) return publish("conflict", message);
     if (!flight) publish(isDirty() ? "dirty" : "saved");
-    if (isDirty() && !held && !autosaveSuspended && !validationMessage)
-      timer = setTimeout(() => (autosave || saveCurrent)().catch(() => {}), delay);
+    if (isDirty() && !held && !autosaveSuspended && !validationMessage && canAutosave())
+      timer = setTimeout(() => {
+        if (canAutosave()) (autosave || saveCurrent)().catch(() => {});
+      }, delay);
   }
   function retainContext() {
     if (!record) return;
@@ -140,22 +155,31 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
         const ack = await send(owner.campaignId, request);
         succeeded = true;
         if (record !== owner) return false;
-        owner.version = ack.version;
-        owner.saved_at = ack.saved_at;
-        owner.authored_hash = ack.authored_hash;
+        const current = observed && (observed.version === ack.version ||
+          (observedSourceCompletion && observed.version !== request.version &&
+            serialize(observed.authored) === serialize(request.authored)))
+          ? observed : null;
+        owner.version = current?.version || ack.version;
+        owner.saved_at = current?.saved_at || ack.saved_at;
+        owner.authored_hash = current?.authored_hash || ack.authored_hash;
         acknowledged = serialize(request.authored);
         acknowledgedContext = contextOf(request.authored);
         if (contextRequested && contextOf(capture()) === acknowledgedContext)
           contextRequested = false;
         pending = null;
-        // A completed run may be observed before this Save response arrives.
-        // Only the exact acknowledged authored version can advance its base;
-        // a competing tab's different version remains a real conflict.
-        const current = observed?.version === ack.version ? observed : null;
+        // A source result can finish after this save commits but before its
+        // response arrives. Advance only when its authored content is exactly
+        // this acknowledged request; a different producer edit stays a conflict.
         if (current) owner.base = structuredClone(current.base);
         owner.authored = structuredClone(current?.authored || request.authored);
         observed = null;
-        onAcknowledged?.(ack, owner.campaignId, request.authored, current);
+        observedSourceCompletion = false;
+        const receipt = current ? { ...ack, version: current.version,
+          saved_at: current.saved_at || ack.saved_at, authored_hash: current.authored_hash || ack.authored_hash,
+          project: structuredClone(current) } : ack;
+        if (current && current.version !== ack.version)
+          for (const key of PROJECT_PROJECTION_FIELDS) delete receipt[key];
+        onAcknowledged?.(receipt, owner.campaignId, request.authored, current);
         // Acknowledgement never restores sent values over newer local typing.
         publish(isDirty() ? "dirty" : "saved");
         return !isDirty();
@@ -211,47 +235,52 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     held = false;
     markChanged(true);
   }
-  async function loadSaved() {
-    if (!record || flight) return false;
-    const owner = record;
-    const saved = await read(owner.campaignId);
-    if (record !== owner) return false;
-    open(owner.campaignId, saved);
-    return true;
-  }
-  async function replaceSaved(reviewed) {
-    if (!record || flight || !paused) return false;
-    // The host presents the fetched saved state first. The same ordinary Save
-    // uses that exact reviewed token; any further competing save still conflicts.
-    record.version = reviewed.version;
-    record.base = structuredClone(reviewed.base);
-    pending = null;
-    paused = false;
-    publish("dirty");
-    return save();
-  }
   function applied(saved) {
-    if (!record || flight) return false;
-    // The host has reconciled only the applied target and cleared its matching
-    // buffer. Reuse the same queue to persist that new authored state.
+    if (!record || flight || paused) return false;
+    // Apply has already saved the image and its settings on the server.
+    // Acknowledge that state without sending another authored save.
     // An image Apply is not permission to overwrite an observed other-tab Save.
     // Keep that token stale so the ordinary conflict path protects its work.
     if (!observed || observed.version === record.version) record.version = saved.version;
     record.base = structuredClone(saved.base);
-    if (record.version === saved.version) record.authored = structuredClone(saved.authored || record.authored);
+    if (record.version === saved.version) {
+      record.authored = structuredClone(saved.authored || record.authored);
+      acknowledged = serialize(record.authored);
+      acknowledgedContext = contextOf(record.authored);
+      record.saved_at = saved.saved_at || record.saved_at;
+      record.authored_hash = saved.authored_hash || record.authored_hash;
+    }
     pending = null;
     paused = false;
-    markChanged(true);
+    lastSeen = observedWork(capture());
+    publish(isDirty() ? "dirty" : "saved");
     return true;
   }
-  function observe(saved) {
+  function observe(saved, { sourceCompletion = false } = {}) {
     if (!record) return false;
     if (flight) {
       observed = structuredClone(saved);
+      observedSourceCompletion = sourceCompletion;
       return false;
     }
     if (saved.version !== record.version) {
+      // Finishing source generation changes the saved-state guard without
+      // changing the producer's settings. Acknowledge that read-only result,
+      // preserving any newer local typing. Never adopt different saved edits.
+      if (sourceCompletion && !pending && !paused && !held &&
+          serialize(saved.authored) === acknowledged) {
+        record.version = saved.version;
+        record.saved_at = saved.saved_at;
+        record.authored_hash = saved.authored_hash;
+        record.base = structuredClone(saved.base);
+        record.authored = structuredClone(saved.authored);
+        observed = null;
+        observedSourceCompletion = false;
+        publish(isDirty() ? "dirty" : "saved");
+        return true;
+      }
       observed = structuredClone(saved);
+      observedSourceCompletion = sourceCompletion;
       return false;
     }
     record.base = structuredClone(saved.base);
@@ -268,8 +297,6 @@ function projectSaveQueue({ capture, restore, send, read, changed, autosave, ack
     markChanged,
     retainContext,
     isDirty,
-    loadSaved,
-    replaceSaved,
     applied,
     observe,
     authored: () => structuredClone(record?.authored),
@@ -353,22 +380,17 @@ function restoreProjectControls({ preserveModal = false } = {}) {
 }
 function captureProject() {
   const forms = projectBuffers.form_drafts;
+  if (typeof captureProductInputs === "function") captureProductInputs();
+  if (modal === "rule" && ruleIndex >= 0 && $("#mw-rule-phrase")) {
+    const rule = draft.markets[MARKET[lang]]?.phrase_rules?.[ruleIndex];
+    if (rule) rule.phrase = $("#mw-rule-phrase").value;
+  }
+  if (modal === "rename" && $("#rename-name")) draft.name = $("#rename-name").value;
   if (page === "campaign") {
     captureProjectFields(`brief/${tab}/${lang}`, $("#main"));
   }
   const formKey = projectFormKey();
-  if (formKey) captureProjectFields(formKey, imageEditorRoot());
-  if (modal === "inspect" && forms.fields?.[formKey]) {
-    const product = C.products[currentProduct]?.id;
-    if (product) {
-      const key = `${product}/${MARKET[lang]}/${FMT[currentFormat].ratio.replace(":", "x")}`;
-      projectBuffers.review_drafts[key] = {
-        revision_id: model.manifest?.revision_id,
-        metadata_snapshot_id: model.metadata?.snapshot_id,
-        values: projectFormValues(imageEditorRoot()),
-      };
-    }
-  }
+  if (formKey && modal !== "inspect") captureProjectFields(formKey, imageEditorRoot());
   if (forms.fields && !Object.keys(forms.fields).length) delete forms.fields;
   return {
     brief: copy(draft),
@@ -385,9 +407,10 @@ function captureProject() {
 function isImageEditor(kind = modal) {
   return ["text", "frame", "logo"].includes(kind);
 }
-function restoreProject(value) {
+function restoreProject(value, { restoreContext = true } = {}) {
   draft = copy(value.brief);
   for (const key of Object.keys(projectBuffers)) projectBuffers[key] = copy(value[key] || {});
+  if (!restoreContext) return;
   const context = value.ui_context || {};
   if (context.tab) tab = context.tab;
   if (context.language) lang = context.language;
@@ -405,8 +428,7 @@ function restoreProject(value) {
 // The page, authoring dialogs, and autosave all use this one controller.
 let projectQueue = null,
   projectOwner = null,
-  projectViews = [],
-  projectConflict = null;
+  projectViews = [];
 const projectListeners = new Set();
 function getSaveState() {
   return projectQueue && page !== "library" && draft?.campaign_id === projectOwner
@@ -458,9 +480,9 @@ function initializeProject(saved) {
     capture: captureProject,
     restore: restoreProject,
     send: (id, body) => api(`/api/motif/campaigns/${encodeURIComponent(id)}/authored`, body),
-    read: (id) => api(`/api/motif/campaigns/${encodeURIComponent(id)}/authored`),
     changed: publishProjectState,
     autosave: saveProject,
+    canAutosave: () => !["text", "frame", "logo", "inspect"].includes(modal),
     validate: authored => MotifTextLimits.authoredIssue(authored),
     acknowledged(ack, id, submitted, current) {
       if (draft?.campaign_id !== id) return;
@@ -470,11 +492,16 @@ function initializeProject(saved) {
         model.project.base = copy(current.base);
       }
       model.version = ack.version;
-      Object.assign(model.project, ack);
+      Object.assign(model.project, ack.project || Object.fromEntries(
+        ["version", "saved_at", "authored_hash", "base"].filter(key => key in ack).map(key => [key, ack[key]])));
+      for (const key of PROJECT_PROJECTION_FIELDS)
+        if (key in ack) model[key] = ack[key];
+      if ("concept_previews" in ack) model.concept_preview_version = ack.version;
+      if (typeof viewModel === "function") viewModel();
       model.project.authored = copy(current?.authored || submitted);
       refreshCampaignIdentity(model.project.authored.brief.name, model.project.authored.brief.brand?.name || "");
       // Save changes plan readiness, never the accepted image selection.
-      if (model.plan_brief) model.unplanned_draft = !sameProjectInputs(submitted.brief, model.plan_brief)
+      if (!("unplanned_draft" in ack) && model.plan_brief) model.unplanned_draft = !sameProjectInputs(submitted.brief, model.plan_brief)
         // A Save receipt does not re-admit a pending request. Only the server's
         // plan refresh may clear an existing strict admission refusal there.
         || (model.run?.state !== "complete" && !!model.unplanned_draft);
@@ -492,7 +519,6 @@ function initializeProject(saved) {
 function forgetProject(owner) {
   if (projectOwner !== owner) return;
   projectOwner = null;
-  projectConflict = null;
   projectFieldDefaults = {};
   for (const key of Object.keys(projectBuffers)) projectBuffers[key] = {};
   projectQueue?.forget(owner);
@@ -506,7 +532,8 @@ function reconcileAppliedBrief(local, before, after) {
         else delete target[field];
       }
   };
-  advance(local.brand, before.brand, after.brand, ["logo_path", "logo_provenance"]);
+  advance(local, before, after, ["schema_version", "campaign_id", "name", "audience", "creative_direction", "copy_provenance", "markets", "products", "replay"]);
+  advance(local.brand, before.brand, after.brand, ["id", "name", "logo_path", "logo_provenance", "palette", "text_color", "require_logo"]);
   for (const [id, source] of Object.entries(local.replay?.sources || {}))
     advance(source, before.replay?.sources?.[id], after.replay?.sources?.[id], ["path"]);
   for (const market of Object.keys(local.markets || {})) {
@@ -516,21 +543,21 @@ function reconcileAppliedBrief(local, before, after) {
   for (const product of local.products || []) {
     const old = before.products?.find((p) => p.id === product.id),
       current = after.products?.find((p) => p.id === product.id);
-    advance(product, old, current, ["framing"]);
-    if (old && current && (product.copy_overrides === undefined || product.copy_overrides && typeof product.copy_overrides === "object" && !Array.isArray(product.copy_overrides))) {
+    advance(product, old, current, ["name", "description", "framing"]);
+    if (old && current && (old.copy_overrides || current.copy_overrides || product.copy_overrides) && (product.copy_overrides === undefined || product.copy_overrides && typeof product.copy_overrides === "object" && !Array.isArray(product.copy_overrides))) {
       const overrides = product.copy_overrides ??= {};
       for (const market of new Set([...Object.keys(old.copy_overrides || {}), ...Object.keys(current.copy_overrides || {})])) {
         const previous = old.copy_overrides?.[market] || {}, next = current.copy_overrides?.[market] || {}, values = overrides[market] === undefined ? {} : overrides[market];
         if (!values || typeof values !== "object" || Array.isArray(values)) continue;
         advance(values, previous, next, ["message", "cta"]);
-        if (Object.keys(values).length) overrides[market] = values;
+        if (Object.keys(values).length || Object.hasOwn(current.copy_overrides || {}, market)) overrides[market] = values;
         else delete overrides[market];
       }
     }
-    advance(product.source, old?.source, current?.source, ["path"]);
+    advance(product.source, old?.source, current?.source, ["role", "path", "provenance", "description", "imagery_absent", "subject_box"]);
   }
 }
-function receiveProject(data, previous, { applied = false, reset = false } = {}) {
+function receiveProject(data, previous, { applied = false, reset = false, sourceCompletion = null } = {}) {
   if (!data.project) return;
   if (reset || projectOwner !== data.value.campaign_id) {
     draft = copy(data.project.authored.brief);
@@ -540,7 +567,9 @@ function receiveProject(data, previous, { applied = false, reset = false } = {})
   // Only an acknowledged own action or an unchanged authored guard can advance
   // this tab's base. A newly observed other-tab save must still conflict.
   const acknowledged = projectQueue.authored();
-  if (applied || projectQueue.observe(data.project)) {
+  const completedSourceRun = !!sourceCompletion && sourceCompletion === data.run?.id &&
+    sourceCompletion === previous?.run?.id;
+  if (applied || projectQueue.observe(data.project, { sourceCompletion: completedSourceRun })) {
     reconcileAppliedBrief(draft, acknowledged.brief, data.project.authored.brief);
     reconcileAppliedForms(acknowledged, data.project.authored);
     if (applied) projectQueue.applied(data.project);
@@ -562,15 +591,16 @@ function reconcileAppliedForms(previous, current) {
   const before = previous.form_drafts?.fields || {}, after = current.form_drafts?.fields || {};
   for (const [name, values] of Object.entries(projectBuffers.form_drafts.fields || {})) {
     if (!name.startsWith("brief/")) continue;
-    for (const field of ["copy-headline", "copy-cta"])
-      if (field in values && values[field] === before[name]?.[field] && field in (after[name] || {}))
-        values[field] = after[name][field];
+    for (const field of Object.keys(values))
+      if (values[field] === before[name]?.[field]) {
+        if (field in (after[name] || {})) values[field] = after[name][field];
+        else delete values[field];
+      }
   }
 }
-async function saveProject({ reviewed } = {}) {
+async function saveProject() {
   if (!projectQueue) return false;
   const owner = projectOwner;
-  if (reviewed && !(await projectQueue.replaceSaved(reviewed))) return false;
   const saved = await projectQueue.saveCurrent();
   if (saved && owner === projectOwner) dirty = false;
   return saved;
@@ -587,7 +617,7 @@ function mountProjectViews() {
   destroyProjectViews();
   const host = {
     getSaveState, subscribeSaveState, onSave: saveProject,
-    onReviewConflict: reviewProjectConflict,
+    onRefresh: MotifSave.refreshPage,
   };
   const recovery = $("#project-save-recovery");
   if (recovery) projectViews.push(MotifSave.mountRecovery(recovery, {
@@ -599,7 +629,7 @@ function mountProjectViews() {
     },
   }));
   const mount = (root) => {
-    if (root) projectViews.push(MotifSave.mount(root, host));
+    if (root) projectViews.push(MotifSave.mountRecovery(root, host));
   };
   if (["rule", "rename", "inspect"].includes(modal)) {
     const header = $("#overlay .modal-head"), close = header?.querySelector("button.close");
@@ -631,99 +661,6 @@ async function withProjectApply(operation) {
   finally { projectQueue.release(owner); }
 }
 
-async function reviewProjectConflict() {
-  if (projectConflict || !projectQueue) return;
-  captureProject();
-  const owner = projectOwner, overlay = $("#overlay"),
-    previous = [...overlay.children].map((node) => [node, node.inert]),
-    focused = document.activeElement,
-    appInert = $("#app").inert, skipInert = $(".skip").inert;
-  previous.forEach(([node]) => { node.inert = true; });
-  $("#app").inert = true;
-  $(".skip").inert = true;
-  const host = document.createElement("div");
-  overlay.append(host);
-  projectConflict = host;
-  let reviewed = null, working = false;
-  const button = (label, action, kind = "") =>
-    `<button type="button" class="btn ${kind}" data-project-choice="${action}">${label}</button>`;
-  function close() {
-    host.remove();
-    projectConflict = null;
-    previous.forEach(([node, inert]) => { node.inert = inert; });
-    $("#app").inert = appInert;
-    $(".skip").inert = skipInert;
-    focused?.isConnected && focused.focus();
-  }
-  function show(step = "review") {
-    let title = "Choose which work to keep.",
-      body = `<p>Your edits are still here. Another tab saved changes to this campaign. Automatic saving is paused.</p><div class="rule"></div><div class="data-row"><span>Current saved campaign</span><b>${esc(reviewed?.project.authored.brief.name || "Untitled campaign")}</b></div><div class="data-row"><span>Saved</span><b>${esc(reviewed?.project.saved_at ? new Date(reviewed.project.saved_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Not recorded")}</b></div><p style="margin-top:16px">Keep editing here, load the current saved work, or deliberately replace it with this tab’s current work.</p>`,
-      footer = button("Keep editing here", "keep") + button("Use saved work", "load-confirm") + button("Save this tab’s work", "replace-confirm", "primary");
-    if (step === "load-confirm") {
-      title = "Use the current saved work?";
-      body = "<p>This replaces this tab’s current fields and pending edits with the work you just reviewed. Unsaved changes in this tab will be discarded.</p>";
-      footer = button("Back", "review") + button("Use saved work", "load", "primary");
-    } else if (step === "replace-confirm") {
-      title = "Save this tab’s work?";
-      body = "<p>This replaces the current saved authored work with this tab’s fields and pending edits. It does not apply image edits or change production records.</p><p style=\"margin-top:14px\">If the saved work changes again, saving will pause so you can review it.</p>";
-      footer = button("Back", "review") + button("Replace saved work", "replace", "primary");
-    } else if (step === "unavailable") {
-      title = "The saved work is unavailable.";
-      body = "<p>Your current edits are still here. Keep editing, or try checking the saved work again. Nothing has been replaced.</p>";
-      footer = button("Keep editing here", "keep") + button("Try again", "read", "primary");
-    }
-    host.innerHTML = dialog(title, body, footer).replace('data-action="close"', 'data-project-choice="keep"');
-    host.querySelector(".modal-foot button")?.focus();
-  }
-  async function read() {
-    working = true;
-    try {
-      reviewed = await api(`/api/motif/campaigns/${encodeURIComponent(owner)}`);
-      if (owner === projectOwner) show();
-    } catch { show("unavailable"); }
-    finally { working = false; }
-  }
-  host.addEventListener("click", async (event) => {
-    const control = event.target.closest("[data-project-choice]");
-    if (!control) return;
-    event.stopPropagation();
-    if (working) return;
-    const choice = control.dataset.projectChoice;
-    if (choice === "keep") return close();
-    if (choice === "read") return read();
-    if (!["load", "replace"].includes(choice)) return show(choice);
-    working = true;
-    try {
-      if (choice === "replace") {
-        if (await saveProject({ reviewed: reviewed.project })) close();
-        else show("unavailable");
-      } else {
-        const fresh = await api(`/api/motif/campaigns/${encodeURIComponent(owner)}`);
-        const identity = (data) => JSON.stringify([data.project.version, data.project.authored_hash, data.project.base]);
-        if (identity(fresh) !== identity(reviewed)) { reviewed = fresh; show(); return; }
-        close();
-        closeModal();
-        useData(fresh, { reset: true });
-        render();
-        await reopenProjectEditor(fresh.project.authored.ui_context);
-      }
-    } catch { show("unavailable"); }
-    finally { working = false; }
-  });
-  host.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault(); event.stopPropagation();
-      if (!working) close();
-    } else if (event.key === "Tab") {
-      event.preventDefault(); event.stopPropagation();
-      const controls = [...host.querySelectorAll("button:not(:disabled)")];
-      const index = controls.indexOf(document.activeElement);
-      controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
-    }
-  });
-  await read();
-}
-
 async function reopenProjectEditor(context = {}) {
   if (!context || !draft || context.page !== page) return;
   const product = draft.products?.findIndex((p) => p.id === context.productId);
@@ -744,7 +681,7 @@ async function reopenProjectEditor(context = {}) {
 if (typeof document !== "undefined") {
   for (const type of ["input", "change"])
     document.addEventListener(type, event => {
-      if (!(isImageEditor() || modal === "product") || !imageEditorRoot().contains(event.target))
+      if (!["text", "frame", "logo", "inspect"].includes(modal) || !imageEditorRoot().contains(event.target))
         queueMicrotask(() => projectChanged());
     });
 }

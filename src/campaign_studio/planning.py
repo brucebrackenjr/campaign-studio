@@ -72,6 +72,38 @@ class Output(Contract):
     framing: Framing = Field(default_factory=Framing)
 
 
+def expand_outputs(brief: Brief) -> list[Output]:
+    """Resolve the output matrix from its brief without reading assets or creating requests."""
+    outputs = []
+    for product in brief.products:
+        for market in brief.markets:
+            copy = brief.effective_copy(product, market)
+            for ratio, (width, height) in FORMATS.items():
+                framing = (
+                    product.framing.get(market, {}).get(ratio, Framing()).model_copy(deep=True)
+                )
+                if (
+                    product.source.role == "finished_scene"
+                    and product.source.subject_box
+                    and framing.subject_box is None
+                    and framing.inherit_subject
+                ):
+                    framing.subject_box = product.source.subject_box.model_copy(deep=True)
+                outputs.append(
+                    Output(
+                        id=f"{product.id}/{market}/{ratio.replace(':', 'x')}",
+                        product_id=product.id,
+                        market=market,
+                        ratio=ratio,
+                        width=width,
+                        height=height,
+                        copy=copy.model_copy(deep=True),
+                        framing=framing,
+                    )
+                )
+    return outputs
+
+
 class Asset(Contract):
     reference: str
     sha256: str
@@ -290,13 +322,14 @@ def make_plan(
     for item, reference in references.items():
         retained = _previous.assets.get(item) if _previous else None
         try:
-            path = storage.path(project.require(reference))
             if retained and retained.reference == reference:
+                project.require(reference, inspect_file=False)
                 assets[item] = retained
                 findings.extend(
                     f.model_copy(deep=True) for f in _previous.findings if f.item == item
                 )
                 continue
+            path = storage.path(project.require(reference))
             image, _ = load_image(path)
             assets[item] = Asset(
                 reference=reference,
@@ -326,6 +359,7 @@ def make_plan(
                 )
             )
     outputs = []
+    resolved_outputs = {output.id: output for output in expand_outputs(brief)}
     generation = {}
     transmitted = {}
     for product in brief.products:
@@ -385,31 +419,14 @@ def make_plan(
                     item=product.id,
                     rule="scene_coverage",
                     severity="blocking",
-                    evidence="A finished scene must fill the output without transparent gaps.",
+                    evidence="This image has transparent areas.",
+                    remedy="Select a product image without transparency.",
                 )
             )
         for market in brief.markets:
             copy = brief.effective_copy(product, market)
             for ratio, (width, height) in FORMATS.items():
-                output = Output(
-                    id=f"{product.id}/{market}/{ratio.replace(':', 'x')}",
-                    product_id=product.id,
-                    market=market,
-                    ratio=ratio,
-                    width=width,
-                    height=height,
-                    copy=copy,
-                    framing=product.framing.get(market, {}).get(ratio, Framing()),
-                )
-                if (
-                    source.role == "finished_scene"
-                    and source.subject_box
-                    and output.framing.subject_box is None
-                    and output.framing.inherit_subject
-                ):
-                    output.framing = output.framing.model_copy(
-                        update={"subject_box": source.subject_box}
-                    )
+                output = resolved_outputs[f"{product.id}/{market}/{ratio.replace(':', 'x')}"]
                 scene = (
                     images.get(f"products/{product.id}")
                     if source.role == "finished_scene"
@@ -529,13 +546,25 @@ def compare_plans(old: Plan, new: Plan) -> Impact:
     result = Impact(
         generation_products=[item for item in new.generation_products if item in changed_sources]
     )
-    branding_changed = old.brief.brand != new.brief.brand or old.assets.get(
-        "logo"
-    ) != new.assets.get("logo")
+    old_logo = old.assets.get("logo")
+    new_logo = new.assets.get("logo")
+    logo_changed = (old_logo.sha256 if old_logo else None) != (
+        new_logo.sha256 if new_logo else None
+    )
+    default_color_changed = old.brief.brand.text_color != new.brief.brand.text_color
     for output in new.outputs:
+        # Palette and brand-name changes update the brief. A default-color
+        # change only paints text that actually inherits that color.
+        placements = output.framing.text_placements
+        recolor = default_color_changed and any(
+            getattr(output.text, field)
+            and (field not in placements or placements[field].color is None)
+            for field in ("message", "cta")
+        )
         if (
             output != before.get(output.id)
-            or branding_changed
+            or logo_changed
+            or recolor
             or output.product_id in changed_sources
         ):
             result.render_outputs.append(output.id)

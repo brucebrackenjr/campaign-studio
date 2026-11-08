@@ -1,4 +1,4 @@
-"""Broken rendering resources block new work, not access to saved images."""
+"""Broken rendering resources block previews and delivery, not saved instructions."""
 
 import asyncio
 
@@ -8,6 +8,7 @@ from test_provider_runner import generated_case
 from test_workflow import setup_case
 
 from campaign_studio.app import create_app
+from campaign_studio.campaign_drafts import read as read_draft
 from campaign_studio.cli import main
 from campaign_studio.config import Settings
 from campaign_studio.imaging import FontProblem, supported_characters
@@ -20,7 +21,10 @@ def test_missing_or_corrupt_font_blocks_planning_and_dispatch_but_preserves_save
     tmp_path, monkeypatch, capsys, corrupt
 ):
     state, runner, run_id, _ = setup_case(tmp_path)
-    saved = asyncio.run(runner.execute(run_id))
+    asyncio.run(runner.execute(run_id))
+    cid = state.run(run_id)["campaign_id"]
+    saved = read_draft(state.storage, cid)
+    source_bytes = {path: path.read_bytes() for path in state.storage.root.rglob("*.png")}
     # A separate generated fixture provides a real confirmed request prepared while
     # the font was intact. Removing it after planning must still prevent dispatch.
     pending_root = tmp_path / "pending"
@@ -77,47 +81,48 @@ def test_missing_or_corrupt_font_blocks_planning_and_dispatch_but_preserves_save
         assert (
             client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio").status_code == 200
         )
-        data = client.get("/api/motif/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde").json()
-        assert data["manifest"]["revision_id"] == saved["revision_id"]
-        assert all(
-            client.get(output["url"]).status_code == 200 for output in data["manifest"]["outputs"]
-        )
-        base = (
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde"
-            f"/runs/{run_id}/revisions/{saved['revision_id']}"
-        )
+        authored = client.get(f"/api/motif/campaigns/{cid}/authored")
+        assert authored.status_code == 200
+        assert authored.json()["authored"]["brief"] == saved["authored"]["brief"]
+        # There are no stored final PNGs to fall back to. The current preview and
+        # download must explain the damaged installation rather than show an old image.
+        data = client.get(f"/api/motif/campaigns/{cid}")
+        assert data.status_code == 503 and data.json()["code"] == "font_unavailable"
         result = client.post(
-            base + "/zip",
-            json={
-                "snapshot_id": data["metadata"]["snapshot_id"],
-            },
+            f"/api/campaigns/{cid}/delivery/zip", json={"version": saved["version"]}
         )
-        assert result.status_code == 200, result.text
-        assert client.get(result.json()["url"]).status_code == 200
+        assert result.status_code == 503 and result.json()["code"] == "font_unavailable"
+        assert read_draft(state.storage, cid)["version"] == saved["version"]
+        edit = {
+            "ratio": "1:1",
+            "run_id": run_id,
+            "revision_id": saved["version"],
+            "market": "es-MX",
+            "product_id": "product-1",
+            "field_scopes": {"message": "all_products", "cta": "all_products"},
+            "values": saved["authored"]["brief"]["markets"]["es-MX"]["copy"]
+            | {"message": "Un cambio local."},
+        }
+        # Saving instructions is independent of preview rendering and still works.
+        updated = client.post(f"/api/campaigns/{cid}/text/save", json=edit)
+        assert updated.status_code == 200, updated.text
+        version = updated.json()["version"]
+        assert version != saved["version"]
+        assert (
+            read_draft(state.storage, cid)["authored"]["brief"]["markets"]["es-MX"]["copy"][
+                "message"
+            ]
+            == "Un cambio local."
+        )
         plan = client.post(
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview",
-            json={
-                "ratio": "1:1",
-                "run_id": run_id,
-                "revision_id": saved["revision_id"],
-                "market": "es-MX",
-                "product_id": "product-1",
-                "field_scopes": {"message": "all_products", "cta": "all_products"},
-                "values": data["value"]["markets"]["es-MX"]["copy"]
-                | {"message": "Un cambio local."},
-            },
+            f"/api/campaigns/{cid}/text/preview", json=edit | {"revision_id": version}
         )
         assert plan.status_code == 503 and plan.json()["code"] == "font_unavailable"
-        recovery = client.post(
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/recover", json={"run_id": run_id}
-        )
-        assert recovery.status_code == 202
-        from test_web_workflow import wait_for_work
-
-        status = wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-        assert status["notice_code"] == "font_unavailable"
-        assert "Reinstall" in status["notice"]
-        assert state.run(run_id)["current_revision"] == saved["revision_id"]
+        assert read_draft(state.storage, cid)["version"] == version
+        assert all(path.read_bytes() == content for path, content in source_bytes.items())
+        assert not list(state.storage.root.glob("Campaigns/**/Outputs"))
+        with state.storage.connect() as db:
+            assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
     empty_app = create_app(
         Settings(data_dir=tmp_path / "empty"),
         provider_factory=forbidden_provider,

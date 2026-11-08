@@ -1,16 +1,14 @@
-"""Install verified, curated PNGs as an ordinary editable campaign revision."""
+"""Validate bundled showcase resources before importing their editable source inputs."""
 
 import hashlib
 import json
-import time
 from dataclasses import dataclass
 from importlib.resources.abc import Traversable
 from pathlib import Path
 
-from campaign_studio.brief import FORMATS
-from campaign_studio.costing import estimate_recorded_usage
+from campaign_studio.brief import FORMATS, Brief
 from campaign_studio.imaging import font_path
-from campaign_studio.planning import Finding, canonical_hash, contextualize_findings
+from campaign_studio.planning import Finding, canonical_hash, expand_outputs
 from campaign_studio.storage import StorageError
 
 PIXEL_RULES = {"image_integrity", "logo_pixels", "controlled_text_color"}
@@ -53,9 +51,17 @@ def load_prepared_outputs(source, entry, original):
         for market in original["markets"]
         for ratio in FORMATS
     }
+    expected_outputs = {
+        output.id: output.model_dump(mode="json")
+        for output in expand_outputs(Brief.model_validate(original))
+    }
     observed = set()
     for record in descriptor["outputs"]:
         output = record["output"]
+        if output != expected_outputs.get(output.get("id")):
+            raise StorageError(
+                "The bundled output wording or layout does not match its editable brief."
+            )
         key = (output["product_id"], output["market"], output["ratio"])
         if key not in expected or key in observed:
             raise StorageError("The bundled output list does not match the campaign scope.")
@@ -84,130 +90,3 @@ def _read_output(source, record):
     if len(payload) != record["bytes"] or hashlib.sha256(payload).hexdigest() != record["sha256"]:
         raise StorageError("A bundled output does not match its verified package.")
     return payload
-
-
-def install_prepared_outputs(state, run_id, original, prepared):
-    """Rebind trusted build-time pixel evidence to fresh local identities, then publish."""
-    with state.storage.exclusive_run():
-        started = time.monotonic()
-        plan = state.plan(run_id)
-        if plan.blocked or plan.generation_products or state.run(run_id)["current_revision"]:
-            raise StorageError("Prepared examples require a fresh, complete supplied-image plan.")
-        state.require_authored_plan(run_id)
-        descriptor = prepared.descriptor
-        products = dict(zip((p.id for p in plan.brief.products), original["products"], strict=True))
-        if plan.assets["logo"].sha256 != descriptor["assets"][original["brand"]["logo_path"]]:
-            raise StorageError("The prepared example logo does not match its saved source.")
-        if plan.brief.brand.text_color != descriptor["text_color"]:
-            raise StorageError("The prepared example text color does not match its plan.")
-        for product_id, old in products.items():
-            if (
-                plan.assets[f"products/{product_id}"].sha256
-                != descriptor["assets"][old["source"]["path"]]
-            ):
-                raise StorageError("A prepared example source does not match its saved input.")
-        records = {
-            (r["output"]["product_id"], r["output"]["market"], r["output"]["ratio"]): r
-            for r in descriptor["outputs"]
-        }
-        selected = []
-        for output in plan.outputs:
-            old_id = products[output.product_id]["id"]
-            record = records[(old_id, output.market, output.ratio)]
-            rebound = dict(record["output"], id=output.id, product_id=output.product_id)
-            if rebound != output.model_dump(mode="json"):
-                raise StorageError("A prepared image does not match its planned wording or layout.")
-            selected.append((output, record))
-        storage = state.storage
-        storage.require_capacity(sum(r["bytes"] for _, r in selected) + 1024 * 1024)
-        revision_id = state.reserve_revision(run_id)
-        project = storage.project(plan.brief.campaign_id)
-        prefix = f"{project.run(run_id)}/Revisions/{revision_id}"
-        items = []
-        findings = list(plan.findings)
-        for output, record in selected:
-            payload = _read_output(prepared.source, record)
-            relative = (
-                f"images/{output.product_id}/{output.ratio.replace(':', 'x')}/{output.market}.png"
-            )
-            project.write(f"{prefix}/{relative}", payload)
-            if (
-                hashlib.sha256(storage.path(f"{prefix}/{relative}").read_bytes()).hexdigest()
-                != record["sha256"]
-            ):
-                raise StorageError("The installed example image failed its integrity check.")
-            product = next(p for p in plan.brief.products if p.id == output.product_id)
-            items.append(
-                {
-                    "id": output.id,
-                    "product_id": output.product_id,
-                    "market": output.market,
-                    "ratio": output.ratio,
-                    "width": output.width,
-                    "height": output.height,
-                    "copy": output.text.model_dump(),
-                    "file": relative,
-                    "sha256": record["sha256"],
-                    "pixel_sha256": record["pixel_sha256"],
-                    "source_role": product.source.role,
-                    "synthetic": product.source.provenance.synthetic,
-                }
-            )
-            for check in record["findings"]:
-                check = dict(check, item=output.id)
-                context = check.get("context") or {}
-                check["context"] = (
-                    {"text_block": context["text_block"]} if context.get("text_block") else None
-                )
-                findings.append(Finding.model_validate(check))
-        contextualize_findings(plan.brief, plan.outputs, findings)
-        manifest = {
-            "schema_version": 1,
-            "campaign_id": plan.brief.campaign_id,
-            "campaign_name": plan.brief.name,
-            "revision_id": revision_id,
-            "complete": True,
-            "evidence": "bundled_pre_rendered",
-            "bundled_example": {
-                "version": descriptor["version"],
-                "rendered_with": descriptor["rendered_with"],
-            },
-            "production_cost_estimate": plan.cost_estimate,
-            "usage_cost_estimate": estimate_recorded_usage([], plan.generation_requests),
-            "outputs": items,
-            "findings": [f.model_dump() for f in findings],
-            "sources": [
-                {
-                    "product_id": p.id,
-                    "role": p.source.role,
-                    "provenance": p.source.provenance.model_dump(),
-                }
-                for p in plan.brief.products
-            ],
-            "metrics": {
-                "requested_images": len(items),
-                "completed_images": len(items),
-                "distinct_campaigns": 1,
-                "revisions": 1,
-                "attempted_requests": 0,
-                "request_allowance": 0,
-                "reported_usage": [],
-                "received_pending_local": 0,
-                "successful_requests": 0,
-                "failed_requests": 0,
-                "unknown_requests": 0,
-                "reused_sources": len(plan.brief.products),
-                "local_render_seconds": 0,
-                "elapsed_processing_seconds": round(time.monotonic() - started, 3),
-                "time_saved": "not_measured",
-                "cost_status": "no_requests",
-                "confirmed_charge": None,
-                "pre_rendered_images": len(items),
-            },
-        }
-        plan_ref = f"{prefix}/plan.json"
-        manifest_ref = f"{prefix}/manifest.json"
-        project.write(plan_ref, plan.model_dump_json(indent=2).encode())
-        project.write(manifest_ref, json.dumps(manifest, ensure_ascii=False, indent=2).encode())
-        state.publish_revision(run_id, revision_id, plan_ref, manifest_ref, True)
-        return manifest

@@ -59,3 +59,36 @@ test('access denial keeps the update form but does not mislabel permissions as a
   assert.match(h.root.innerHTML, /managed outside Motif/);
   assert.doesNotMatch(h.root.innerHTML, /This account cannot access image generation/);
 });
+
+
+test('key removal is explicit, remains open on failure, and closes after confirmed removal', async () => {
+  for (const fails of [false, true]) {
+    const h = harness(); let calls = 0;
+    const view = h.c.MotifLocalDialogs.mount(h.root, {
+      state: {kind: 'key', phase: 'configured', canRemove: true}, background: h.background,
+      returnFocus: {focus() {}}, onClose: () => h.events.push(['closed']),
+      onRemove: async () => { calls++; if (fails) throw Error('blocked'); return {removed: true}; },
+    });
+    assert.equal(calls, 0); assert.match(h.root.innerHTML, /Remove API key/);
+    await h.root.listeners.click({target: {closest: () => ({dataset: {bfAction: 'key-remove'}})}, preventDefault() {}, stopPropagation() {}});
+    assert.equal(calls, 1);
+    if (fails) { assert.equal(view.phase, 'removefailed'); assert.equal(h.background.inert, true); }
+    else { assert.equal(h.root.innerHTML, ''); assert.equal(h.background.inert, false); }
+  }
+});
+
+test('key dialog states that a key exists without filling the secret field', async () => {
+  const h = harness();
+  const view = h.c.MotifLocalDialogs.mount(h.root, {
+    state: {kind: 'key', phase: 'configured', available: true, canRemove: true},
+    background: h.background, returnFocus: {focus() {}}, onClose() {},
+    onRemove: async () => ({removed: true}),
+  });
+  assert.match(h.root.innerHTML, /An API key is stored in this installation/);
+  assert.equal(h.root.input.value, '');
+  await h.root.listeners.click({target: {closest: () => ({dataset: {bfAction: 'key-remove'}})}, preventDefault() {}, stopPropagation() {}});
+  assert.equal(h.root.innerHTML, '');
+  const fresh = h.mount(async () => ({saved: true}));
+  assert.equal(fresh.phase, 'missing');
+  assert.doesNotMatch(h.root.innerHTML, /An API key is stored in this installation/);
+});

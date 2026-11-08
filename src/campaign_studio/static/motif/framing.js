@@ -14,7 +14,7 @@ let framingOverlay = null,
   framingRaf = 0,
   framingTimer = 0,
   framingDelayResolve = null;
-let framingRecovery = null, framingSession = 0, framingCustomText = false, framingAttempt = null;
+let framingRecovery = null, framingSession = 0, framingCustomText = false, framingAttempt = null, framingApplyError = null;
 const frameClamp = (v, min, max) => Math.min(max, Math.max(min, v));
 function frameCrop(width, height, format, settings = {}) {
   const zoom = frameClamp(Number(settings.zoom) || 1, 1, 2),
@@ -103,7 +103,7 @@ function framingControl(label, id, value, min, max, output, hint = "") {
 function framingParts() {
   beginFraming();
   return editorParts(
-    `<div class="framing-editor mf-editor-grid"><div class="framing-tools mf-editor-tools"><div class="framing-product"><h3>${esc(C.products[currentProduct].name)}</h3><p class="small muted">${LANG[lang]} · ${FMT[currentFormat].name} ${FMT[currentFormat].ratio}</p></div>${framingControl("Zoom", "frame-zoom", Math.round(framingDraft.zoom * 1000) / 10, 100, 200, Math.round(framingDraft.zoom * 1000) / 10 + "%", "100% fills this format. Zoom in to reframe.")}${framingControl("Horizontal position", "frame-focal", framingDraft.focal, 0, 100, "Centered")}${framingControl("Vertical position", "frame-vertical", framingDraft.vertical, 0, 100, "Centered")}<div class="framing-placement"><label for="frame-layout">Copy placement</label><select id="frame-layout" ${framingCustomText ? "disabled hidden" : ""}><option value="top" ${framingDraft.place === "top" ? "selected" : ""}>Top left</option><option value="bottom" ${framingDraft.place === "bottom" ? "selected" : ""}>Bottom left</option></select><p id="frame-custom-text" class="small muted" ${framingCustomText ? "" : "hidden"}>Custom text layout · Adjust text</p></div><section class="framing-protection"><div class="framing-label"><strong>Product area</strong><span id="frame-subject-state">No area marked</span></div><div class="framing-safety-row"><label class="framing-safety-toggle"><input type="checkbox" id="frame-show-safety" aria-describedby="frame-subject-help" ${framingShowSafety ? "checked" : ""}>Show safety area</label>${btn("Clear", "clearSubject", "small quiet", "disabled")}</div><p id="frame-subject-help"></p>${btn("Mark area", "markSubject", "small")}</section></div><section class="framing-preview mf-editor-preview"><div class="framing-preview-label"><span class="eyebrow" id="frame-preview-label">LIVE FRAMING PREVIEW</span></div><div class="framing-visual"><img id="frame-image" class="creative-image" hidden alt="Draft framing preview for ${esc(C.products[currentProduct].name)}"><canvas id="frame-live" hidden aria-hidden="true"></canvas><div id="frame-pan" hidden tabindex="0" role="group" aria-label="Move photo. Drag or use arrow keys to pan."></div><div id="frame-safety-unset" class="framing-empty-safety" role="status" hidden><strong>No safety area set</strong><span>Choose Mark area to create one.</span></div><div id="frame-safety-overlay" hidden aria-hidden="true"><div id="frame-safety-outline"></div><span id="frame-safety-label">SAFETY AREA</span></div><div id="frame-source" hidden><img alt="Original source; mark the product area here"><div id="frame-crop-window"><span>VISIBLE CROP</span></div><div id="frame-subject-box" tabindex="0" role="group" aria-label="Marked product area. Arrow keys move it. Shift and arrow keys resize it."><span>PRODUCT AREA</span></div></div></div><div id="frame-status" class="framing-status" role="status">Loading saved source…</div></section></div>`,
+    `<div class="framing-editor mf-editor-grid"><div class="framing-tools mf-editor-tools"><div class="framing-product"><h3>${esc(C.products[currentProduct].name)}</h3><p class="small muted">${LANG[lang]} · ${FMT[currentFormat].name} ${FMT[currentFormat].ratio}</p></div>${framingControl("Zoom", "frame-zoom", Math.round(framingDraft.zoom * 1000) / 10, 100, 200, Math.round(framingDraft.zoom * 1000) / 10 + "%", "100% fills this format. Zoom in to reframe.")}${framingControl("Horizontal position", "frame-focal", framingDraft.focal, 0, 100, "Centered")}${framingControl("Vertical position", "frame-vertical", framingDraft.vertical, 0, 100, "Centered")}<div class="framing-placement"><label for="frame-layout">Copy placement</label><select id="frame-layout" ${framingCustomText ? "disabled hidden" : ""}><option value="top" ${framingDraft.place === "top" ? "selected" : ""}>Top left</option><option value="bottom" ${framingDraft.place === "bottom" ? "selected" : ""}>Bottom left</option></select><p id="frame-custom-text" class="small muted" ${framingCustomText ? "" : "hidden"}>Custom text layout · Adjust text</p></div><section class="framing-protection"><div class="framing-label"><strong>Product area</strong><span id="frame-subject-state">No area marked</span></div><div class="framing-safety-row"><label class="framing-safety-toggle"><input type="checkbox" id="frame-show-safety" aria-describedby="frame-subject-help" ${framingShowSafety ? "checked" : ""}>Show safety area</label>${btn("Clear", "clearSubject", "small quiet", "disabled")}</div><p id="frame-subject-help"></p>${btn("Mark area", "markSubject", "small")}</section></div><section class="framing-preview mf-editor-preview"><div class="framing-preview-label"><span class="eyebrow" id="frame-preview-label">LIVE FRAMING PREVIEW</span></div><div class="framing-visual"><img id="frame-image" class="creative-image" hidden alt="Draft framing preview for ${esc(C.products[currentProduct].name)}"><canvas id="frame-live" hidden aria-hidden="true"></canvas><div id="frame-pan" hidden tabindex="0" role="group" aria-label="Move photo. Drag or use arrow keys to pan."></div><div id="frame-safety-unset" class="framing-empty-safety" role="status" hidden><strong>No safety area set</strong><span>Choose Mark area to create one.</span></div><div id="frame-safety-overlay" hidden aria-hidden="true"><div id="frame-safety-outline"></div><span id="frame-safety-label">SAFETY AREA</span></div><div id="frame-source" hidden><img alt="Original source; mark the product area here"><div id="frame-crop-window"><span>VISIBLE CROP</span></div><div id="frame-subject-box" tabindex="0" role="group" aria-label="Marked product area. Arrow keys move it. Shift and arrow keys resize it."><span>PRODUCT AREA</span></div></div></div><div id="frame-status" class="framing-status" role="status">${studioWorkspace ? "" : "Loading saved source…"}</div></section></div>`,
     `<div class="row ws-framing-actions">` +
     btn("Reset", "restoreFrame", "quiet", 'aria-label="Reset framing to fit"') +
     btn("Cancel", "close", "", 'aria-label="Cancel framing changes"') +
@@ -155,6 +155,7 @@ function queueFramePaint() {
   });
 }
 function requestFramePreview(live = false) {
+  scheduleStudioSave();
   cancelFrameWork(!live);
   if (framingRecovery?.startsWith("latest") || ["missing", "unsupported", "uncertain", "checking"].includes(framingRecovery)) {
     showFrameRecovery();
@@ -221,8 +222,9 @@ function paintLiveFraming() {
 }
 async function refreshFramePreview(live = false) {
   const token = ++framingSequence,
-    save = $("#frame-primary") || $("[data-action=saveFrame]");
-  if (!framingDraft || !save) return false;
+    save = $("#frame-primary") || $("[data-action=saveFrame]"),
+    status = $("#frame-status");
+  if (!framingDraft || !save || !status) return false;
   save.disabled = true;
   save.dataset.action = "saveFrame";
   save.textContent = "Apply";
@@ -291,12 +293,11 @@ async function refreshFramePreview(live = false) {
     const sourceImg = $("#frame-source img");
     if (sourceImg.src !== source.src) sourceImg.src = source.src;
     drawFrameSource();
-    const status = $("#frame-status");
     status.classList.toggle("is-invalid", !safe);
     const readyStatus = !safe
       ? "Crop cuts the marked product area. Zoom out or reposition before applying."
       : "";
-    status.textContent = !safe ? readyStatus : "Preparing preview…";
+    status.textContent = !safe ? readyStatus : studioWorkspace ? "" : "Preparing preview…";
     if (live) {
       queueFramePaint();
       if (!(await waitForFrameIdle())) return false;
@@ -340,8 +341,9 @@ async function refreshFramePreview(live = false) {
     framingOverlayPlace = framingDraft.place;
     image.hidden = framingMarking;
     image.style.visibility = "";
-    status.textContent = readyStatus;
+    status.textContent = readyStatus || (result.blocked ? wordingBlockDetails(result.findings, `${body.product_id}/${body.market}/${body.ratio.replace(":", "x")}`) : "");
     $("#frame-live").hidden = true;
+    if (typeof studioPreviewReady === "function") studioPreviewReady();
     drawFrameSafety();
     framingRecovery = null;
     save.textContent = "Apply";
@@ -351,6 +353,11 @@ async function refreshFramePreview(live = false) {
     return !save.disabled;
   } catch (error) {
     if (token !== framingSequence || modal !== "frame") return false;
+    if (error.status === 409 && typeof studioSave !== "undefined" && studioSave?.dirty()) {
+      framingRecovery = null;
+      status.textContent = "";
+      return false;
+    }
     let changed = false;
     if (error.status === 409 && ["state", "stale"].includes(error.code)) {
       const target = framingContext;
@@ -365,7 +372,8 @@ async function refreshFramePreview(live = false) {
   }
 }
 // Recovery changes the editing base only after the producer asks. It never
-// applies pixels, clears a retained buffer, or follows a second revision silently.
+// clears a retained buffer or follows a second revision silently. A known
+// refused Apply can be retried only through the producer’s Try again action.
 function showFrameRecovery() {
   const status = $("#frame-status"), button = $("#frame-primary") || $("[data-action=saveFrame]");
   if (!status || !button) return;
@@ -380,12 +388,19 @@ function showFrameRecovery() {
   $("#frame-subject-state").textContent = framingDraft.subject ? "Area marked" : "No area marked";
   $("[data-action=clearSubject]").disabled = !framingDraft.subject;
   syncFrameSafetyControl();
+  if (["latest", "latest-error"].includes(framingRecovery)) {
+    const inlineConflict = typeof studioSave !== "undefined" && studioSave;
+    status.textContent = inlineConflict ? "" : MotifSave.conflictMessage;
+    button.hidden = !!inlineConflict;
+    button.dataset.action = "recoverFrame"; button.textContent = "Refresh";
+    button.disabled = false; button.setAttribute("aria-label", "Refresh");
+    if (inlineConflict) studioSave.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 }));
+    return;
+  }
   const messages = {
-    latest: MotifEditorControls.copy.stale,
+    apply: MotifEditorControls.applyFailure(framingApplyError),
     uncertain: MotifEditorControls.copy.uncertain,
     checking: "Checking the current image…",
-    "latest-loading": "Loading the latest image. Your pending framing edits are kept.",
-    "latest-error": "The latest image could not be loaded. Your pending framing edits are kept. Try again.",
     missing: MotifEditorControls.copy.missing,
     unsupported: "This image does not support framing adjustments. Cancel or close to discard these edits.",
     preview: "Preview unavailable. Your pending framing edits are kept. Retry the preview.",
@@ -394,71 +409,30 @@ function showFrameRecovery() {
   status.textContent = messages[framingRecovery];
   status.classList.add("is-invalid");
   button.dataset.action = "recoverFrame";
-  button.textContent = framingRecovery === "uncertain" ? "Check current image" : framingRecovery === "checking" ? "Checking…" : framingRecovery === "preview" ? "Retry preview" : framingRecovery === "preview-loading" ? "Preparing preview…" : framingRecovery === "latest-loading" ? "Loading latest image…" : "Use latest image";
+  button.textContent = framingRecovery === "apply" ? "Try again" : framingRecovery === "uncertain" ? "Check current image" : framingRecovery === "checking" ? "Checking…" : framingRecovery === "preview" ? "Retry preview" : framingRecovery === "preview-loading" ? "Preparing preview…" : "Retry preview";
   button.setAttribute("aria-label", button.textContent);
-  button.disabled = ["latest-loading", "preview-loading", "missing", "unsupported", "checking"].includes(framingRecovery);
+  button.disabled = ["preview-loading", "missing", "unsupported", "checking"].includes(framingRecovery);
   if (!framingRecovery.startsWith("preview"))
     $("#frame-preview-label").textContent = "LOCAL DRAFT · REVIEW REQUIRED";
 }
 async function recoverFraming() {
-  if (!framingDraft || !["latest", "latest-error", "preview", "uncertain"].includes(framingRecovery)) return;
+  if (!framingDraft || !["latest", "latest-error", "preview", "uncertain", "apply"].includes(framingRecovery)) return;
   if (framingRecovery === "uncertain") return checkFramingApply();
+  if (framingRecovery === "apply") {
+    framingRecovery = null;
+    $("#frame-primary").dataset.action = "saveFrame";
+    $("#frame-primary").disabled = false;
+    return withProjectApply(saveFraming);
+  }
   if (framingRecovery === "preview") {
     framingRecovery = "preview-loading";
     showFrameRecovery();
     await refreshFramePreview();
     return;
   }
-  const session = framingSession, target = framingContext;
-  const owns = () => modal === "frame" && framingSession === session && framingContext === target && C.id === target.campaign;
-  framingRecovery = "latest-loading";
-  showFrameRecovery();
-  try {
-    const current = await api(`/api/motif/campaigns/${target.campaign}`);
-    if (!owns()) return;
-    const product = current.output_brief?.products.find(p => p.id === target.product_id);
-    const output = current.manifest?.outputs.find(o => o.product_id === target.product_id && o.market === target.market && o.ratio === target.ratio);
-    if (!product || !output?.url) {
-      framingRecovery = "missing";
-      showFrameRecovery();
-      return;
-    }
-    if (product.source.role === "prepared_product") {
-      framingRecovery = "unsupported";
-      showFrameRecovery();
-      return;
-    }
-    if (!current.editable_products?.[target.product_id]) throw new Error("Source unavailable");
-    const sourceURL = `/campaigns/${target.campaign}/runs/${current.output_run_id}/revisions/${current.manifest.revision_id}/sources/${target.product_id}`;
-    const source = await decodedImage(sourceURL);
-    if (!owns()) return;
-    // Preserve the live values, including typing during the read. Only this
-    // editor's explicitly selected base and decoded source are replaced.
-    framingContext = { ...target, run_id: current.output_run_id, revision_id: current.manifest.revision_id };
-    framingSourceURL = sourceURL;
-    framingSource = source;
-    framingOverlay = null;
-    framingInheritedSubject = null;
-    framingCustomText = !!Object.keys(product.framing?.[target.market]?.[target.ratio]?.text_placements || {}).length;
-    // Preset availability belongs to the explicitly adopted image, while the
-    // producer's pending crop values keep their existing local ownership.
-    $("#frame-layout").disabled = framingCustomText;
-    $("#frame-layout").hidden = framingCustomText;
-    $("#frame-custom-text").hidden = !framingCustomText;
-    framingRecovery = null;
-    framingInitial = null;
-    projectChanged();
-    await requestFramePreview();
-    if (modal === "frame" && framingSession === session && framePreview && !framingRecovery) {
-      $("#frame-status").textContent = "Latest image loaded with your pending framing. Check the crop and safety area before applying.";
-      $("#frame-zoom").focus({ preventScroll: true });
-    }
-  } catch {
-    if (!owns()) return;
-    framingRecovery = "latest-error";
-    showFrameRecovery();
-  }
+  return MotifSave.refreshPage();
 }
+
 function inheritedFrameSubject() {
   return (
     !!framingInheritedSubject &&
@@ -852,6 +826,7 @@ async function saveFraming() {
   const controls = $$("input:not(#frame-show-safety),select,button", imageEditorRoot());
   const disabled = controls.map(control => control.disabled);
   const status = $("#frame-status"), previousStatus = status.textContent;
+  let accepted = false;
   frameSaving = true; framingAttempt = captured;
   controls.forEach(control => control.disabled = true);
   status.textContent = "Applying…";
@@ -865,7 +840,8 @@ async function saveFraming() {
     const applied = await api(`/api/campaigns/${target.campaign}/framing/apply`, {
       ...captured.body, preview_digest: captured.result.digest,
     });
-    const current = await api(`/api/motif/campaigns/${target.campaign}`);
+    accepted = true;
+    const current = await api(`/api/motif/campaigns/${target.campaign}?after_edit=true`);
     if (modal !== "frame" || framingSession !== session) return false;
     if (current.manifest?.revision_id !== applied.revision_id) throw { status: 409 };
     return await finishFraming(current);
@@ -873,11 +849,10 @@ async function saveFraming() {
     if (modal !== "frame" || framingSession !== session) return false;
     controls.forEach((control, index) => control.disabled = disabled[index]);
     frameSaving = false;
-    if (await imageCapacity(error, "Applying this framing")) {
-      status.textContent = previousStatus;
-      return false;
-    }
-    framingRecovery = error.code === "apply_not_accepted" ? "preview" : !error.status || error.status >= 500 ? "uncertain" : error.status === 409 ? "latest" : "preview";
+    const refused = !accepted && (error.code === "apply_not_accepted" ||
+      await imageCapacity(error, "Applying this framing"));
+    framingApplyError = refused ? error : null;
+    framingRecovery = refused ? "apply" : !accepted && error.status === 409 ? "latest" : "uncertain";
     showFrameRecovery();
     return false;
   } finally {

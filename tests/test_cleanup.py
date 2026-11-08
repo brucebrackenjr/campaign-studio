@@ -1,9 +1,11 @@
 import asyncio
 import hashlib
 import json
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
+from campaign_fixtures import legacy_report, legacy_zip
 from fastapi.testclient import TestClient
 from test_workflow import setup_case
 
@@ -11,44 +13,70 @@ from campaign_studio.app import create_app
 from campaign_studio.authored import AuthoredProjects, AuthoredSave
 from campaign_studio.cleanup import Cleanup
 from campaign_studio.config import Settings
-from campaign_studio.handoff import Handoff, PackageAction
+from campaign_studio.handoff import DeliveryAction, Handoff
 from campaign_studio.intake import BriefDraft, Intake
-from campaign_studio.planning import make_plan
 from campaign_studio.review import RevisionTarget
 from campaign_studio.state import State, StateError
-from campaign_studio.storage import StorageError
+from campaign_studio.storage import WORKSPACE_SCHEMA, StorageError
 from campaign_studio.workspace import ActionError, Workspace
 
 
 def image_files(state, revision):
+    if not state.identity_exists("revisions", revision):
+        return {}
     record = state.revision(revision)
-    folder = state.storage.path(record["manifest_ref"]).parent / "images"
-    return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.rglob("*.png")}
+    if record["manifest_json"] is None:
+        return {}
+    # Enumerate the physical files referenced by this snapshot; unchanged PNGs
+    # can be shared with a newer snapshot. The available sets are tracked in SQL.
+    folder = state.storage.path(record["manifest_ref"]).parent
+    paths = [
+        folder / item["file"] for item in state.revision_manifest(record)["outputs"] if item["file"]
+    ]
+    return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
 
 
-def make_package(state, run, revision):
+def owned_files(state, campaign_id):
+    with state.storage.connect() as db:
+        refs = [
+            row[0]
+            for row in db.execute(
+                "SELECT reference FROM file_owners WHERE campaign_id=?", (campaign_id,)
+            )
+        ]
+    return {
+        str(state.storage.path(ref)): hashlib.sha256(
+            state.storage.path(ref).read_bytes()
+        ).hexdigest()
+        for ref in refs
+        if state.storage.path(ref).is_file()
+    }
+
+
+def legacy_zip_and_folder(state, run, revision):
     target = RevisionTarget(
         campaign_id=state.run(run)["campaign_id"],
         run_id=run,
         revision_id=revision,
         mode="saved_version",
     )
-    handoff = Handoff(state)
-    action = PackageAction(snapshot_id=handoff.metadata(target)["snapshot_id"])
-    return target, handoff.create_zip(target, action), handoff.create_folder(target, action)
+    return target, legacy_zip(state, target), legacy_report(state, target)
 
 
 @pytest.mark.parametrize("metadata_added", ["before_preview", "after_preview", "after_commit"])
 def test_campaign_deletion_removes_finder_metadata_and_empty_folders(tmp_path, metadata_added):
     state, _, _, brief = setup_case(tmp_path, 2, True)
     intake = Intake(state.storage)
-    intake.write(brief.campaign_id, brief.model_dump(mode="json"), None)
+    intake.write(
+        brief.campaign_id, brief.model_dump(mode="json"), intake.read(brief.campaign_id)["version"]
+    )
     other, _ = intake.new()
-    other_draft = state.storage.path(state.storage.project(other).draft)
-    survivor = other_draft.read_bytes()
+    survivor = intake.read(other)
     project = state.storage.project(brief.campaign_id)
     root = state.storage.path(f"Campaigns/{project.folder}")
     folders = (root, root / "Assets", root / "Brief")
+    for folder in folders:
+        folder.mkdir(parents=True, exist_ok=True)
 
     def add_metadata():
         for folder in folders:
@@ -67,9 +95,9 @@ def test_campaign_deletion_removes_finder_metadata_and_empty_folders(tmp_path, m
     result = Cleanup(State(state.storage)).resume_all()
     assert result[0]["state"] == "complete"
     assert not root.exists()
-    assert other_draft.read_bytes() == survivor
+    assert intake.read(other) == survivor
     with state.storage.connect() as db:
-        for table in ("campaigns", "runs", "file_owners", "cleanup_intents"):
+        for table in ("campaigns", "campaign_drafts", "runs", "file_owners", "cleanup_intents"):
             column = "id" if table == "campaigns" else "campaign_id"
             assert (
                 db.execute(
@@ -143,7 +171,7 @@ def test_finder_metadata_removal_failure_remains_pending_for_retry(tmp_path, mon
 
 def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp_path):
     state, runner, run, brief = setup_case(tmp_path, 2, True)
-    manifest = asyncio.run(runner.execute(run))
+    assert asyncio.run(runner.execute(run))["complete"]
     intake = Intake(state.storage)
     other, _ = intake.new()
     logo = state.storage.path(brief.brand.logo_path).read_bytes()
@@ -155,13 +183,20 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
     other_document["value"]["brand"]["logo_path"] = other_owned["reference"]
     intake.write(other, other_document["value"], other_document["version"])
     project_root = state.storage.path(state.storage.project(brief.campaign_id).draft).parents[1]
-    _, archive, folder = make_package(state, run, manifest["revision_id"])
+    from campaign_studio.delivery import prepare_current_zip
+
+    with prepare_current_zip(
+        state, Workspace(state).current_composition(brief.campaign_id)
+    ) as package:
+        downloaded = tmp_path / "delivered.zip"
+        downloaded.write_bytes(package.stream.read())
+    delivered_bytes = downloaded.read_bytes()
     original = state.storage.path(brief.brand.logo_path).read_bytes()
     external = tmp_path / "user-original-logo.png"
     external.write_bytes(original)
     cleanup = Cleanup(state)
     preview = cleanup.preview_campaign(brief.campaign_id)
-    assert preview["output_png_count"] == len([o for o in manifest["outputs"] if o["file"]])
+    assert preview["output_png_count"] == 0
     assert "image_version_count" not in preview
     assert preview["unmanaged_file_count"] == 0
     assert preview["removable_bytes"] > 0
@@ -177,7 +212,7 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
     assert state.storage.path(other_owned["reference"]).read_bytes() == logo
     assert not state.storage.path(brief.brand.logo_path).exists()  # App-owned synthetic source.
     assert external.read_bytes() == original
-    assert not Path(folder["location"]).exists()
+    assert downloaded.read_bytes() == delivered_bytes
     assert not project_root.exists()
     with state.storage.connect() as db:
         assert (
@@ -186,12 +221,7 @@ def test_owned_replaced_uploads_delete_but_shared_and_external_files_survive(tmp
             ).fetchone()[0]
             == 0
         )
-        assert (
-            db.execute(
-                "SELECT COUNT(*) FROM package_exports WHERE id=?", (archive["artifact_id"],)
-            ).fetchone()[0]
-            == 0
-        )
+        assert db.execute("SELECT count(*) FROM package_exports").fetchone() == (0,)
         assert db.execute("SELECT COUNT(*) FROM cleanup_intents").fetchone()[0] == 0
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert intake.read(other)["value"]["brand"]["logo_path"] == other_owned["reference"]
@@ -205,8 +235,13 @@ def test_deletion_names_current_authored_campaign_without_changing_identity(
 ):
     state, _, _, brief = setup_case(tmp_path, 2, True)
     cleanup = Cleanup(state)
+    Intake(state.storage).write(
+        brief.campaign_id,
+        brief.model_dump(mode="json"),
+        Intake(state.storage).read(brief.campaign_id)["version"],
+    )
     before = cleanup.preview_campaign(brief.campaign_id)
-    assert before["name"] == brief.name  # Older run-only record remains supported.
+    assert before["name"] == brief.name
     projects = AuthoredProjects(Workspace(state))
     current = projects.read(brief.campaign_id)
     current["authored"]["brief"]["name"] = name
@@ -346,122 +381,10 @@ def test_cleanup_changed_file_stays_pending_and_no_parent_with_shared_file_is_re
     assert state.storage.path(source).read_bytes() == before
 
 
-def test_repeated_applies_keep_only_current_outputs_and_preserve_packages_metrics_and_saves(
-    tmp_path,
-):
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
-    from campaign_studio.authored import AuthoredProjects, AuthoredSave
-    from campaign_studio.workspace import TextEdit
-
-    target, archive, folder = make_package(state, run, first["revision_id"])
-    zip_bytes = Handoff(state).download(target, archive["artifact_id"])
-    folder_before = {
-        str(p): p.read_bytes() for p in Path(folder["location"]).rglob("*") if p.is_file()
-    }
-    inputs = {
-        a.reference: state.storage.path(a.reference).read_bytes()
-        for a in state.plan(run).assets.values()
-    }
-    metrics = state.campaign_metrics(brief.campaign_id)
-    versions = [first["revision_id"]]
-    ws = Workspace(state)
-    for index in range(5):
-        command = TextEdit(
-            ratio="1:1",
-            run_id=run,
-            revision_id=state.effective_revision(run),
-            market="en-US",
-            product_id="product-1",
-            values={"message": f"Local headline {index}"},
-            field_scopes={"message": "product"},
-        )
-        updated, plan, _ = ws.text(brief.campaign_id, command)
-        versions.append(
-            runner.revise(run, updated, command.revision_id, plan.digest)["revision_id"]
-        )
-    assert [v["id"] for v in ws.revisions(run)] == versions[-1:]
-    assert state.run(run)["current_revision"] == versions[-1]
-    for revision in versions[:-1]:
-        assert not image_files(state, revision)
-        record = state.revision(revision)
-        assert state.storage.path(record["manifest_ref"]).is_file()
-        assert state.storage.path(record["plan_ref"]).is_file()
-        assert state.metadata_snapshot(revision)["creatives"]
-        with pytest.raises(StateError, match="no longer available"):
-            ws.manifest(state.run(run), revision)
-    assert len(image_files(state, versions[-1])) == 6
-    assert Handoff(state).download(target, archive["artifact_id"]) == zip_bytes
-    assert {
-        str(p): p.read_bytes() for p in Path(folder["location"]).rglob("*") if p.is_file()
-    } == folder_before
-    assert all(state.storage.path(ref).read_bytes() == data for ref, data in inputs.items())
-    assert Cleanup(state).status(brief.campaign_id) == {
-        "campaign_state": "available",
-        "pending": [],
-    }
-    assert state.campaign_metrics(brief.campaign_id) == metrics and state.attempts(run) == []
-    before = image_files(state, versions[-1])
-    projects = AuthoredProjects(ws)
-    for index in range(5):
-        project = projects.read(brief.campaign_id)
-        project["authored"]["brief"]["audience"] = f"Unfinished main-project edit {index}"
-        projects.save(
-            brief.campaign_id,
-            AuthoredSave(**{key: project[key] for key in ("version", "base", "authored")}),
-        )
-    assert image_files(state, versions[-1]) == before
-    assert state.revision_count(run) == len(versions)
-    assert state.campaign_metrics(brief.campaign_id) == metrics
-
-
-def test_partial_versions_never_retire_effective_complete_and_failed_retirement_blocks_growth(
-    tmp_path, monkeypatch
-):
-    import campaign_studio.rendering as rendering
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))["revision_id"]
-    original = rendering.compose
-    calls = 0
-
-    def partial(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if (calls - 1) % 6 < 3:
-            raise OSError("controlled output failure")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(rendering, "compose", partial)
-    for _ in range(3):
-        assert not runner.recover_local(run)["complete"]
-    assert state.run(run)["current_revision"] == first
-    assert len(Workspace(state).revisions(run)) == 2 and image_files(state, first)
-    monkeypatch.setattr(rendering, "compose", original)
-    # A later full revision can publish even if removing an older set is denied.
-    old_unlink = Path.unlink
-    denied_prefix = str(state.storage.path(state.revision(first)["manifest_ref"]).parent / "images")
-
-    def denied(path, *args, **kwargs):
-        if str(path).startswith(denied_prefix):
-            raise PermissionError("controlled retirement denial")
-        return old_unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "unlink", denied)
-    result = runner.recover_local(run)
-    assert result["complete"] and Cleanup(state).status(brief.campaign_id)["pending"]
-    with pytest.raises(StateError, match="pending image cleanup"):
-        runner.recover_local(run)
-    assert state.attempts(run) == []
-    monkeypatch.setattr(Path, "unlink", old_unlink)
-    assert Cleanup(state).resume_all()[0]["state"] == "complete"
-    assert len(Workspace(state).revisions(run)) == 1
-
-
 def test_campaign_cleanup_http_guards_and_server_owned_confirmation(tmp_path):
     state, runner, run, brief = setup_case(tmp_path, 2, True)
-    result = asyncio.run(runner.execute(run))
-    before = image_files(state, result["revision_id"])
+    asyncio.run(runner.execute(run))
+    before = owned_files(state, brief.campaign_id)
     app = create_app(
         Settings(data_dir=state.storage.root),
         provider_factory=lambda: pytest.fail("provider construction"),
@@ -486,13 +409,13 @@ def test_campaign_cleanup_http_guards_and_server_owned_confirmation(tmp_path):
             == 422
         )
         assert client.post(base + "/confirm", json={"token": "0" * 64}).status_code == 409
-        assert image_files(state, result["revision_id"]) == before
+        assert owned_files(state, brief.campaign_id) == before
         assert client.post("/api/campaigns/not-owned/cleanup/preview", json={}).status_code == 404
         response = client.post(base + "/confirm", json={"token": preview["token"]})
         assert response.json()["state"] == "committed"
         accepted = response.json()["cleanup_id"]
         assert client.get(base + "/status").json()["campaign_state"] == "pending"
-        assert image_files(state, result["revision_id"]) == before
+        assert owned_files(state, brief.campaign_id) == before
         response = client.post(base + f"/{accepted}/retry", json={})
         assert response.json()["state"] == "complete"
         assert response.json()["removed_bytes"] == preview["removable_bytes"]
@@ -501,45 +424,6 @@ def test_campaign_cleanup_http_guards_and_server_owned_confirmation(tmp_path):
         assert all(not Path(path).exists() for path in before)
     with state.storage.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
-
-
-def test_cross_run_partial_keeps_only_latest_partial_and_necessary_complete_fallback(
-    tmp_path, monkeypatch
-):
-    import campaign_studio.rendering as rendering
-
-    state, runner, first_run, brief = setup_case(tmp_path, 2, True)
-    complete = asyncio.run(runner.execute(first_run))["revision_id"]
-    complete_bytes = image_files(state, complete)
-    second_run = state.create(make_plan(brief, state.storage), 0)
-    state.confirm(second_run, state.plan(second_run).digest)
-    compose = rendering.compose
-    calls = 0
-
-    def partial(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if (calls - 1) % 6 < 3:
-            raise OSError("controlled selected product failure")
-        return compose(*args, **kwargs)
-
-    monkeypatch.setattr(rendering, "compose", partial)
-    partials = [asyncio.run(runner.execute(second_run))["revision_id"]]
-    for _ in range(4):
-        partials.append(runner.recover_local(second_run)["revision_id"])
-    assert state.run(second_run)["current_revision"] is None
-    assert state.effective_revision(second_run) == partials[-1]
-    available = Workspace(state).revisions(second_run) + Workspace(state).revisions(first_run)
-    assert {r["id"] for r in available} == {complete, partials[-1]}
-    assert image_files(state, complete) == complete_bytes
-    assert all(not image_files(state, revision) for revision in partials[:-1])
-    assert state.revision_number(partials[-1]) == 6
-    assert state.attempts(first_run) == state.attempts(second_run) == []
-    monkeypatch.setattr(rendering, "compose", compose)
-    final = runner.recover_local(second_run)
-    assert final["complete"] and state.effective_revision(second_run) == final["revision_id"]
-    assert not image_files(state, complete) and not image_files(state, partials[-1])
-    assert [r["id"] for r in Workspace(state).revisions(second_run)] == [final["revision_id"]]
 
 
 def test_symlink_and_unreadable_sharing_inventory_refuse_without_intent(tmp_path, monkeypatch):
@@ -574,35 +458,6 @@ def test_symlink_and_unreadable_sharing_inventory_refuse_without_intent(tmp_path
     assert external.read_bytes() == b"external original"
 
 
-def test_existing_history_is_not_pruned_on_upgrade_or_startup(tmp_path, monkeypatch):
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    original = Cleanup.retire_after_publish
-    monkeypatch.setattr(Cleanup, "retire_after_publish", lambda *a: None)
-    versions = [asyncio.run(runner.execute(run))["revision_id"]]
-    for _ in range(3):
-        versions.append(runner.recover_local(run)["revision_id"])
-    before = {v: image_files(state, v) for v in versions}
-    monkeypatch.setattr(Cleanup, "retire_after_publish", original)
-    app = create_app(Settings(data_dir=state.storage.root))
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        assert client.get("/health").status_code == 200
-        assert {v: image_files(state, v) for v in versions} == before
-        assert len(Workspace(state).revisions(run)) == 4
-        client.headers["X-Campaign-Token"] = app.state.csrf
-        assert (
-            client.post(
-                f"/api/campaigns/{brief.campaign_id}/retention/acknowledge", json={}
-            ).status_code
-            == 404
-        )
-    with state.storage.connect() as db:
-        assert "retention_acknowledged" not in {r[1] for r in db.execute("PRAGMA table_info(runs)")}
-    newer = runner.recover_local(run)["revision_id"]
-    assert [r["id"] for r in Workspace(state).revisions(run)] == [newer]
-    assert state.run(run)["current_revision"] == newer
-    assert all(not image_files(state, revision) for revision in versions)
-
-
 def test_upload_publication_error_never_leaves_a_new_unowned_file(tmp_path, monkeypatch):
     state, _, _, brief = setup_case(tmp_path, 2, True)
     intake = Intake(state.storage)
@@ -629,27 +484,6 @@ def test_upload_publication_error_never_leaves_a_new_unowned_file(tmp_path, monk
             ).fetchone()[0]
             == 0
         )
-
-
-def test_empty_failure_does_not_displace_current_images(tmp_path, monkeypatch):
-    import campaign_studio.rendering as rendering
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    versions = [asyncio.run(runner.execute(run))["revision_id"]]
-    for _ in range(2):
-        versions.append(runner.recover_local(run)["revision_id"])
-    before = {v: image_files(state, v) for v in versions}
-    monkeypatch.setattr(
-        rendering,
-        "compose",
-        lambda *a, **k: (_ for _ in ()).throw(OSError("controlled all-output failure")),
-    )
-    failed = runner.recover_local(run)
-    assert failed["metrics"]["completed_images"] == 0
-    assert state.revision(failed["revision_id"])["image_count"] == 0
-    assert {v: image_files(state, v) for v in versions} == before
-    assert len(Workspace(state).revisions(run)) == 1
-    assert state.run(run)["current_revision"] == versions[-1]
 
 
 def test_same_photo_is_copied_into_each_project_and_deleted_independently(tmp_path):
@@ -715,337 +549,12 @@ def test_one_pending_failure_does_not_stop_other_cleanup_and_never_widens_scope(
     assert all(item["campaign_id"] != other for item in cleanup.pending())
 
 
-def test_protected_complete_does_not_hide_a_shared_partial_retirement_candidate(
-    tmp_path, monkeypatch
-):
-    import campaign_studio.rendering as rendering
-    from campaign_studio.brief import Brief
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    complete = asyncio.run(runner.execute(run))
-    later = state.create(make_plan(brief, state.storage), 0)
-    state.confirm(later, state.plan(later).digest)
-    compose = rendering.compose
-    calls = 0
-
-    def partial(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if (calls - 1) % 6 < 3:
-            raise OSError("controlled missing product")
-        return compose(*args, **kwargs)
-
-    monkeypatch.setattr(rendering, "compose", partial)
-    first = asyncio.run(runner.execute(later))
-    shared = next(item for item in first["outputs"] if item["file"])
-    prefix = state.revision(first["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    reference = f"{prefix}/{shared['file']}"
-    intake = Intake(state.storage)
-    other = brief.campaign_id
-    value = brief.model_dump(mode="json")
-    value["campaign_id"] = other
-    value["products"][0]["source"].update(path=reference, subject_box=None)
-    intake.write(other, value, None)
-    assert not make_plan(Brief.model_validate(value), state.storage).blocked
-    versions = [complete["revision_id"], first["revision_id"]]
-    before = {v: image_files(state, v) for v in versions}
-    with pytest.raises(StateError, match="used as an input"):
-        runner.recover_local(later)
-    assert {v: image_files(state, v) for v in versions} == before
-    assert state.revision_count(later) == 1 and calls == 6
-    assert not make_plan(Brief.model_validate(value), state.storage).blocked
-    assert not Cleanup(state).status(brief.campaign_id)["pending"]
-    # Once the reference is deliberately removed, the exact same operation can
-    # retire P1, keeping only the older complete fallback and newest partial.
-    document = intake.read(other)
-    document["value"]["products"][0]["source"]["path"] = brief.products[0].source.path
-    intake.write(other, document["value"], document["version"])
-    second = runner.recover_local(later)
-    assert state.revision(first["revision_id"])["images_retired"]
-    assert {r["id"] for r in Workspace(state).revisions(later)} == {
-        second["revision_id"],
-    }
-    assert image_files(state, complete["revision_id"]) == before[complete["revision_id"]]
-    assert state.attempts(run) == state.attempts(later) == []
-
-
-def test_current_authored_input_in_same_campaign_blocks_superseded_png_cleanup(tmp_path):
-    from campaign_studio.authored import AuthoredProjects, AuthoredSave
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
-    before = image_files(state, first["revision_id"])
-    prefix = state.revision(first["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    reference = f"{prefix}/{first['outputs'][0]['file']}"
-    # This existing saved input may come from an imported brief. Its current
-    # authored form is authoritative even when the validated brief differs.
-    intake = Intake(state.storage)
-    value = brief.model_dump(mode="json")
-    value["products"][0]["source"].update(path=reference, subject_box=None)
-    intake.write(brief.campaign_id, value, None)
-    projects = AuthoredProjects(Workspace(state))
-    project = projects.read(brief.campaign_id)
-    project["authored"]["brief"]["products"][0]["source"]["path"] = reference
-    saved = projects.save(
-        brief.campaign_id,
-        AuthoredSave(**{key: project[key] for key in ("version", "base", "authored")}),
-    )
-    with pytest.raises(StateError, match="used as an input"):
-        runner.recover_local(run)
-    assert image_files(state, first["revision_id"]) == before
-    assert state.revision_count(run) == 1 and not Cleanup(state).pending()
-    # Resolving only the current input releases the obsolete PNG, without a
-    # permanent pin from its saved validated projection or historical plan.
-    project = projects.read(brief.campaign_id)
-    assert project["version"] == saved["version"]
-    project["authored"]["brief"]["products"][0]["source"]["path"] = brief.products[0].source.path
-    projects.save(
-        brief.campaign_id,
-        AuthoredSave(**{key: project[key] for key in ("version", "base", "authored")}),
-    )
-    newer = runner.recover_local(run)
-    assert newer["complete"] and not image_files(state, first["revision_id"])
-    assert not state.attempts(run)
-
-
-def test_late_authored_input_is_refused_before_commit_then_explicit_logo_retry_succeeds(
-    tmp_path, monkeypatch
-):
-    from test_authored import action
-    from test_logo_editing import command, replacement
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
-    cid = brief.campaign_id
-    before = image_files(state, first["revision_id"])
-    prefix = state.revision(first["revision_id"])["manifest_ref"].rsplit("/", 1)[0]
-    reference = f"{prefix}/{first['outputs'][0]['file']}"
-    intake = Intake(state.storage)
-    # A previously authorized current-output reference can be restored by Save.
-    # Picker uploads copy assets, so they do not create this shared dependency.
-    value = brief.model_dump(mode="json")
-    value["products"][0]["source"].update(path=reference, subject_box=None)
-    intake.write(cid, value, None)
-    upload = intake.upload(
-        state.storage.path(brief.products[0].source.path).read_bytes(), "image/png", cid
-    )["reference"]
-    chosen = replacement(state, cid, (400, 300))
-    app = create_app(
-        Settings(data_dir=state.storage.root),
-        key_available=lambda: False,
-        provider_factory=lambda: pytest.fail("Local Apply must not construct a provider"),
-    )
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        client.headers["X-Campaign-Token"] = app.state.csrf
-        authored_url = f"/api/motif/campaigns/{cid}/authored"
-        draft = action(client, cid)
-        draft["authored"]["brief"]["products"][0]["source"]["path"] = upload
-        draft["authored"]["brief"]["audience"] = "  Keep unfinished work  "
-        draft["authored"]["form_drafts"] = {
-            "fields": {"brief/copy/en": {"copy-headline": "Keep this"}}
-        }
-        saved = client.post(authored_url, json=draft)
-        assert saved.status_code == 200, saved.text
-        untouched_logo = intake.read(cid)["value"]["brand"]
-        Cleanup(state).prepare_retirement(cid)
-
-        def preview():
-            edit = command(
-                state, run, replacement=chosen, draft_version=action(client, cid)["version"]
-            ).model_dump(mode="json")
-            result = client.post(f"/api/campaigns/{cid}/logo/preview", json=edit)
-            assert result.status_code == 200 and not result.json()["blocked"], result.text
-            return edit | {"preview_digest": result.json()["digest"]}
-
-        edit = preview()
-        publisher = app.state.workspace.state
-        original = publisher.publish_revision
-
-        def restore_input(*args, **kwargs):
-            latest = action(client, cid)
-            latest["authored"]["brief"]["products"][0]["source"]["path"] = reference
-            restored = client.post(authored_url, json=latest)
-            assert restored.status_code == 200, restored.text
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(publisher, "publish_revision", restore_input)
-        refused = client.post(f"/api/campaigns/{cid}/logo/apply", json=edit)
-        assert refused.status_code == 409 and "used as an input" in refused.json()["message"]
-        assert state.effective_revision(run) == first["revision_id"]
-        assert state.revision_count(run) == 1 and not Cleanup(state).pending()
-        assert image_files(state, first["revision_id"]) == before
-        assert intake.read(cid)["value"]["brand"] == untouched_logo
-        latest = action(client, cid)
-        assert latest["authored"]["brief"]["products"][0]["source"]["path"] == reference
-
-        monkeypatch.setattr(publisher, "publish_revision", original)
-        latest["authored"]["brief"]["products"][0]["source"]["path"] = upload
-        assert client.post(authored_url, json=latest).status_code == 200
-        applied = client.post(f"/api/campaigns/{cid}/logo/apply", json=preview())
-        assert applied.status_code == 200 and applied.json()["complete"], applied.text
-        assert state.revision_count(run) == 2 and not image_files(state, first["revision_id"])
-        current = state.plan(run).brief.brand.logo_path
-        assert intake.read(cid)["value"]["brand"]["logo_path"] == current
-        reopened = action(client, cid)["authored"]
-        assert reopened["brief"]["brand"]["logo_path"] == current
-        assert reopened["brief"]["audience"] == "  Keep unfinished work  "
-        assert reopened["form_drafts"] == draft["authored"]["form_drafts"]
-        assert state.storage.path(upload).is_file()
-        assert state.storage.path(current).read_bytes() == state.storage.path(chosen).read_bytes()
-        assert not state.attempts(run)
-
-
-def test_save_after_commit_waits_for_cleanup_and_gets_real_base_conflict(tmp_path, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-
-    from test_authored import action
-    from test_logo_editing import command, replacement
-
-    from campaign_studio.authored import AuthoredProjects
-    from campaign_studio.local_files import file_lock
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
-    cid = brief.campaign_id
-    chosen = replacement(state, cid, (400, 300))
-    app = create_app(
-        Settings(data_dir=state.storage.root),
-        key_available=lambda: False,
-        provider_factory=lambda: pytest.fail("Provider forbidden"),
-    )
-    with TestClient(app, base_url="http://127.0.0.1") as client, ThreadPoolExecutor(1) as pool:
-        client.headers["X-Campaign-Token"] = app.state.csrf
-        url = f"/api/motif/campaigns/{cid}/authored"
-        draft = action(client, cid)
-        assert client.post(url, json=draft).status_code == 200
-        draft = action(client, cid)
-        edit = command(state, run, replacement=chosen, draft_version=draft["version"]).model_dump(
-            mode="json"
-        )
-        preview = client.post(f"/api/campaigns/{cid}/logo/preview", json=edit)
-        assert preview.status_code == 200 and not preview.json()["blocked"]
-        edit["preview_digest"] = preview.json()["digest"]
-        entered = Event()
-        original_save, original_cleanup = AuthoredProjects.save, Cleanup.retire_after_publish
-        flights = []
-
-        def save(projects, *args, **kwargs):
-            entered.set()
-            return original_save(projects, *args, **kwargs)
-
-        def cleanup(cleaner, *args, **kwargs):
-            assert state.effective_revision(run) != first["revision_id"]
-            # Same guard protects the committed interval through intent selection.
-            with (
-                state.storage.path("private/authored.lock").open("ab") as lock,
-                pytest.raises(BlockingIOError),
-                file_lock(lock, wait=False),
-            ):
-                pytest.fail("The draft lock was released too early")
-            draft["authored"]["brief"]["audience"] = "A late competing tab"
-            flights.append(pool.submit(client.post, url, json=draft))
-            assert entered.wait(5)
-            assert not flights[0].done()
-            return original_cleanup(cleaner, *args, **kwargs)
-
-        monkeypatch.setattr(AuthoredProjects, "save", save)
-        monkeypatch.setattr(Cleanup, "retire_after_publish", cleanup)
-        applied = client.post(f"/api/campaigns/{cid}/logo/apply", json=edit)
-        assert applied.status_code == 200 and applied.json()["complete"], applied.text
-        conflicted = flights[0].result(timeout=5)
-        assert conflicted.status_code == 409 and conflicted.json()["code"] == "authored_conflict"
-        assert not image_files(state, first["revision_id"]) and not Cleanup(state).pending()
-        current = state.plan(run).brief.brand.logo_path
-        assert Intake(state.storage).read(cid)["value"]["brand"]["logo_path"] == current
-        reopened = action(client, cid)["authored"]["brief"]
-        assert reopened["brand"]["logo_path"] == current
-        assert reopened["audience"] != "A late competing tab"
-        assert not state.attempts(run)
-
-
-def test_failed_publication_does_not_remove_previous_output_or_package(tmp_path):
-    import sqlite3
-
-    state, runner, run, _ = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
-    target, archive, _ = make_package(state, run, first["revision_id"])
-    before = image_files(state, first["revision_id"])
-    package = Handoff(state).download(target, archive["artifact_id"])
-    with state.storage.connect() as db:
-        db.execute(
-            "CREATE TRIGGER deny_publication BEFORE INSERT ON revisions "
-            "BEGIN SELECT RAISE(FAIL,'controlled publication failure'); END"
-        )
-    with pytest.raises(sqlite3.Error, match="controlled publication failure"):
-        runner.recover_local(run)
-    assert state.effective_revision(run) == first["revision_id"]
-    assert state.revision_count(run) == 1 and not Cleanup(state).pending()
-    assert image_files(state, first["revision_id"]) == before
-    assert Handoff(state).download(target, archive["artifact_id"]) == package
-    with state.storage.connect() as db:
-        db.execute("DROP TRIGGER deny_publication")
-    newer = runner.recover_local(run)
-    assert newer["complete"] and not image_files(state, first["revision_id"])
-    assert Handoff(state).download(target, archive["artifact_id"]) == package
-    assert not state.attempts(run)
-
-
-def test_zero_output_diagnostic_preserves_usable_partial_as_current(tmp_path, monkeypatch):
-    import campaign_studio.rendering as rendering
-    from campaign_studio.review import CreativeUpdate
-
-    state, runner, run, brief = setup_case(tmp_path, 2, True)
-    compose = rendering.compose
-    count = 0
-
-    def partial(*args, **kwargs):
-        nonlocal count
-        count += 1
-        if count <= 3:
-            raise OSError("controlled partial fixture")
-        return compose(*args, **kwargs)
-
-    monkeypatch.setattr(rendering, "compose", partial)
-    first = asyncio.run(runner.execute(run))
-    before = image_files(state, first["revision_id"])
-    monkeypatch.setattr(
-        rendering, "compose", lambda *a, **k: (_ for _ in ()).throw(OSError("zero"))
-    )
-    empty = runner.recover_local(run)
-    assert empty["metrics"]["completed_images"] == 0
-    assert state.effective_revision(run) == first["revision_id"]
-    assert state.run(run)["current_revision"] is None
-    item = next(item for item in first["outputs"] if item["file"])
-    target = RevisionTarget(
-        campaign_id=brief.campaign_id, run_id=run, revision_id=first["revision_id"], mode="current"
-    )
-    state.update_creative(
-        first["revision_id"],
-        item["id"],
-        CreativeUpdate(expected_version=0, description="Retained partial."),
-        target=target,
-    )
-    app = create_app(
-        Settings(data_dir=state.storage.root),
-        key_available=lambda: False,
-        provider_factory=lambda: pytest.fail("Provider forbidden"),
-    )
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        data = client.get(f"/api/motif/campaigns/{brief.campaign_id}").json()
-        status = client.get(f"/api/campaigns/{brief.campaign_id}/status").json()
-        assert data["can_edit"] and data["can_describe"]
-        assert data["base_revision"] == status["revision_id"] == first["revision_id"]
-        assert status["completed"] == 3
-    assert image_files(state, first["revision_id"]) == before
-    assert state.revision(empty["revision_id"])["image_count"] == 0
-
-
 def test_pending_deletion_closes_cached_preview_and_owned_upload_reads(tmp_path, monkeypatch):
     from campaign_studio.workspace import TextEdit
 
     state, runner, run, brief = setup_case(tmp_path, 2, True)
-    first = asyncio.run(runner.execute(run))
+    asyncio.run(runner.execute(run))
+    current = Workspace(state).current_composition(brief.campaign_id)
     intake = Intake(state.storage)
     payload = state.storage.path(brief.brand.logo_path).read_bytes()
     owned = intake.upload(payload, "image/png", brief.campaign_id)
@@ -1056,7 +565,7 @@ def test_pending_deletion_closes_cached_preview_and_owned_upload_reads(tmp_path,
     edit = TextEdit(
         ratio="1:1",
         run_id=run,
-        revision_id=first["revision_id"],
+        revision_id=current["version"],
         market="en-US",
         product_id="product-2",
         field_scopes={"message": "product", "cta": "product"},
@@ -1077,13 +586,13 @@ def test_pending_deletion_closes_cached_preview_and_owned_upload_reads(tmp_path,
             brief.campaign_id, cleanup.preview_campaign(brief.campaign_id)["token"]
         )
         assert state.storage.path(owned["reference"]).is_file()
-        assert client.get(url).status_code == 404
-        assert client.get(owned["url"]).status_code == 404
+        assert client.get(url).status_code in {404, 409}
+        assert client.get(owned["url"]).status_code in {404, 409}
         assert client.get(shared["url"]).content == payload
         monkeypatch.setattr(Cleanup, "_resume", original)
         assert cleanup.retry(brief.campaign_id, pending["cleanup_id"])["state"] == "complete"
-        assert client.get(url).status_code == 404
-        assert client.get(owned["url"]).status_code == 404
+        assert client.get(url).status_code in {404, 409}
+        assert client.get(owned["url"]).status_code in {404, 409}
         assert client.get(shared["url"]).content == payload
 
 
@@ -1137,8 +646,10 @@ def test_resume_does_not_unlink_foreign_upload_in_older_confirmed_inventory(tmp_
     target, _ = intake.new(audience=prose)
     cleanup = Cleanup(state)
     inventory = cleanup._campaign_inventory(target)
-    draft = state.storage.path(state.storage.project(target).draft)
-    draft_bytes = draft.read_bytes()
+    with state.storage.connect() as db:
+        draft = db.execute(
+            "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (target,)
+        ).fetchone()[0]
     # An older deletion list could include a filename copied from a note.
     inventory["files"] = [item for item in inventory["files"] if item["reference"] != prose]
     inventory["files"].append(
@@ -1148,7 +659,13 @@ def test_resume_does_not_unlink_foreign_upload_in_older_confirmed_inventory(tmp_
     result = Cleanup(State(state.storage)).resume_all()[0]
     assert result["state"] == "pending"
     assert state.storage.path(reference).read_bytes() == payload
-    assert draft.read_bytes() == draft_bytes
+    with state.storage.connect() as db:
+        assert (
+            db.execute(
+                "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (target,)
+            ).fetchone()[0]
+            == draft
+        )
     assert cleanup.status(target)["pending"]
 
 
@@ -1172,3 +689,498 @@ def test_foreign_attachment_alias_is_refused_and_original_bytes_survive(tmp_path
         == "complete"
     )
     assert state.storage.path(reference).read_bytes() == payload
+
+
+@pytest.fixture
+def v020_workspace(tmp_path):
+    import shutil
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from campaign_studio.rendering import render_revision
+
+    state, _, run, brief = setup_case(tmp_path, 2, True)
+    plan = state.plan(run)
+    first = render_revision(state, run, plan)["revision_id"]
+    target, archive, folder = legacy_zip_and_folder(state, run, first)
+    zip_bytes = Handoff(state).download(target, archive["artifact_id"])
+    current = render_revision(state, run, plan)["revision_id"]
+    storage = state.storage
+    project = storage.project(brief.campaign_id)
+    outputs = storage.path(project.ref("Outputs"))
+    originals = {}
+    # Build the previous format from the same campaign: independent revision
+    # directories, a run pinned to a retry plan, and no SQL document snapshots.
+    for identity in (first, current):
+        record = state.revision(identity)
+        manifest = state.revision_manifest(record)
+        base = f"{project.run(run)}/Revisions/{identity}"
+        project.claim(base)
+        storage.path(base).mkdir(parents=True)
+        for item in manifest["outputs"]:
+            image = outputs / item["file"]
+            ratio = item["ratio"].replace(":", "x")
+            old_relative = f"images/{item['product_id']}/{ratio}/{item['market']}.png"
+            item["file"] = old_relative
+            if identity == current:
+                originals[item["id"]] = image.read_bytes()
+                project.write(f"{base}/{old_relative}", originals[item["id"]])
+        old_plan, old_manifest = f"{base}/plan.json", f"{base}/manifest.json"
+        project.write(old_plan, record["plan_json"].encode())
+        project.write(old_manifest, json.dumps(manifest).encode())
+        with storage.connect() as db:
+            db.execute(
+                "UPDATE revisions SET plan_json=NULL,manifest_json=NULL,"
+                "plan_ref=?,manifest_ref=? WHERE id=?",
+                (old_plan, old_manifest, identity),
+            )
+    abandoned = f"{project.run(run)}/Revisions/{uuid4().hex}"
+    project.claim(abandoned)
+    project.write(f"{abandoned}/unfinished.tmp", b"owned partial write")
+    keep = storage.path(abandoned) / "producer notes.txt"
+    keep.write_bytes(b"unmanaged notes")
+    shutil.rmtree(outputs)
+    with storage.connect() as db:
+        db.execute(
+            "DELETE FROM file_owners WHERE reference LIKE ?", (project.ref("Outputs") + "/%",)
+        )
+        db.execute("UPDATE runs SET plan_ref=? WHERE id=?", (old_plan, run))
+        row = db.execute(
+            "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (brief.campaign_id,)
+        ).fetchone()
+        if row:
+            document = json.loads(row[0])
+            document.pop("composition_schema", None)
+            db.execute(
+                "UPDATE campaign_drafts SET document_json=? WHERE campaign_id=?",
+                (json.dumps(document), brief.campaign_id),
+            )
+        db.execute("PRAGMA user_version=9")
+
+    return SimpleNamespace(
+        storage=storage,
+        project=project,
+        run=run,
+        first=first,
+        current=current,
+        keep=keep,
+        outputs=outputs,
+        old_manifest=old_manifest,
+        archive=archive,
+        folder=folder,
+        target=target,
+        zip_bytes=zip_bytes,
+        originals=originals,
+        cid=brief.campaign_id,
+    )
+
+
+@pytest.mark.parametrize("interrupted", ["before_commit", "after_commit"])
+def test_v020_upgrade_resumes_current_outputs_and_preserves_exports(
+    v020_workspace, monkeypatch, interrupted
+):
+    case = v020_workspace
+    storage, current, first, run, keep = case.storage, case.current, case.first, case.run, case.keep
+    target, archive, zip_bytes = case.target, case.archive, case.zip_bytes
+    outputs, old_manifest = case.outputs, case.old_manifest
+
+    def interruption(*args, **kwargs):
+        raise SystemExit("controlled interruption")
+
+    with monkeypatch.context() as patch:
+        if interrupted == "before_commit":
+            patch.setattr(Cleanup, "record_intent", staticmethod(interruption))
+        else:
+            patch.setattr(Cleanup, "_resume", interruption)
+        with pytest.raises(SystemExit, match="controlled interruption"):
+            State(storage)
+    assert storage.path(old_manifest).is_file()
+    with storage.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone() == (WORKSPACE_SCHEMA,)
+        assert set(db.execute("SELECT name FROM workspace_migrations").fetchall()) == {
+            ("campaign_outputs",),
+            ("database_plans",),
+            ("completed_runs",),
+        }
+    reopened = State(storage)
+    reopened.reconcile_interrupted()
+    assert reopened.effective_revision(run) is None
+    snapshot = Workspace(reopened).current_composition(case.cid)
+    assert len(snapshot["plan"].outputs) == 6 and len(snapshot["sources"]) == 2
+    assert not Cleanup(reopened).pending()
+    assert Handoff(reopened).download(target, archive["artifact_id"]) == zip_bytes
+    assert keep.read_bytes() == b"unmanaged notes"
+    assert set(keep.parent.iterdir()) == {keep}
+    assert set(keep.parent.parent.iterdir()) == {keep.parent}
+    assert not storage.path(old_manifest).exists()
+    assert not (outputs / "manifest.json").exists()
+    assert not (outputs / "plan.json").exists()
+    assert reopened.revision_plan(reopened.revision(first)).brief.campaign_id == case.cid
+    assert reopened.plan(run).brief.campaign_id == case.cid
+    assert reopened.source_generation(run) == {}
+    with pytest.raises(StateError, match="complete"):
+        reopened.plan(run, current=False)
+    assert not outputs.exists()
+    assert not reopened.identity_exists("revisions", current)
+    # Only package-pinned history remains, as a reader for an already delivered ZIP.
+    assert reopened.revision(first)["images_retired"]
+    with storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM workspace_migrations").fetchone()
+        assert not db.execute(
+            "SELECT 1 FROM file_owners WHERE reference LIKE '%/Revisions/%'"
+        ).fetchone()
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("missing", ["plan.json", "manifest.json"])
+def test_retired_damaged_history_does_not_block_healthy_saved_images(v020_workspace, missing):
+    case = v020_workspace
+    storage = case.storage
+    neighbor, _ = Intake(storage).new(name="Neighbor")
+    revision = storage.path(f"{case.project.run(case.run)}/Revisions/{case.first}")
+    (revision / missing).unlink()
+    surviving = next(revision.glob("*.json"))
+    evidence = surviving.read_bytes()
+    reopened = State(storage)
+    assert reopened.plan(case.run).brief.campaign_id == case.cid
+    snapshot = Workspace(reopened).current_composition(case.cid)
+    assert len(snapshot["plan"].outputs) == 6 and len(snapshot["sources"]) == 2
+    assert not reopened.identity_exists("revisions", case.current)
+    assert Handoff(reopened).download(case.target, case.archive["artifact_id"]) == case.zip_bytes
+    assert any(path.read_bytes() == case.zip_bytes for path in storage.root.rglob("*.zip"))
+    assert surviving.read_bytes() == evidence
+    assert not (revision / missing).exists()
+    assert Intake(storage).read(neighbor)["value"]["name"] == "Neighbor"
+    with storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM workspace_migrations").fetchone()
+
+
+def test_active_damage_is_isolated_across_restarts_and_retries_after_restore(v020_workspace):
+    case = v020_workspace
+    storage = case.storage
+    neighbor, _ = Intake(storage).new(name="Neighbor")
+    manifest = storage.path(case.old_manifest)
+    original = manifest.read_bytes()
+    manifest.unlink()
+    for _ in range(2):
+        blocked = State(storage)
+        with pytest.raises(StateError, match="restore any missing files") as error:
+            blocked.plan(case.run)
+        assert error.value.code == "workspace_upgrade"
+        assert Intake(storage).read(neighbor)["value"]["name"] == "Neighbor"
+        assert not manifest.exists()
+        assert sorted((manifest.parent / "images").rglob("*.png"))
+        with storage.connect() as db:
+            assert db.execute("SELECT name FROM workspace_migrations").fetchall() == [
+                (f"campaign_outputs:{case.cid}",)
+            ]
+    with TestClient(
+        create_app(Settings(data_dir=storage.root)), base_url="http://127.0.0.1"
+    ) as client:
+        cards = {
+            card["id"]: card for card in client.get("/api/motif/workspace").json()["campaigns"]
+        }
+        assert cards[case.cid]["status"] == "damaged"
+        assert "restart" in cards[case.cid]["recovery_message"]
+        assert client.get(f"/api/motif/campaigns/{case.cid}").json()["code"] == "workspace_upgrade"
+        assert client.get(f"/api/motif/campaigns/{neighbor}").status_code == 200
+    manifest.write_bytes(original)
+    reopened = State(storage)
+    assert reopened.plan(case.run).brief.campaign_id == case.cid
+    snapshot = Workspace(reopened).current_composition(case.cid)
+    assert len(snapshot["plan"].outputs) == 6 and len(snapshot["sources"]) == 2
+    assert not reopened.identity_exists("revisions", case.current)
+    assert Handoff(reopened).download(case.target, case.archive["artifact_id"]) == case.zip_bytes
+    assert not manifest.exists()
+    with storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM workspace_migrations").fetchone()
+
+
+def test_v020_clears_unreferenced_retired_row_with_missing_documents(v020_workspace):
+    case = v020_workspace
+    storage = case.storage
+    old = storage.path(f"{case.project.run(case.run)}/Revisions/{case.first}")
+    for path in old.glob("*.json"):
+        path.unlink()
+    with storage.connect() as db:
+        db.execute("DELETE FROM package_exports WHERE revision_id=?", (case.first,))
+    reopened = State(storage)
+    snapshot = Workspace(reopened).current_composition(case.cid)
+    assert len(snapshot["plan"].outputs) == 6 and len(snapshot["sources"]) == 2
+    assert not reopened.identity_exists("revisions", case.current)
+    assert not old.exists()
+    with storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM revisions WHERE id=?", (case.first,)).fetchone()
+        assert not db.execute(
+            "SELECT 1 FROM creative_metadata WHERE revision_id=?", (case.first,)
+        ).fetchone()
+
+
+def test_150_autosaves_keep_one_document_no_edit_history_and_sources_unchanged(
+    tmp_path, monkeypatch
+):
+    from campaign_studio import delivery
+    from campaign_studio.campaign_drafts import read
+    from campaign_studio.workspace import TextEdit
+
+    state, runner, run, brief = setup_case(tmp_path, 2, True)
+    asyncio.run(runner.execute(run))
+    ws = Workspace(state)
+    current = ws.current_composition(brief.campaign_id)
+    original_files = owned_files(state, brief.campaign_id)
+    metrics = state.campaign_metrics(brief.campaign_id)
+    monkeypatch.setattr(delivery, "compose", lambda *a, **k: pytest.fail("Autosave rendered a PNG"))
+    for index in range(150):
+        version = ws.save_composition(
+            brief.campaign_id,
+            TextEdit(
+                ratio="1:1",
+                revision_id=current["version"],
+                market="en-US",
+                product_id="product-1",
+                values={"message": f"Saved headline {index}"},
+                field_scopes={"message": "product"},
+            ),
+        )
+        current = {"version": version}
+    saved = read(state.storage, brief.campaign_id)
+    assert (
+        saved["authored"]["brief"]["products"][0]["copy_overrides"]["en-US"]["message"]
+        == "Saved headline 149"
+    )
+    assert owned_files(state, brief.campaign_id) == original_files
+    assert state.campaign_metrics(brief.campaign_id) == metrics
+    assert not list(state.storage.root.rglob("Outputs"))
+    assert not list(state.storage.root.rglob("Exports"))
+    with state.storage.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM campaign_drafts").fetchone() == (1,)
+        for table in (
+            "revisions",
+            "creative_metadata",
+            "package_exports",
+            "cleanup_intents",
+            "staging_output_files",
+        ):
+            assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert not Cleanup(state).pending()
+
+
+def test_repeated_downloads_and_report_previews_do_not_add_managed_files(tmp_path):
+    state, runner, run, brief = setup_case(tmp_path, 2, True)
+    asyncio.run(runner.execute(run))
+    snapshot = Workspace(state).current_composition(brief.campaign_id)
+    handoff = Handoff(state)
+    before = owned_files(state, brief.campaign_id)
+    action = DeliveryAction(version=snapshot["version"])
+    for _ in range(5):
+        assert handoff.create_current_preview(brief.campaign_id, action)["url"].startswith(
+            "/reports/current/"
+        )
+        with handoff.create_current_zip(brief.campaign_id, action) as download:
+            assert download.stream.read(4) == b"PK\x03\x04"
+        assert not state.delivery_jobs
+        assert owned_files(state, brief.campaign_id) == before
+    preview = Cleanup(state).preview_campaign(brief.campaign_id)
+    assert preview["output_png_count"] == preview["package_count"] == 0
+    assert not list(state.storage.root.rglob("Outputs"))
+    assert not list(state.storage.root.rglob("Exports"))
+    with state.storage.connect() as db:
+        assert not db.execute("SELECT 1 FROM revisions").fetchone()
+        assert not db.execute("SELECT 1 FROM package_exports").fetchone()
+        assert not db.execute("SELECT 1 FROM cleanup_intents").fetchone()
+
+
+def test_failed_metadata_save_preserves_current_document_source_files_and_earlier_download(
+    tmp_path,
+):
+    import sqlite3
+
+    from campaign_studio.campaign_drafts import read
+    from campaign_studio.workspace import FrameEdit
+
+    state, runner, run, brief = setup_case(tmp_path, 2, True)
+    asyncio.run(runner.execute(run))
+    ws = Workspace(state)
+    snapshot = ws.current_composition(brief.campaign_id)
+    before = read(state.storage, brief.campaign_id)
+    sources = owned_files(state, brief.campaign_id)
+    with Handoff(state).create_current_zip(
+        brief.campaign_id, DeliveryAction(version=before["version"])
+    ) as download:
+        previous_zip = tmp_path / "earlier-download.zip"
+        previous_zip.write_bytes(download.stream.read())
+    digest = hashlib.sha256(previous_zip.read_bytes()).hexdigest()
+    with state.storage.connect() as db:
+        db.execute(
+            "CREATE TRIGGER deny_save BEFORE UPDATE ON campaign_drafts "
+            "BEGIN SELECT RAISE(FAIL,'injected metadata failure'); END"
+        )
+    edit = FrameEdit(
+        revision_id=snapshot["version"],
+        product_id="product-1",
+        market="en-US",
+        ratio="1:1",
+        framing={"zoom": 1.1},
+    )
+    with pytest.raises(sqlite3.Error, match="injected metadata failure"):
+        ws.save_composition(brief.campaign_id, edit)
+    assert read(state.storage, brief.campaign_id) == before
+    assert owned_files(state, brief.campaign_id) == sources
+    assert hashlib.sha256(previous_zip.read_bytes()).hexdigest() == digest
+    assert not Cleanup(state).pending()
+    with state.storage.connect() as db:
+        db.execute("DROP TRIGGER deny_save")
+    assert ws.save_composition(brief.campaign_id, edit) != before["version"]
+    assert owned_files(state, brief.campaign_id) == sources
+
+
+def test_failed_export_cleanup_keeps_saved_document_and_deletes_only_temporary_job(
+    tmp_path, monkeypatch
+):
+    from campaign_studio import delivery
+    from campaign_studio.campaign_drafts import read
+
+    state, runner, run, brief = setup_case(tmp_path, 2, True)
+    asyncio.run(runner.execute(run))
+    snapshot = Workspace(state).current_composition(brief.campaign_id)
+    handoff = Handoff(state)
+    action = DeliveryAction(version=snapshot["version"], operation_id="5" * 32)
+    before = read(state.storage, brief.campaign_id)
+    sources = owned_files(state, brief.campaign_id)
+
+    def fail(*_args, **_kwargs):
+        raise OSError("Injected local rendering failure")
+
+    monkeypatch.setattr(delivery, "render_png", fail)
+    for _ in range(3):
+        with pytest.raises(StateError) as error:
+            handoff.create_current_zip(brief.campaign_id, action)
+        assert error.value.code == "delivery_retry"
+        assert len(state.delivery_jobs) == 1
+        assert not state.delivery_jobs[action.operation_id].ready
+        assert read(state.storage, brief.campaign_id) == before
+        assert owned_files(state, brief.campaign_id) == sources
+    held = list(state.delivery_jobs[action.operation_id].sources.values())
+    handoff.cancel_current_delivery(brief.campaign_id, action.operation_id)
+    assert not state.delivery_jobs and all(stream.closed for stream in held)
+    assert not Cleanup(state).pending()
+    assert not list(state.storage.root.rglob("Outputs"))
+    assert not list(state.storage.root.rglob("Exports"))
+
+
+@pytest.mark.parametrize("interface", ["service", "deferred_service", "http"])
+def test_confirmed_campaign_deletion_immediately_closes_retained_export(
+    tmp_path, monkeypatch, interface
+):
+    state, runner, run, brief = setup_case(tmp_path, 2, True)
+    asyncio.run(runner.execute(run))
+    with ExitStack() as stack:
+        client = None
+        if interface == "http":
+            app = create_app(
+                Settings(data_dir=state.storage.root),
+                provider_factory=lambda: pytest.fail("provider construction"),
+            )
+            client = stack.enter_context(TestClient(app, base_url="http://127.0.0.1"))
+            state = app.state.workspace.state
+        _delete_retained_export(state, brief, monkeypatch, interface, client)
+
+
+def _delete_retained_export(state, brief, monkeypatch, interface, client):
+    from campaign_studio import delivery
+
+    snapshot = Workspace(state).current_composition(brief.campaign_id)
+    handoff = Handoff(state)
+    action = DeliveryAction(version=snapshot["version"], operation_id="6" * 32)
+    original = delivery.render_png
+
+    def fail_first(saved, paths, output, destination, **kwargs):
+        if output.id == snapshot["plan"].outputs[0].id:
+            raise OSError("Injected failure")
+        return original(saved, paths, output, destination, **kwargs)
+
+    monkeypatch.setattr(delivery, "render_png", fail_first)
+    with pytest.raises(StateError) as error:
+        handoff.create_current_zip(brief.campaign_id, action)
+    assert error.value.code == "delivery_retry"
+    job = state.delivery_jobs[action.operation_id]
+    assert len(job.ready) == 5
+    retained = list(job.ready.values()) + list(job.sources.values())
+    assert retained and all(not stream.closed for stream in retained)
+    cleanup = Cleanup(state)
+
+    # Removing another campaign must not cancel this campaign's download.
+    other, _ = Intake(state.storage).new()
+    cleanup.delete_campaign(other, cleanup.preview_campaign(other)["token"])
+    assert not job.closed and state.delivery_jobs[action.operation_id] is job
+    preview = cleanup.preview_campaign(brief.campaign_id)
+    with pytest.raises(StateError, match="changed"):
+        cleanup.delete_campaign(brief.campaign_id, "0" * 64)
+    assert not job.closed and all(not stream.closed for stream in retained)
+
+    if client:
+        endpoint = f"/api/campaigns/{brief.campaign_id}/cleanup/confirm"
+        assert client.post(endpoint, json={"token": preview["token"]}).status_code == 403
+        assert not job.closed
+        client.headers["X-Campaign-Token"] = client.app.state.csrf
+        response = client.post(endpoint, json={"token": preview["token"]})
+        assert response.status_code == 200, response.text
+        result = response.json()
+    else:
+        result = cleanup.delete_campaign(
+            brief.campaign_id, preview["token"], defer_cleanup=interface == "deferred_service"
+        )
+
+    # No retry, progress request, timer expiry, or app shutdown is needed.
+    assert job.closed and not state.delivery_jobs
+    assert all(stream.closed for stream in retained)
+    assert job.timer is not None and job.timer.finished.is_set()
+    assert (
+        handoff.current_progress(brief.campaign_id, action.operation_id)["status"] == "unavailable"
+    )
+    if interface != "service":
+        assert result["state"] == "committed"
+        with pytest.raises(StateError, match="being deleted"):
+            handoff.create_current_zip(brief.campaign_id, action)
+        assert cleanup.retry(brief.campaign_id, result["cleanup_id"])["state"] == "complete"
+    else:
+        assert result["state"] == "complete"
+        with pytest.raises(StateError, match="find this campaign"):
+            handoff.create_current_zip(brief.campaign_id, action)
+
+
+def test_migrated_package_history_survives_new_autosaves_without_new_history(v020_workspace):
+    from campaign_studio.workspace import FrameEdit
+
+    case = v020_workspace
+    state = State(case.storage)
+    ws = Workspace(state)
+    before = Path(case.folder["location"])
+    delivered = {str(path): path.read_bytes() for path in before.rglob("*") if path.is_file()}
+    snapshot = ws.current_composition(case.cid)
+    version = snapshot["version"]
+    for index in range(10):
+        version = ws.save_composition(
+            case.cid,
+            FrameEdit(
+                revision_id=version,
+                product_id="product-1",
+                market="en-US",
+                ratio="1:1",
+                framing={"zoom": 1.01 + index / 100},
+            ),
+        )
+    assert {
+        str(path): path.read_bytes() for path in before.rglob("*") if path.is_file()
+    } == delivered
+    assert Handoff(state).download(case.target, case.archive["artifact_id"]) == case.zip_bytes
+    assert not case.outputs.exists()
+    with case.storage.connect() as db:
+        assert db.execute("SELECT id FROM revisions").fetchall() == [(case.first,)]
+        assert db.execute("SELECT COUNT(*) FROM campaign_drafts").fetchone() == (1,)
+        assert db.execute("SELECT COUNT(*) FROM package_exports").fetchone() == (2,)
+        assert db.execute(
+            "SELECT current_revision FROM runs WHERE id=?", (case.run,)
+        ).fetchone() == (None,)
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []

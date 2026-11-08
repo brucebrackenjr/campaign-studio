@@ -1,11 +1,11 @@
 """Failed preparation remains owned, including abrupt exits before run publication."""
 
-import asyncio
 import hashlib
 import os
 import sqlite3
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -28,7 +28,9 @@ def hashes(root):
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*")
-        if path.is_file() and path.name not in {"state.sqlite3", "runner.lock"}
+        if path.is_file()
+        and path.name not in {"state.sqlite3", "runner.lock"}
+        and path != root / "private" / "usage.lock"
     }
 
 
@@ -137,7 +139,7 @@ def test_owner_registration_failure_writes_no_preparation_content(tmp_path):
         assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("checkpoint", ["temporary-input", "first-input", "durable-plan"])
+@pytest.mark.parametrize("checkpoint", ["temporary-input", "first-input", "uncommitted-plan"])
 def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, checkpoint):
     state, plan = prepared(tmp_path / "runtime")
     project_folder = state.storage.project(plan.brief.campaign_id).folder
@@ -182,8 +184,9 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
     )
     if checkpoint == "temporary-input":
         assert any(p.suffix == ".tmp" for p in contents)
-    if checkpoint == "durable-plan":
-        assert any(p.name == "plan.json" for p in contents)
+    if checkpoint == "uncommitted-plan":
+        assert len(contents) == len(plan.assets)
+        assert not any(p.name == "plan.json" for p in contents)
     preview = cleanup.preview_campaign(plan.brief.campaign_id)
     assert preview["run_count"] == 0
     assert cleanup.delete_campaign(plan.brief.campaign_id, preview["token"])["state"] == "complete"
@@ -196,39 +199,36 @@ def test_abrupt_preparation_exit_is_owned_until_confirmed_cleanup(tmp_path, chec
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
-def test_home_version_uses_displayed_revision_identity_after_superseded_output_cleanup_and_new_run(
-    tmp_path,
-):
-    app = create_app(
-        Settings(data_dir=tmp_path / "runtime"),
-        key_available=lambda: False,
-        provider_factory=lambda: pytest.fail("No provider work"),
-    )
+def test_workbench_opens_one_current_composition_without_revision_history(tmp_path):
+    from campaign_studio.brief import Framing
+    from campaign_studio.campaign_drafts import read
+    from campaign_studio.workspace import FrameEdit
+
+    app = create_app(Settings(data_dir=tmp_path / "runtime"), key_available=lambda: False)
     with TestClient(app, base_url="http://127.0.0.1") as client:
-        state = app.state.workspace.state
-        brief = write_replay(state.storage)
-        plan = make_plan(brief, state.storage)
-        run = state.create(plan, 0)
-        state.confirm(run, state.plan(run).digest)
-        asyncio.run(app.state.runner.execute(run))
-        for _ in range(3):
-            app.state.runner.recover_local(run)
-        assert len(Workspace(state).revisions(run)) == 1
-
-        def current_label():
+        ws = app.state.workspace
+        cid = seed_campaign(ws, replay=True)
+        product_id = read(ws.storage, cid)["authored"]["brief"]["products"][0]["id"]
+        for zoom in (1.1, 1.2, 1.3):
+            ws.save_composition(
+                cid,
+                FrameEdit(
+                    revision_id=read(ws.storage, cid)["version"],
+                    product_id=product_id,
+                    market="en-US",
+                    ratio="1:1",
+                    framing=Framing(zoom=zoom),
+                ),
+            )
             catalog = client.get("/api/motif/workspace").json()["campaigns"]
-            row = next(c for c in catalog if c["id"] == brief.campaign_id)
-            detail = client.get(f"/api/motif/campaigns/{brief.campaign_id}").json()
-            assert row["revision"] == detail["revision_number"]
-            return row["revision"]
-
-        assert current_label() == 4
-        second = state.create(plan, 0)
-        assert current_label() == 4  # A new unproduced plan still opens the saved output.
-        state.confirm(second, state.plan(second).digest)
-        asyncio.run(app.state.runner.execute(second))
-        assert current_label() == 5
-        assert state.attempts(run) == state.attempts(second) == []
+            row = next(c for c in catalog if c["id"] == cid)
+            detail = client.get(f"/api/motif/campaigns/{cid}").json()
+            assert row["available_images"] == len(detail["manifest"]["outputs"]) == 12
+            assert detail["output_brief"]["products"][0]["framing"]["en-US"]["1:1"]["zoom"] == zoom
+        with ws.storage.connect() as db:
+            assert db.execute("SELECT COUNT(*) FROM revisions").fetchone()[0] == 0
+            assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+            assert db.execute("SELECT COUNT(*) FROM campaign_drafts").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("replay,namespace", [(True, "Replays"), (False, "Samples")])
@@ -250,7 +250,9 @@ def test_repeated_fixture_delete_reclaims_runtime_copies_only(tmp_path, replay, 
             ]
         assert any(f"/Assets/{namespace}/" in prefix for prefix in prefixes)
         preview = cleanup.preview_campaign(campaign)
-        assert preview["source_file_count"] == 6  # Three source copies plus three run inputs.
+        assert (
+            preview["source_file_count"] == 3
+        )  # Two source images and a logo, without run copies.
         assert cleanup.delete_campaign(campaign, preview["token"])["state"] == "complete"
         assert all(not state.storage.path(prefix).exists() for prefix in prefixes)
         assert state.storage.path(f"{namespace}/unowned-old/keep.png").read_bytes() == (
@@ -324,11 +326,30 @@ def interrupt_preparation(root, plan_file, checkpoint):
 
     def write(reference, data):
         original_write(reference, data)
-        if (checkpoint == "first-input" and "/Inputs/" in reference) or (
-            checkpoint == "durable-plan" and reference.endswith("/plan.json")
-        ):
+        if checkpoint == "first-input" and "/Inputs/" in reference:
             os._exit(73)
 
+    original_connect = state.storage.connect
+
+    class InterruptedConnection:
+        def __init__(self, db):
+            self.db = db
+
+        def __getattr__(self, name):
+            return getattr(self.db, name)
+
+        def execute(self, sql, parameters=()):
+            cursor = self.db.execute(sql, parameters)
+            if checkpoint == "uncommitted-plan" and sql.startswith("INSERT INTO runs "):
+                os._exit(73)  # The real SQLite insertion must roll back on restart.
+            return cursor
+
+    @contextmanager
+    def connect():
+        with original_connect() as db:
+            yield InterruptedConnection(db)
+
+    state.storage.connect = connect
     storage_module.publish_file = publish
     state.storage.write = write
     state.create(plan, 0)

@@ -61,7 +61,7 @@ function briefViewModel(context) {
   const normalize = MotifBriefFlow.normalizeHex;
   const palette = Array.isArray(value.brand.palette) ? value.brand.palette : [];
   const normalized = palette.map(normalize), rawDefault = value.brand.text_color;
-  const accepted = projectBuffers.form_drafts.brief_defaults?.[lang] ?? draft.brand.text_color;
+  const accepted = draft.brand.text_color;
   const color = normalize(accepted), next = normalize(rawDefault);
   const selected = value.products.find(p => p.id === context.productId) || value.products[0];
   context.productId = selected?.id || null;
@@ -82,7 +82,7 @@ function briefViewModel(context) {
   }
   if (!palette.length || palette.some(entry => !normalize(entry)))
     preview = { phase: "invalid", message: "Choose or enter each palette color. Your unfinished values stay saved." };
-  else if (!normalized.includes(color)) {
+  else if (next && !normalized.includes(color)) {
     colorMessage = "The default color is no longer in the palette. Choose a palette default, or add it back.";
     colorAction = palette.length < 8 && color ? { label: "Add default back", action: "restore-default" } : null;
     preview = { phase: "invalid", message: "Choose a palette default before previewing. Your raw palette edits remain saved." };
@@ -129,7 +129,7 @@ function briefViewModel(context) {
     brandUpdating: typeof brandUpdating !== "undefined" && brandUpdating,
     customPreviewColors: uses.some(item => item.product === context.productId && item.market === MARKET[lang] && item.ratio === context.ratio),
     overrideNotice: Object.keys(override).length ? `${selected.name} has custom wording for this language. These fields edit campaign wording; the preview includes that product’s overrides.` : null,
-    preview,
+    preview, previewLayerKey: briefPreviewLayerKey(context),
   };
 }
 function briefBrandColorProblem() {
@@ -154,6 +154,7 @@ function destroyBriefFlow() {
   briefHost.dead = true;
   cancelBriefLogoUpload(briefHost);
   clearTimeout(briefHost.timer);
+  briefHost.saveView?.destroy();
   briefHost.view.destroy();
   briefHost = null;
 }
@@ -178,24 +179,33 @@ function renderBriefModel(context) {
   // Replacing a focused field emits blur synchronously. That teardown is not
   // a second completed user edit and must not recursively replace the DOM.
   context.rendering = true;
-  try { context.view.render(context.vm); }
+  try { context.view.render(context.vm); context.saveView?.refresh(); }
   finally { context.rendering = false; }
 }
 function briefPreviewBody(context) {
   return { version: model.version, brief: currentBriefValue(), product_id: context.productId, market: MARKET[lang], ratio: context.ratio };
 }
+function briefPreviewLayerKey(context) {
+  const body = briefPreviewBody(context);
+  delete body.version;
+  delete body.brief.brand.text_color;
+  delete body.brief.brand.palette;
+  return JSON.stringify(body);
+}
 function refreshBriefFlow(context = briefHost, { factsOnly = false } = {}) {
   if (!context || !ownsBrief(context)) return;
   const next = briefViewModel(context);
-  const signature = JSON.stringify({ body: briefPreviewBody(context), tab, preview: next.preview,
+  const body = briefPreviewBody(context);
+  delete body.version; // A save acknowledgement changes admission, not the visible composition.
+  const signature = JSON.stringify({ body, tab, preview: next.preview,
     source: next.products.find(product => product.id === context.productId)?.image,
-    run: model.run?.id, revision: model.manifest?.revision_id });
+    run: model.run?.id });
   if (signature === context.previewSignature) {
     next.preview = context.vm.preview;
     if (JSON.stringify(next) === JSON.stringify(context.vm)) return;
     // Source facts and logo metadata may arrive during the image decode. Keep
     // that component and its model alive until the owned preview settles.
-    if (context.flight && factsOnly) {
+    if (context.flight) {
       context.metadataChanged = true;
       return;
     }
@@ -213,7 +223,7 @@ function refreshBriefFlow(context = briefHost, { factsOnly = false } = {}) {
   renderBriefModel(context);
   if (!briefPreviewPaused() && ["brand", "copy"].includes(tab) && (context.vm.preview.phase === "pending" ||
       (tab === "brand" && currentBriefValue().brand.logo_path && !context.vm.logo)))
-    context.timer = setTimeout(() => flushBriefPreview(context), 300);
+    context.timer = setTimeout(() => flushBriefPreview(context), 120);
 }
 async function refreshBriefSources(version, savedBrief) {
   const owner = model, authored = draft;
@@ -225,7 +235,7 @@ async function refreshBriefSources(version, savedBrief) {
   try {
     // Source relevance is decided by the existing server imagery-intent check.
     // Refresh only these facts; never replace raw drafts or adopt another save.
-    const result = await api(`/api/motif/campaigns/${encodeURIComponent(authored.campaign_id)}`);
+    const result = await api(`/api/motif/campaigns/${encodeURIComponent(authored.campaign_id)}?after_edit=true`);
     if (!current() || result.version !== version || result.value.campaign_id !== authored.campaign_id ||
         result.run?.id !== owner.run?.id) return;
     owner.concept_previews = result.concept_previews || {};
@@ -249,19 +259,8 @@ function flushBriefPreview(context) {
   clearTimeout(context.timer);
   let identity;
   const flight = (async () => {
-    const saving = typeof getSaveState === "function" ? getSaveState() : null;
-    if (saving && ["dirty", "saving"].includes(saving.phase) && !saving.problem && !saving.validationMessage && !saving.busy) {
-      // Preview URLs belong to a saved draft version. Settle this tab's
-      // existing save first instead of rendering pixels that its receipt expires.
-      try { await saveProject(); }
-      catch (_) {
-        if (ownsBrief(context) && !briefPreviewPaused()) {
-          context.vm.preview = { phase: "failed" };
-          renderBriefModel(context);
-        }
-        return;
-      }
-    }
+    // Preview the current fields immediately. The autosave queue keeps its own
+    // debounce; temporary pixels do not need a preceding database write.
     if (!ownsBrief(context) || briefPreviewPaused() || !["brand", "copy"].includes(tab)) return;
     if (context.vm.preview.phase !== "pending" && !(tab === "brand" && currentBriefValue().brand.logo_path && !context.vm.logo)) return;
     clearTimeout(context.timer);
@@ -318,8 +317,23 @@ async function briefRequestDigest(body) {
 }
 async function requestBriefPreview(context, request) {
   const current = () => ownsBrief(context) && request.identity.generation === context.generation;
-  const expected = await briefRequestDigest(request.body);
-  const result = await api(`/api/motif/campaigns/${encodeURIComponent(context.owner)}/brief-preview`, request.body);
+  if (!current()) throw Error("Superseded preview");
+  // A decoded-image failure may be an expired URL after our own autosave.
+  // Only a newer token already acknowledged by this tab permits another read.
+  if (request.expiredVersion !== undefined && request.expiredVersion === model.version)
+    throw Error("Preview image could not be loaded");
+  let body = { ...request.body, version: model.version };
+  let expected = await briefRequestDigest(body), result;
+  try {
+    result = await api(`/api/motif/campaigns/${encodeURIComponent(context.owner)}/brief-preview`, body);
+  } catch (error) {
+    // Only this tab's acknowledged save can advance the token. An external
+    // stale save remains an error; a read never adopts another tab's document.
+    if (!current() || body.version === model.version || error.status !== 409) throw error;
+    body = { ...body, version: model.version };
+    expected = await briefRequestDigest(body);
+    result = await api(`/api/motif/campaigns/${encodeURIComponent(context.owner)}/brief-preview`, body);
+  }
   if (!current()) throw Error("Superseded preview");
   if (result.request_digest !== expected || result.target.campaign_id !== context.owner ||
       result.target.product_id !== request.body.product_id || result.target.market !== request.body.market || result.target.ratio !== request.body.ratio)
@@ -341,7 +355,8 @@ async function requestBriefPreview(context, request) {
     throw Error("Current fields need attention");
   }
   context.fitted = result.fitted_outputs.length ? `Resized to fit · ${result.fitted_outputs.length} ${result.fitted_outputs.length === 1 ? "image" : "images"}` : "";
-  return { identity: request.identity, url: result.image.url, kind: result.kind,
+  return { identity: request.identity, url: result.image.url, kind: result.kind, layers: result.layers,
+    layerKey: briefPreviewLayerKey(context), version: body.version,
     alt: `Current Brief · ${briefTargetLabel({ name: request.body.brief.products.find(p => p.id === request.body.product_id)?.name, market: request.body.market, ratio: request.body.ratio })}`,
     note: context.fitted || undefined };
 }
@@ -362,8 +377,7 @@ function changeBriefField(context, key, value, { commit = false } = {}) {
   context.paletteMessage = "";
   context.paletteTarget = null;
   if (key === "defaultColor") {
-    const defaults = projectBuffers.form_drafts.brief_defaults ||= {};
-    if (!(lang in defaults)) defaults[lang] = draft.brand.text_color;
+    if (projectBuffers.form_drafts.brief_defaults) delete projectBuffers.form_drafts.brief_defaults[lang];
     if (commit) value = normalize(value) || value;
     draft.brand.text_color = value;
     rememberBriefField("text-color", value);
@@ -426,7 +440,7 @@ async function briefAction(context, action) {
     const product = draft.products.find(item => item.id === context.productId);
     const placements = product?.framing?.[MARKET[lang]]?.[context.ratio]?.text_placements;
     for (const placement of Object.values(placements || {})) placement.color = null;
-    if (model.manifest?.outputs?.some(output => output.product_id === context.productId && output.market === MARKET[lang] && output.ratio === context.ratio && output.file)) {
+    if (model.manifest?.outputs?.some(output => output.product_id === context.productId && output.market === MARKET[lang] && output.ratio === context.ratio && output.url)) {
       const targets = projectBuffers.form_drafts.brand_color_defaults ||= [];
       if (!targets.some(target => target.product_id === context.productId && target.market === MARKET[lang] && target.ratio === context.ratio))
         targets.push({ product_id: context.productId, market: MARKET[lang], ratio: context.ratio });
@@ -457,7 +471,7 @@ async function briefAction(context, action) {
     else if (use) { context.paletteMessage = `${briefTargetLabel(use)} uses ${color}. Change that block in Studio before removing its color.`; context.paletteTarget = use; }
     else setBriefPalette(vm.palette.filter((_entry, i) => i !== index));
   } else if (verb === "open-studio") {
-    if (typeof guardBrandNavigation === "function" && guardBrandNavigation({ kind: "studio" })) return;
+    if (!await flushCurrentWork()) { toast("Your changes are still here. Try saving again before opening Studio."); return; }
     const affected = context.affectedColor || context.paletteTarget;
     const target = affected || { product: context.productId, market: MARKET[lang], ratio: context.ratio };
     const index = draft.products.findIndex(p => p.id === target.product);
@@ -493,13 +507,14 @@ async function attachBriefLogo(context, file) {
     const asset = await withBriefPreviewPaused(() => api("/api/uploads", undefined, { method: "POST", headers: {
       "Content-Type": file.type || "application/octet-stream", "X-Campaign-Token": $('meta[name="campaign-token"]').content,
       "X-Campaign-Id": owner, "X-Image-Role": "logo",
+      "X-Asset-Name": encodeURIComponent((draft.brand?.name || "Brand") + " logo"),
     }, body: file, signal: upload.controller.signal }), () => ownsBrief(context) && generation === context.upload && !upload.controller.signal.aborted);
     if (!asset || !ownsBrief(context) || generation !== context.upload) return;
     draft.brand.logo_path = asset.reference;
     draft.brand.logo_provenance = copy(asset.provenance);
     briefFacts.logos.set(asset.reference, { ...asset, filename: file.name });
     context.logoStatus = "accepted";
-    context.logoMessage = "Logo attached.";
+    context.logoMessage = "";
     markDirty(); refreshBriefFlow(context);
   } catch (error) {
     if (!ownsBrief(context) || generation !== context.upload) return;

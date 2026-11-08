@@ -146,22 +146,36 @@ def rule_recheck_files(state: State, run_id: str, revision_id: str, plan: Plan) 
     """
     current = state.revision(revision_id)
     current_plan = state.plan(run_id)
-    saved = json.loads(state.storage.path(current["manifest_ref"]).read_bytes())
+    saved = state.revision_manifest(current)
     current_outputs = {item["id"]: item for item in saved["outputs"]}
     with state.storage.connect() as db:
         older = db.execute(
-            "SELECT id,plan_ref,manifest_ref FROM revisions WHERE run_id=? "
-            "AND images_retired=0 AND image_count>0 AND id<>? ORDER BY rowid DESC",
+            "SELECT id,manifest_ref,images_retired FROM revisions WHERE run_id=? "
+            "AND (images_retired=0 OR id IN (SELECT revision_id FROM withheld_output_sources)) "
+            "AND image_count>0 AND id<>? ORDER BY rowid DESC",
             (run_id, revision_id),
         ).fetchall()
+        retained = {
+            (revision, creative, file)
+            for revision, creative, file in db.execute(
+                "SELECT revision_id,creative_id,file FROM withheld_output_sources "
+                "WHERE campaign_id=?",
+                (plan.brief.campaign_id,),
+            )
+        }
     fallback = []
-    for _, plan_ref, manifest_ref in older:
-        prior_plan = state.read_plan(current_plan.brief.campaign_id, plan_ref)
-        prior = json.loads(state.storage.path(manifest_ref).read_bytes())
+    for prior_id, manifest_ref, retired in older:
+        prior_row = state.revision(prior_id)
+        prior_plan = state.revision_plan(prior_row)
+        records = state.revision_manifest(prior_row)["outputs"]
         fallback.append(
             (
                 set(compare_plans(prior_plan, plan).render_outputs),
-                {item["id"]: item for item in prior["outputs"]},
+                {
+                    item["id"]: item
+                    for item in records
+                    if not retired or (prior_id, item["id"], item["file"]) in retained
+                },
                 manifest_ref.rsplit("/", 1)[0],
             )
         )
@@ -217,26 +231,47 @@ def render_revision(
     *,
     reuse_revision: str | None = None,
     operation_started: float | None = None,
-    retirement_files: dict | None = None,
     edit_receipt: dict | None = None,
     preserve_omissions: bool = False,
     rule_recheck: bool = False,
 ) -> dict:
+    revision_id = state.reserve_revision(run_id)
+    try:
+        return _render_revision(
+            state,
+            run_id,
+            revision_id,
+            plan,
+            reuse_revision,
+            operation_started,
+            edit_receipt,
+            preserve_omissions,
+            rule_recheck,
+        )
+    finally:
+        state.discard_unpublished_outputs(revision_id)
+
+
+def _render_revision(
+    state,
+    run_id,
+    revision_id,
+    plan,
+    reuse_revision,
+    operation_started,
+    edit_receipt,
+    preserve_omissions,
+    rule_recheck,
+):
     state.require_image_cleanup(run_id)
     recheck_files = (
         rule_recheck_files(state, run_id, reuse_revision, plan) if rule_recheck else None
     )
-    if retirement_files is None:
-        from campaign_studio.cleanup import Cleanup
-
-        retirement_files = Cleanup(state).prepare_retirement(plan.brief.campaign_id)
     require_font()
     started = time.monotonic()
     storage = state.storage
-    storage.require_capacity(revision_bytes(plan))
-    revision_id = state.reserve_revision(run_id)
     project = storage.project(plan.brief.campaign_id)
-    prefix = f"{project.run(run_id)}/Revisions/{revision_id}"
+    prefix = project.ref("Outputs")
     previous_files = {}
     previous_missing = {}
     previous_findings = []
@@ -257,7 +292,7 @@ def render_revision(
         old_plan = state.revision_plan(previous)
         impact = compare_plans(old_plan, plan)
         changed = set(impact.render_outputs)
-        old_manifest = json.loads(storage.path(previous["manifest_ref"]).read_bytes())
+        old_manifest = state.revision_manifest(previous)
         previous_missing = {
             item["id"]: item for item in old_manifest["outputs"] if not item["file"]
         }
@@ -273,6 +308,11 @@ def render_revision(
         previous_files = recheck_files
         previous_missing = {}
         changed = set()
+    if reuse_revision:
+        storage.require_edit_capacity(revision_bytes(plan, changed))
+    else:
+        storage.require_capacity(revision_bytes(plan))
+    changed_products = {o.product_id for o in plan.outputs if o.id in changed}
     state.live_progress[run_id] = {
         "stage": "Creating campaign sizes",
         "completed": 0,
@@ -288,17 +328,20 @@ def render_revision(
             }
         )
     for attempt in state.attempts(run_id):
-        if attempt["state"] == "decoded" and state.source_is_intact(attempt):
+        if (
+            attempt["product_id"] in changed_products
+            and attempt["state"] == "decoded"
+            and state.source_is_intact(attempt)
+        ):
             source_by_product[attempt["product_id"]] = attempt["source_ref"]
     logo = None
-    if "logo" in plan.assets:
+    if (changed or rule_recheck) and "logo" in plan.assets:
         logo, _ = load_image(storage.path(plan.assets["logo"].reference))
     items = []
     findings = list(plan.findings)
     local_failure = False
     for output in plan.outputs:
         product = next(item for item in plan.brief.products if item.id == output.product_id)
-        relative = f"images/{product.id}/{output.ratio.replace(':', 'x')}/{output.market}.png"
         record = {
             "id": output.id,
             "product_id": product.id,
@@ -328,27 +371,29 @@ def render_revision(
             items.append(record)
             continue
         try:
-            reused = None
             if output.id not in changed and output.id in previous_files:
                 old, old_prefix = previous_files[output.id]
-                payload = storage.path(f"{old_prefix}/{old['file']}").read_bytes()
-                if hashlib.sha256(payload).hexdigest() != old["sha256"]:
-                    raise ImageProblem("The saved unchanged image failed its integrity check.")
-                if edit_receipt is not None and not rule_recheck:
+                # These are the already accepted files. A one-image edit never opens
+                # the other PNGs. An explicit rules audit can reinspect existing files.
+                if rule_recheck:
+                    checks = inspect_png(
+                        storage.path(f"{old_prefix}/{old['file']}"),
+                        output,
+                        logo,
+                        plan.brief.brand.text_color,
+                    )
+                else:
                     checks = [
                         Finding.model_validate(f)
                         for f in previous_findings
                         if f["item"] == output.id
                         and f["rule"] in {"image_integrity", "logo_pixels", "controlled_text_color"}
                     ]
-                    if (
-                        old.get("pixel_sha256")
-                        and any(
-                            f.rule == "image_integrity" and f.severity == "pass" for f in checks
-                        )
-                        and all(f.severity == "pass" for f in checks)
-                    ):
-                        reused = (checks, old["pixel_sha256"])
+                record.update(
+                    file=old["file"],
+                    sha256=old["sha256"],
+                    pixel_sha256=old.get("pixel_sha256"),
+                )
             else:
                 if rule_recheck:
                     raise ImageProblem("The verified recheck image is unavailable.")
@@ -385,31 +430,21 @@ def render_revision(
                     scene.close()
                     if cutout is not None:
                         cutout.close()
-            reference = f"{prefix}/{relative}"
-            project.write(reference, payload)
-            if reused is not None:
-                # The composition contract and encoded bytes are unchanged. Verify
-                # the new copy, then retain the inspection of those exact pixels.
-                if (
-                    hashlib.sha256(storage.path(reference).read_bytes()).hexdigest()
-                    != old["sha256"]
-                ):
-                    raise ImageProblem("The copied unchanged image failed its integrity check.")
-                checks, pixels = reused
-            else:
-                checks = inspect_png(
-                    storage.path(reference), output, logo, plan.brief.brand.text_color
-                )
+                relative = state.write_output(run_id, revision_id, output, payload)
+                destination = storage.path(f"{prefix}/{relative}")
+                digest = hashlib.sha256(payload).hexdigest()
+                if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
+                    raise ImageProblem("The new file failed its integrity check.")
+                checks = inspect_png(destination, output, logo, plan.brief.brand.text_color)
                 with Image.open(io.BytesIO(payload)) as saved:
                     pixels = hashlib.sha256(saved.convert("RGB").tobytes()).hexdigest()
+                record.update(file=relative, sha256=digest, pixel_sha256=pixels)
             findings.extend(checks)
             if any(item.severity == "blocking" for item in checks):
-                raise ImageProblem("The new file failed exported-pixel checks.")
-            record.update(
-                file=relative, sha256=hashlib.sha256(payload).hexdigest(), pixel_sha256=pixels
-            )
+                raise ImageProblem("The file failed exported-pixel checks.")
         except (ImageProblem, OSError, ValueError) as error:
             local_failure = True
+            record.update(file=None, sha256=None)
             record["omission"] = (
                 str(error) if isinstance(error, ImageProblem) else "Local output writing failed."
             )
@@ -513,36 +548,29 @@ def render_revision(
         for source in replay["sources"].values():
             source.pop("path")
         manifest["replay"] = replay
-    plan_ref = f"{prefix}/plan.json"
-    manifest_ref = f"{prefix}/manifest.json"
-    project.write(plan_ref, plan.model_dump_json(indent=2).encode())
-    project.write(manifest_ref, json.dumps(manifest, indent=2, ensure_ascii=False).encode())
-    # An explicit edit carries existing omissions without treating them as a
-    # new failure. Newly failed writes must keep its base current, including the
-    # first useful partial that did not previously need a pinned pointer.
-    state.publish_revision(
+    if rule_recheck and not eligible_saved:
+        raise StateError(
+            "Rule recheck could not save every eligible image. Your current images and rules "
+            "are unchanged. Keep your rule edits and retry the recheck after resolving the "
+            "local output failure. No image request was made."
+        )
+    if edit_receipt and local_failure:
+        raise StateError(
+            "Could not apply. Your edits are still here.",
+            code="apply_not_accepted",
+        )
+    state.publish_output_revision(
         run_id,
         revision_id,
-        plan_ref,
-        manifest_ref,
-        complete,
+        plan,
+        manifest,
         parent_revision=reuse_revision,
-        retirement_files=retirement_files,
         accept_partial=((rule_recheck or accepted_partial) and eligible_saved)
         or (edit_receipt is not None and not local_failure),
-        preserve_current=edit_receipt is not None and local_failure,
         rule_withheld_outputs=frozenset(
             output.id
             for output in plan.outputs
             if rule_recheck and any(blocks_output(finding, output) for finding in plan.findings)
         ),
     )
-    if rule_recheck and not eligible_saved:
-        # Keep the diagnostic record, but never call a failed local write an
-        # accepted rule decision or let Intake overwrite its current rule context.
-        raise StateError(
-            "Rule recheck could not save every eligible image. Your current images and rules "
-            "are unchanged. Keep your rule edits and retry the recheck after resolving the "
-            "local output failure. No image request was made."
-        )
     return manifest

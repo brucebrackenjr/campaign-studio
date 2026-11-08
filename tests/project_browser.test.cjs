@@ -4,26 +4,27 @@ const { readFileSync } = require("node:fs");
 const vm = require("node:vm");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function harness(validate) {
+function harness(validate, canAutosave) {
   const context = vm.createContext({ structuredClone, setTimeout, clearTimeout, modalProduct: { treatment: "concept" } });
   vm.runInContext(readFileSync("src/campaign_studio/static/motif/project.js", "utf8"), context);
   let current = { brief: { name: "Original", color: "#12" }, form_drafts: {} };
-  const calls = [], statuses = [];
+  const calls = [], statuses = [], acknowledgements = [];
   const saved = { version: "v1", base: { revision_id: "r1" }, authored: structuredClone(current), saved_at: "before" };
   const queue = context.projectSaveQueue({
     capture: () => structuredClone(current),
     validate,
+    canAutosave,
     restore: (value) => { current = value; },
     send: async (campaign, value) => {
       calls.push({ campaign, value: structuredClone(value) });
       return api.reply(campaign, value);
     },
-    read: async () => api.saved,
     changed: (value) => statuses.push(value),
+    acknowledged: (receipt) => acknowledgements.push(structuredClone(receipt)),
     delay: 5,
   });
   const api = {
-    queue, calls, statuses, saved,
+    queue, calls, statuses, acknowledgements, saved,
     reply: async () => ({ version: "v2", saved_at: "now", authored_hash: "ack" }),
     get current() { return current; },
     set current(value) { current = value; },
@@ -127,6 +128,24 @@ test("Save receipt clears completed presentation drift but cannot re-admit a par
     options.acknowledged({version:'ack'},'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',{brief});
     assert.equal(context.model.unplanned_draft,state!=='complete');
   }
+});
+
+test("current server readiness replaces an obsolete deleted-product request after autosave", () => {
+  const brief={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',products:[{id:'retained',source:{role:'finished_scene',path:'owned.png'}}]};
+  const context=vm.createContext({copy:structuredClone,draft:brief,model:{run:{state:'planned'},project:{},plan_brief:{...brief,products:[]},unplanned_draft:true},logoSession:null,dirty:false,refreshCampaignIdentity(){}});
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+  let options;context.projectSaveQueue=o=>{options=o;return {open(){}};};context.initializeProject({});
+  options.acknowledged({version:'current',unplanned_draft:false,plan:{generation_products:[]},plan_brief:brief},brief.campaign_id,{brief});
+  assert.equal(context.model.unplanned_draft,false);
+  assert.deepEqual(context.model.plan.generation_products,[]);
+});
+
+test("committing a product restores its data without moving away from the current subtab", () => {
+  const context=vm.createContext({copy:structuredClone,draft:null,tab:'products',lang:'es',currentFormat:2});
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+  context.restoreProject({brief:{products:[{id:'new'}]},ui_context:{tab:'copy',language:'en',currentFormat:0}}, {restoreContext:false});
+  assert.equal(context.tab,'products');assert.equal(context.lang,'es');assert.equal(context.currentFormat,2);
+  assert.equal(context.draft.products[0].id,'new');
 });
 
 test("saved complete color shorthand is display-equivalent without hiding invalid or changed drafts", () => {
@@ -344,6 +363,120 @@ test("publication observed during a delayed Save advances only the exact acknowl
   }
 });
 
+test("opening sparse campaign buffers never saves a phantom edit during source completion", async () => {
+  const h = harness();
+  const sparse = {...structuredClone(h.saved), authored: {brief: structuredClone(h.current.brief)}};
+  h.queue.open("campaign", sparse);
+  Object.assign(h.current, {form_drafts: {}, review_drafts: {}, feedback: {}, ui_context: {page: "production"}});
+  h.queue.markChanged();
+  assert.equal(h.queue.isDirty(), false);
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(h.calls.length, 0, "empty controls must not race a completed generation with an authored POST");
+  const completed = {...structuredClone(sparse), version: "failed-or-completed-source", base: {run_id: "source-run"}};
+  assert.equal(h.queue.observe(completed, {sourceCompletion: true}), true);
+  assert.equal(h.queue.version(), "failed-or-completed-source");
+  assert.equal(h.queue.isDirty(), false);
+  h.current.brief.name = "Next real edit";
+  await h.queue.saveCurrent();
+  assert.equal(h.calls[0].value.version, "failed-or-completed-source");
+  assert.equal(h.calls[0].value.authored.brief.name, "Next real edit");
+  h.queue.stop();
+});
+
+test("sparse-buffer equivalence preserves actual and invalid pending values", () => {
+  for (const key of ["form_drafts", "review_drafts", "feedback"]) {
+    for (const value of [{field: "Unfinished work"}, null, [], false, ""]) {
+      const h = harness();
+      h.queue.open("campaign", {...structuredClone(h.saved), authored: {brief: structuredClone(h.current.brief)}});
+      h.current[key] = value;
+      assert.equal(h.queue.isDirty(), true, `${key}: ${JSON.stringify(value)}`);
+      h.queue.stop();
+    }
+  }
+});
+
+test("source completion advances its unchanged authored guard and preserves newer local typing", async () => {
+  for (const typing of [false, true]) {
+    const h = harness();
+    if (typing) h.current.brief.name = "New typing during generation";
+    const result = {...structuredClone(h.saved), version: "source-result", base: {run_id: "generated"}};
+    assert.equal(h.queue.observe(result, {sourceCompletion: true}), true);
+    assert.equal(h.queue.version(), "source-result");
+    assert.equal(h.queue.isDirty(), typing);
+    assert.equal(h.calls.length, 0, "reading a completed source does not write a draft");
+    assert.equal(h.current.brief.name, typing ? "New typing during generation" : "Original");
+    h.current.brief.name = "Next ordinary edit";
+    await h.queue.saveCurrent();
+    assert.equal(h.calls[0].value.version, "source-result");
+    assert.deepEqual(h.calls[0].value.base, {run_id: "generated"});
+    h.queue.stop();
+  }
+});
+
+test("source polling cannot adopt a competing authored edit or an unclassified guard change", async () => {
+  for (const competing of [false, true]) {
+    const h = harness();
+    const result = {...structuredClone(h.saved), version: "another-version"};
+    if (competing) result.authored.brief.color = "#ffffff";
+    assert.equal(h.queue.observe(result, {sourceCompletion: competing}), false);
+    assert.equal(h.queue.version(), "v1");
+    h.current.brief.name = "My edit";
+    h.reply = async () => { throw Object.assign(Error("Updated elsewhere"), {code: "authored_conflict", status: 409}); };
+    await assert.rejects(h.queue.saveCurrent());
+    assert.equal(h.calls[0].value.version, "v1");
+    assert.equal(h.queue.getSaveState().phase, "conflict");
+    assert.equal(h.current.brief.name, "My edit");
+    h.queue.stop();
+  }
+});
+
+test("source completion during a delayed save acknowledges only its exact committed content", async () => {
+  for (const competing of [false, true]) {
+    const h = harness();
+    h.current.brief.name = "Saved during generation";
+    let release;
+    h.reply = () => new Promise(resolve => { release = resolve; });
+    const pending = h.queue.save();
+    const result = {version: "source-result", base: {run_id: "generated"}, authored: structuredClone(h.current), saved_at: "source-time"};
+    if (competing) result.authored.brief.color = "#ffffff";
+    assert.equal(h.queue.observe(result, {sourceCompletion: true}), false);
+    h.current.brief.name = "Newer typing";
+    release({version: "saved-before-source", saved_at: "ack-time", composition_version: "saved-before-source",
+      source_urls: {}, manifest: {complete: false, outputs: []}});
+    assert.equal(await pending, false);
+    assert.equal(h.queue.version(), competing ? "saved-before-source" : "source-result");
+    assert.equal(h.acknowledgements[0].version, competing ? "saved-before-source" : "source-result");
+    assert.equal(Object.hasOwn(h.acknowledgements[0], "composition_version"), competing,
+      "a late save response must not replace a newer source projection");
+    assert.equal(Object.hasOwn(h.acknowledgements[0], "source_urls"), competing);
+    assert.equal(Object.hasOwn(h.acknowledgements[0], "manifest"), competing);
+    assert.equal(h.current.brief.name, "Newer typing");
+    h.reply = async () => ({version: "next-save"});
+    await h.queue.saveCurrent();
+    assert.equal(h.calls[1].value.version, competing ? "saved-before-source" : "source-result");
+    assert.equal(h.calls[1].value.authored.brief.name, "Newer typing");
+    h.queue.stop();
+  }
+});
+
+test("an unchanged source observation cannot downgrade a newer context-save acknowledgement", async () => {
+  const h = harness();
+  h.saved.authored.ui_context = {modal: "rule"};
+  h.queue.open("campaign", h.saved);
+  h.current.ui_context = {modal: null};
+  h.queue.retainContext();
+  let release;
+  h.reply = () => new Promise(resolve => {release = resolve;});
+  const pending = h.queue.save();
+  h.queue.observe(structuredClone(h.saved), {sourceCompletion: true});
+  release({version: "new-context-save"});
+  assert.equal(await pending, true);
+  assert.equal(h.queue.version(), "new-context-save");
+  assert.equal(h.acknowledgements[0].version, "new-context-save");
+  assert.equal(h.queue.isDirty(), false);
+  h.queue.stop();
+});
+
 test("a debounce consumed during a slow acknowledgement drains newer work automatically", async () => {
   const h = harness();
   let release;
@@ -387,7 +520,7 @@ test("a new campaign's dirty state drains after an older campaign request releas
   h.queue.stop();
 });
 
-test("conflict pauses automatic writes; explicit replacement uses the reviewed fresh token", async () => {
+test("Campaign conflict pauses every later write until the page is refreshed", async () => {
   const h = harness();
   h.current.form_drafts = { "p/en": { "copy-headline": "Local words" } };
   h.reply = async () => { throw Object.assign(new Error("Changed elsewhere"), { status: 409, code: "authored_conflict" }); };
@@ -397,12 +530,16 @@ test("conflict pauses automatic writes; explicit replacement uses the reviewed f
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.equal(h.calls.length, 1);
   assert.equal(h.queue.getSaveState().phase, "conflict");
-  h.reply = async () => ({ version: "v4", saved_at: "replaced" });
-  await h.queue.replaceSaved({ version: "reviewed-v3", base: { revision_id: "r2" } });
-  assert.equal(h.calls[1].value.version, "reviewed-v3");
-  assert.equal(h.calls[1].value.base.revision_id, "r2");
-  assert.equal(h.calls[1].value.authored.form_drafts["p/en"]['copy-headline'], "Local words");
-  assert.equal(h.queue.getSaveState().phase, "saved");
+  assert.equal(await h.queue.saveCurrent(), false);
+  assert.equal(await h.queue.save(), false);
+  assert.equal(h.queue.applied({version:"newer",base:{}}), false);
+  h.queue.resumeAutosave();
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.queue.version(), "v1");
+  assert.equal(h.current.form_drafts["p/en"]["copy-headline"], "Local words");
+  assert.equal(h.queue.replaceSaved, undefined);
+  h.queue.stop();
 });
 
 test("recovery clicks do not retry failed saves and navigation choices suspend automatic writes", async () => {
@@ -435,7 +572,7 @@ test("recovery clicks do not retry failed saves and navigation choices suspend a
   h.queue.stop();
 });
 
-test("explicit load restores all saved buffers and a late other-campaign response cannot overwrite them", async () => {
+test("opening another campaign restores its saved buffers and ignores a late old acknowledgement", async () => {
   const h = harness();
   h.current.brief.name = "Tab A";
   let release;
@@ -447,7 +584,7 @@ test("explicit load restores all saved buffers and a late other-campaign respons
   assert.equal(await pending, false);
   assert.equal(h.current.brief.name, "Campaign B");
   h.saved = { ...b, version: "b2", authored: { brief: { name: "Fetched B" }, form_drafts: { fields: {"brief/brand/en": {"text-color":"#123"}} } } };
-  assert.equal(await h.queue.loadSaved(), true);
+  h.queue.open("8f57d6d7-9318-564d-b7a8-1b78b4e978b7", h.saved);
   assert.equal(h.current.form_drafts.fields["brief/brand/en"]["text-color"], "#123");
   assert.equal(h.current.brief.name, "Fetched B");
 });
@@ -953,4 +1090,76 @@ test('opening the project and reading its save status never captures controls be
  const queue=context.projectSaveQueue({capture(){throw Error('Campaign view not mounted');},restore(){},send(){},validate(){throw Error('No authored capture is ready');}});
  queue.open('new-owner',{version:'v1',base:{},authored:{brief:{name:'Loaded'}}},{restoreState:false});
  assert.equal(queue.getSaveState().phase,'saved');assert.equal(queue.getSaveState().validationMessage,'');queue.stop();
+});
+
+
+test("Campaign autosave waits two seconds and never fires from Studio or a leaving Campaign timer", async () => {
+  const timers = new Map(); let next = 0, eligible = true, writes = 0;
+  const context = vm.createContext({ structuredClone, setTimeout(fn, delay) { const id = ++next; timers.set(id,{fn,delay}); return id; }, clearTimeout(id) {timers.delete(id);} });
+  vm.runInContext(readFileSync("src/campaign_studio/static/motif/project.js", "utf8"), context);
+  let authored={brief:{name:"Original"}};
+  const queue=context.projectSaveQueue({capture:()=>structuredClone(authored),restore(){},canAutosave:()=>eligible,
+    send:async()=>{writes++;return {version:"next"};}});
+  queue.open("campaign",{version:"first",base:{},authored:structuredClone(authored)});
+  authored.brief.name="One";queue.markChanged();assert.equal([...timers.values()][0].delay,2000);
+  authored.brief.name="Two";queue.markChanged();assert.equal(timers.size,1,"new typing restarts the wait");
+  eligible=false;[...timers.values()][0].fn();await flush();assert.equal(writes,0,"a timer cannot save after entering Studio");
+  timers.clear();authored.brief.name="Studio local state";queue.markChanged();assert.equal(timers.size,0);
+  eligible=true;queue.markChanged(true);[...timers.values()][0].fn();await flush();assert.equal(writes,1);
+  queue.stop();
+});
+
+test("an accepted Studio Apply acknowledges server metadata with no follow-up authored save", async () => {
+  const h=harness(undefined,()=>false);
+  assert.ok(h.queue.hold());
+  h.current.brief.framing={zoom:1.5};
+  h.queue.applied({version:"applied",base:{revision_id:"new"},authored:structuredClone(h.current)});
+  h.queue.release();await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(h.queue.isDirty(),false);assert.equal(h.calls.length,0);
+  assert.equal(await h.queue.saveCurrent(),true);assert.equal(h.calls.length,0);
+  h.queue.stop();
+});
+
+test("Campaign autosave status appears in the active panel, confirms once, and then hides", () => {
+  const timers=new Map();let id=0,listen,root={hidden:false,textContent:""};
+  const context=vm.createContext({window:{},setTimeout(fn){timers.set(++id,fn);return id;},clearTimeout(id){timers.delete(id);}});
+  vm.runInContext(readFileSync("src/campaign_studio/static/motif/save-state.js","utf8"),context);
+  const view=context.window.MotifSave.mountAutosave(()=>root,{getSaveState:()=>({phase:"saved"}),subscribeSaveState(fn){listen=fn;return()=>{listen=null;};}});
+  assert.equal(root.hidden,true);listen({phase:"dirty"});assert.equal(root.hidden,true);
+  listen({phase:"saving"});assert.equal(root.textContent,"Auto-saving…");assert.equal(root.hidden,false);
+  root={hidden:false,textContent:""};view.refresh();assert.equal(root.textContent,"Auto-saving…","form rerender retains current status");
+  listen({phase:"saved"});assert.equal(root.textContent,"Saved");listen({phase:"saved"});assert.equal(timers.size,1);
+  [...timers.values()][0]();assert.equal(root.hidden,true);assert.equal(root.textContent,"");
+  listen({phase:"dirty"});listen({phase:"error"});assert.equal(root.hidden,true);
+  view.destroy();assert.equal(listen,null);
+});
+
+test("explicit latest-version adoption preserves another tab's Brand, product, and audience edits",()=>{
+ const context=vm.createContext({copy:structuredClone});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+ const before={name:'Campaign',audience:'Original',creative_direction:'Scene',brand:{name:'Brand',text_color:'#FFFFFF',palette:['#FFFFFF','#733B31']},markets:{'en-US':{copy:{message:'Old',cta:'Explore'}}},products:[{id:'one',name:'Product',description:'Old description',source:{path:'source.png'}}]};
+ const after=structuredClone(before);after.brand.text_color='#733B31';after.audience='Updated audience';after.products[0].name='Updated product';
+ const local=structuredClone(before);context.reconcileAppliedBrief(local,before,after);
+ assert.deepEqual(local,after);
+ const typing=structuredClone(before);typing.audience='Still typing';context.reconcileAppliedBrief(typing,before,after);
+ assert.equal(typing.audience,'Still typing');assert.equal(typing.brand.text_color,'#733B31');
+});
+
+test('all-products Studio wording preserves canonical empty override keys without a phantom Campaign save', () => {
+  for (const newerTyping of [false, true]) {
+    const before={campaign_id:'8fca7c2c-091a-5bfe-ace8-b6af9c0e801c',brand:{},markets:{'en-US':{copy:{message:'Shared before',cta:'Explore'}}},products:[{id:'a',copy_overrides:{'en-US':{message:'First override'}}},{id:'b',copy_overrides:{'en-US':{message:'Second override'}}}]};
+    const after=structuredClone(before);after.markets['en-US'].copy.message='Warm nights start here';
+    for (const product of after.products) product.copy_overrides={'en-US':{}};
+    const saved={version:'v1',base:{},authored:{brief:before}};
+    const context=vm.createContext({structuredClone,copy:structuredClone,setTimeout,clearTimeout,draft:structuredClone(before),saved});
+    vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),context);
+    vm.runInContext("projectOwner=saved.authored.brief.campaign_id;projectQueue=projectSaveQueue({capture:()=>({brief:draft}),restore(){},send(){throw Error('No extra Campaign save')},delay:10000});projectQueue.open(projectOwner,saved)",context);
+    if (newerTyping) context.draft.products[0].copy_overrides['en-US'].cta='Still typing my CTA';
+    const current={...saved,version:'v2',authored:{brief:after}};
+    context.receiveProject({value:{campaign_id:before.campaign_id},project:current},{project:saved},{applied:true});
+    assert.deepEqual(context.draft.products[1].copy_overrides,{'en-US':{}});
+    assert.deepEqual(context.draft.products[0].copy_overrides,newerTyping?{'en-US':{cta:'Still typing my CTA'}}:{'en-US':{}});
+    assert.equal(vm.runInContext('projectQueue.isDirty()',context),newerTyping);
+    vm.runInContext('projectQueue.stop()',context);
+  }
 });

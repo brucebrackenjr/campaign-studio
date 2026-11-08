@@ -6,13 +6,13 @@ import json
 
 import httpx
 import pytest
+from campaign_fixtures import seed_campaign
 from fastapi.testclient import TestClient
-from test_provider_runner import generated_case
+from test_provider_runner import generated_case, save_current
 
 from campaign_studio.app import create_app
 from campaign_studio.config import Settings
 from campaign_studio.imaging import FontProblem
-from campaign_studio.intake import BriefDraft, Intake
 from campaign_studio.motif import attempt_details, campaign_data
 from campaign_studio.planning import make_plan
 from campaign_studio.provider import OpenAIImages
@@ -73,7 +73,7 @@ def test_rejected_plan_summary_is_exact_read_only_and_retains_previous_version(t
         plan = make_plan(brief, ws.storage)
         run = ws.state.create(plan, 0)
         ws.state.confirm(run, ws.state.plan(run).digest)
-        manifest = asyncio.run(app.state.runner.execute(run))
+        asyncio.run(app.state.runner.execute(run))
         value = ws.state.plan(run).brief.model_dump(mode="json")
         if cause == "phrase":
             value["markets"]["es-MX"]["phrase_rules"] = [{"id": "prohibited", "phrase": "siempre"}]
@@ -84,9 +84,7 @@ def test_rejected_plan_summary_is_exact_read_only_and_retains_previous_version(t
                 "right": 1,
                 "bottom": 1,
             }
-        document = Intake(ws.storage).save(
-            brief.campaign_id, BriefDraft(value=value, base_revision=manifest["revision_id"]), ws
-        )
+        document = save_current(ws.state, brief.campaign_id, lambda b: b.update(value))
         before = copy.deepcopy(ws.state.run(run))
         response = client.post(
             f"/api/motif/campaigns/{brief.campaign_id}/plan",
@@ -152,7 +150,7 @@ def test_retained_http_error_is_diagnostics_not_recoverable_image(tmp_path, code
     assert "PRIVATE_CANARY" not in json.dumps(fact)
 
 
-def test_active_retry_counts_preserved_images_and_new_outputs_once(tmp_path):
+def test_source_progress_is_separate_from_format_preview_coverage(tmp_path):
     state, runner, run, _ = generated_case(tmp_path)
     asyncio.run(
         runner.execute(
@@ -177,23 +175,85 @@ def test_active_retry_counts_preserved_images_and_new_outputs_once(tmp_path):
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         ws = app.state.workspace
-        saved = ws.manifest(ws.state.run(run))
+        saved = campaign_data(ws, state.run(run)["campaign_id"])["manifest"]
         available = [item["id"] for item in saved["outputs"] if item["file"]]
         missing = [item["id"] for item in saved["outputs"] if not item["file"]]
         assert len(available) == len(missing) == 6
         app.state.operations[run] = Active()
         ws.state.live_progress[run] = {"stage": "Generating missing imagery", "completed": 0}
         url = f"/api/campaigns/{saved['campaign_id']}/status"
-        assert client.get(url).json()["completed"] == 6
+        status = client.get(url).json()
+        assert status["completed"] == 6 and status["total"] == 12
+        assert status["sources_completed"] == 1 and status["sources_total"] == 2
         ws.state.live_progress[run]["completed_ids"] = missing[:3] + available
-        assert client.get(url).json()["completed"] == 9
+        status = client.get(url).json()
+        assert status["completed"] == 9
+        assert status["sources_completed"] == 1 and status["sources_total"] == 2
         ws.state.live_progress[run]["completed_ids"] = []
-        revision = ws.state.revision(saved["revision_id"])
-        prefix = revision["manifest_ref"].rsplit("/", 1)[0]
-        item = next(item for item in saved["outputs"] if item["file"])
-        ws.storage.path(f"{prefix}/{item['file']}").write_bytes(b"damaged")
-        assert client.get(url).json()["completed"] == 5
+        source = ws.current_composition(saved["campaign_id"])["sources"]["product-2"]
+        ws.storage.path(source.reference).write_bytes(b"damaged source")
+        # One lost source affects every format/market using it; no durable PNG exists.
+        status = client.get(url).json()
+        assert status["completed"] == status["sources_completed"] == 0
+        assert status["sources_total"] == 2
         app.state.operations.clear()
+
+
+def test_source_counts_advance_during_generation_and_survive_failure_and_retry(tmp_path):
+    state, _, run, body = generated_case(tmp_path, concept_count=2)
+    campaign_id = state.run(run)["campaign_id"]
+    app = create_app(Settings(data_dir=state.storage.root))
+
+    class Active:
+        def done(self):
+            return False
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        ws = app.state.workspace
+        app.state.operations[run] = Active()
+        statuses = []
+
+        def transport(request):
+            statuses.append(client.get(f"/api/campaigns/{campaign_id}/status").json())
+            return (
+                httpx.Response(200, json=body)
+                if len(statuses) == 1
+                else httpx.Response(503, json={"error": {}})
+            )
+
+        provider = OpenAIImages(
+            "synthetic-test-credential", transport=httpx.MockTransport(transport)
+        )
+        partial = asyncio.run(app.state.runner.execute(run, provider))
+        assert not partial["complete"] and partial["outputs"] == []
+        assert [(s["sources_completed"], s["sources_total"]) for s in statuses] == [(0, 2), (1, 2)]
+        assert [s["stoppable"] for s in statuses] == [True, False]
+        assert statuses[1]["attempts"][0]["source_available"] is True
+        assert statuses[1]["attempts"][0]["response_recoverable"] is True
+        assert statuses[1]["attempts"][1]["source_available"] is False
+        assert "response_ref" not in json.dumps(statuses)
+        app.state.operations.clear()
+        settled = client.get(f"/api/campaigns/{campaign_id}/status").json()
+        assert settled["state"] == "partial"
+        assert (settled["sources_completed"], settled["sources_total"]) == (1, 2)
+        assert (settled["completed"], settled["total"]) == (6, 12)
+        ws.state.confirm(run, ws.state.plan(run).digest, retry_allowance=3)
+        complete = asyncio.run(
+            app.state.runner.execute(
+                run,
+                OpenAIImages(
+                    "synthetic-test-credential",
+                    transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body)),
+                ),
+            )
+        )
+        assert complete["complete"] and complete["outputs"] == []
+        settled = client.get(f"/api/campaigns/{campaign_id}/status").json()
+        assert settled["state"] == "complete"
+        assert (settled["sources_completed"], settled["sources_total"]) == (2, 2)
+        assert (settled["completed"], settled["total"]) == (12, 12)
+        assert settled["attempted"] == 3
+        assert ws.state.revision_count(run) == 0
 
 
 def test_duplicate_start_reports_existing_operation_without_confirm_or_dispatch(
@@ -211,9 +271,10 @@ def test_duplicate_start_reports_existing_operation_without_confirm_or_dispatch(
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         ws = app.state.workspace
-        _, brief = write_sample(ws.storage)
-        plan = make_plan(brief, ws.storage)
-        run = ws.state.create(plan, 0)
+        campaign = seed_campaign(ws, planned=True)
+        run = ws.run_for(campaign)["id"]
+        plan = ws.state.plan(run)
+        brief = plan.brief
         app.state.operations[run] = Active()
         monkeypatch.setattr(
             ws.state, "confirm", lambda *a, **k: pytest.fail("duplicate must not confirm")
@@ -245,7 +306,7 @@ def test_successful_retry_clears_current_notice_without_erasing_attempt_history(
     )
     result = asyncio.run(runner.execute(run, success))
     attempts = state.attempts(run)
-    assert result["complete"] and result["metrics"]["completed_images"] == 12
+    assert result["complete"] and result["metrics"]["sources_ready"] == 2
     assert [item["state"] for item in attempts] == ["failed", "decoded"]
     assert attempts[0]["error_kind"] == f"http_{code}"
     assert state.run(run)["allowance"] == 2
@@ -279,7 +340,7 @@ def test_success_then_stop_does_not_resurrect_old_failure_or_hide_other_product_
             ),
         )
     )
-    assert not partial["complete"] and partial["metrics"]["completed_images"] == 6
+    assert not partial["complete"] and partial["metrics"]["sources_ready"] == 1
     assert len(state.attempts(run)) == 2 and provider_notice(state.attempts(run)) is None
     state.confirm(run, state.plan(run).digest, retry_allowance=3)
     asyncio.run(

@@ -12,12 +12,14 @@ from pathlib import PurePosixPath
 from uuid import uuid4
 
 from campaign_studio.brief import Brief
-from campaign_studio.bundled_outputs import install_prepared_outputs, load_prepared_outputs
-from campaign_studio.intake import BriefDraft, Intake, draft_bytes
+from campaign_studio.bundled_outputs import load_prepared_outputs
+from campaign_studio.campaign_drafts import read as read_draft
+from campaign_studio.campaign_drafts import write as write_draft
+from campaign_studio.intake import BriefDraft, Intake
 from campaign_studio.local_files import file_lock
 from campaign_studio.planning import canonical_hash
 from campaign_studio.state import StateError, timestamp
-from campaign_studio.storage import StorageError
+from campaign_studio.storage import StorageError, asset_component, delivery_component
 from campaign_studio.workspace import ActionError
 
 RECEIPT = "private/bundled-campaigns.json"
@@ -101,7 +103,7 @@ def _checkpoint(record, document):
     record["draft_version"] = document["version"]
 
 
-def _existing_upload(storage, campaign_id, payload, role):
+def _existing_upload(storage, campaign_id, payload, role, label):
     # Reuse only this campaign's registered upload with these exact bytes. An
     # interruption after upload but before its receipt must not accumulate copies.
     digest = hashlib.sha256(payload).hexdigest()
@@ -119,6 +121,13 @@ def _existing_upload(storage, campaign_id, payload, role):
     for ref in refs:
         if not ref.startswith(project.ref(f"Assets/{group}") + "/"):
             continue
+        filename = PurePosixPath(ref).name
+        if not (
+            filename.startswith(asset_component(label, "Image") + "-")
+            or filename.startswith(delivery_component(label, "Image") + "-")
+            or re.fullmatch(r"[a-f0-9]{32}\.(png|jpg)", filename)
+        ):
+            continue
         path = storage.path(project.check(ref))
         if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
             return ref
@@ -134,8 +143,8 @@ def _resume_initial_draft(storage, record, original, original_bytes):
         require_campaign_available(storage, campaign_id)
         project = storage.project(campaign_id)
         original_ref = project.ref("Brief/Imports/original.json")
-        initial_refs = {original_ref, project.draft}
-        if storage.path(project.draft).exists():
+        initial_refs = {original_ref}
+        if read_draft(storage, campaign_id) is not None:
             return
         with storage.connect() as db:
             owned = {
@@ -147,7 +156,7 @@ def _resume_initial_draft(storage, record, original, original_bytes):
             if db.execute("SELECT 1 FROM runs WHERE campaign_id=?", (campaign_id,)).fetchone():
                 return
         # A stopped atomic write may leave a registered temporary file. Leave
-        # it owned and untouched; only finish the two already registered files.
+        # it owned and untouched; finish the registered import and current database draft.
         temporary = re.compile(
             "(?:" + "|".join(map(re.escape, initial_refs)) + r")\.[a-f0-9]{32}\.tmp"
         )
@@ -161,14 +170,15 @@ def _resume_initial_draft(storage, record, original, original_bytes):
         ):
             return
         document = {
-            "value": copy.deepcopy(record["value"]),
+            "authored": {"brief": copy.deepcopy(record["value"])},
+            "composition_schema": 1,
             "version": uuid4().hex,
             "saved_at": timestamp(),
             "attachment_hints": Intake.attachment_hints(original, record["value"]),
         }
         if not original_path.exists():
             storage.write_new(original_ref, original_bytes)
-        storage.write_new(project.draft, draft_bytes(document))
+        write_draft(storage, campaign_id, document, create=True)
 
 
 async def _install_one(workspace, record, definition, receipt):
@@ -205,7 +215,11 @@ async def _install_one(workspace, record, definition, receipt):
     if stage == "create":
         if exists:
             document = existing_document
-            if not document or "authored" in document or document["value"] != record["value"]:
+            if (
+                not document
+                or document["value"] != record["value"]
+                or document.get("authored", {}).get("form_drafts")
+            ):
                 record["stage"] = "preserved"
                 return
         else:
@@ -227,34 +241,39 @@ async def _install_one(workspace, record, definition, receipt):
     saved_before_receipt = (
         record["stage"] == "saving"
         and document is not None
-        and "authored" not in document
+        and not document.get("authored", {}).get("form_drafts")
         and document["value"] == record["value"]
     )
     planned_before_receipt = (
         record["stage"] == "planning"
         and document is not None
-        and "authored" not in document
-        and document["version"] == record.get("draft_version")
-        and bool(document.get("planned_run"))
-        and document["value"]
-        == workspace.state.plan(document["planned_run"]).brief.model_dump(mode="json")
+        and document.get("production_receipt", {}).get("request_version")
+        == record.get("draft_version")
+        and document.get("production_receipt", {}).get("version") == document["version"]
+        and document.get("planned_authored_hash") == canonical_hash(document["value"])
     )
     if not (same or saved_before_receipt or planned_before_receipt):
         record["stage"] = "preserved"
         return
     if record["stage"] == "attachments":
         value = copy.deepcopy(record["value"])
-        for reference, role, target, field in [
-            (original["brand"]["logo_path"], "logo", value["brand"], "logo_path"),
+        for reference, role, target, field, label in [
+            (
+                original["brand"]["logo_path"],
+                "logo",
+                value["brand"],
+                "logo_path",
+                f"{value['brand']['name']} logo",
+            ),
             *[
-                (old["source"]["path"], "product", product["source"], "path")
+                (old["source"]["path"], "product", product["source"], "path", product["name"])
                 for old, product in zip(original["products"], value["products"], strict=True)
                 if product["source"]["role"] != "concept"
             ],
         ]:
             target[field] = (
-                _existing_upload(storage, campaign_id, assets[reference], role)
-                or (intake.upload(assets[reference], None, campaign_id, role)["reference"])
+                _existing_upload(storage, campaign_id, assets[reference], role, label)
+                or (intake.upload(assets[reference], None, campaign_id, role, label)["reference"])
             )
         record.update(stage="saving", value=value)
         _record(storage, receipt)  # Intended value is durable before its saved draft.
@@ -276,13 +295,17 @@ async def _install_one(workspace, record, definition, receipt):
         _checkpoint(record, intake.read(campaign_id))
         _record(storage, receipt)
     if record["stage"] == "outputs":
-        run = workspace.run_for(campaign_id)
-        if prepared is not None and not run["current_revision"]:
-            await asyncio.to_thread(
-                install_prepared_outputs, workspace.state, run["id"], original, prepared
-            )
+        await asyncio.to_thread(verify_ready_sources, workspace, campaign_id, prepared is not None)
         record["stage"] = "complete"
         record.pop("value", None)
+
+
+def verify_ready_sources(workspace, campaign_id, require_complete):
+    """Check imported source readiness without creating finished images or edit history."""
+    current = workspace.current_composition(campaign_id)
+    if require_complete and current["plan"].generation_products:
+        raise StorageError("A prepared example requires a complete supplied-image plan.")
+    return current
 
 
 async def install_campaigns(workspace, *, source=None, product_limit=5, allow_new=True):
@@ -308,9 +331,7 @@ async def install_campaigns(workspace, *, source=None, product_limit=5, allow_ne
             # Reserve enough space before the first campaign. Per-write capacity
             # checks remain authoritative if disk usage changes during installation.
             needed = sum(
-                3 * sum(map(len, assets.values()))
-                + 2 * 1024 * 1024
-                + (sum(item["bytes"] for item in prepared.descriptor["outputs"]) if prepared else 0)
+                3 * sum(map(len, assets.values())) + 2 * 1024 * 1024
                 for _, _, assets, prepared, _ in definitions
             )
             storage.require_capacity(needed)

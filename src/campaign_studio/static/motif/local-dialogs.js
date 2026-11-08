@@ -3,6 +3,18 @@
   "use strict";
   const { esc, button } = scope.MotifBriefFlow;
   const copy = {
+    configured: {
+      title: "Manage your OpenAI API key.",
+      intro: "Replace the key below, or remove it from this installation.",
+    },
+    removing: {
+      title: "Removing your API key…",
+      intro: "Removing the key from this installation.",
+    },
+    removefailed: {
+      title: "The key could not be removed.",
+      intro: "Try removing it again.",
+    },
     missing: {
       title: "Add your OpenAI API key.",
       intro:
@@ -11,7 +23,7 @@
     rejected: {
       title: "Update your OpenAI API key.",
       intro:
-        "OpenAI rejected the configured key. Replace it, then return to Production to review the unsent work.",
+        "OpenAI rejected the key. Save a replacement, then choose Resume generation in Production.",
     },
     invalid: {
       title: "Add your OpenAI API key.",
@@ -48,10 +60,10 @@
     saved: {
       title: "Your key is saved.",
       intro:
-        "It is available for your next deliberate production action. No image request was made.",
+        "You can now return to Production and start or resume generation.",
       status: "Saved locally, not verified",
       detail:
-        "Return to Production to review the plan or unsent work before starting.",
+        "Saving a key does not start an image request.",
     },
     unavailable: {
       title: "Local key entry is unavailable.",
@@ -120,10 +132,10 @@
         "unknown",
         "unavailable",
       ].includes(v.phase),
-      busy = v.phase === "saving";
+      busy = ["saving", "removing"].includes(v.phase);
     return {
       title: c.title,
-      body: `${c.status ? `<div class="bf-key-status" role="status"><strong>${c.status}</strong>${esc(c.detail)}</div>` : ""}<p>${esc(v.phase === "rejected" && v.reason ? v.reason : c.intro)}</p>${c.error ? `<div class="bf-key-status ${["uncertain", "unknown"].includes(v.phase) ? "warning" : "error"}" role="alert">${esc(c.error)}</div>` : ""}${input ? `<div class="bf-field"><label for="bf-local-key">OpenAI API key</label><input id="bf-local-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" aria-describedby="bf-key-local-note" ${busy ? "disabled" : ""}></div>` : ""}${["environment", "unavailable"].includes(v.phase) ? `<p class="bf-hint">${esc(c.detail)}</p>` : ""}<p id="bf-key-local-note" class="bf-key-helper">Stored locally for this installation and excluded from campaign exports. Requests authenticate with OpenAI and are billed to the OpenAI account that owns the key.</p>`,
+      body: `${v.available && !["saved", "environment"].includes(v.phase) ? '<p class="bf-key-presence">An API key is stored in this installation.</p>' : ""}${c.status ? `<div class="bf-key-status" role="status"><strong>${c.status}</strong>${esc(c.detail)}</div>` : ""}<p>${esc(v.phase === "rejected" && v.reason ? v.reason : c.intro)}</p>${c.error ? `<div class="bf-key-status ${["uncertain", "unknown"].includes(v.phase) ? "warning" : "error"}" role="alert">${esc(c.error)}</div>` : ""}${input ? `<div class="bf-field"><label for="bf-local-key">OpenAI API key</label><input id="bf-local-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" aria-describedby="bf-key-local-note" ${busy ? "disabled" : ""}></div>` : ""}${["environment", "unavailable"].includes(v.phase) ? `<p class="bf-hint">${esc(c.detail)}</p>` : ""}<p id="bf-key-local-note" class="bf-key-helper">Stored locally for this installation and excluded from campaign exports. Requests authenticate with OpenAI and are billed to the OpenAI account that owns the key.</p>`,
       foot: [
         "saved",
         "environment",
@@ -132,7 +144,7 @@
         "unavailable",
       ].includes(v.phase)
         ? `${["environment", "uncertain", "unknown", "unavailable", "localfile"].includes(v.phase) ? button("Setup instructions", "setup-help", "bf-quiet") : ""}${button("Close", "dialog-close", "bf-primary")}`
-        : `${v.phase === "localfile" ? button("Setup instructions", "setup-help", "bf-quiet") : ""}${button("Cancel", "dialog-close", "", busy ? "disabled" : "")}${button(busy ? "Saving…" : "Save key", "key-submit", "bf-primary", busy ? "disabled" : "")}`,
+        : `${v.canRemove ? button("Remove API key", "key-remove", "bf-quiet", busy ? "disabled" : "") : ""}${v.phase === "localfile" ? button("Setup instructions", "setup-help", "bf-quiet") : ""}${button("Cancel", "dialog-close", "", busy ? "disabled" : "")}${button(busy ? "Please wait…" : "Save key", "key-submit", "bf-primary", busy ? "disabled" : "")}`,
       busy,
     };
   }
@@ -212,6 +224,7 @@
       background,
       returnFocus = document.activeElement,
       onSubmit,
+      onRemove,
     onGuardedRefusal,
       onRetry,
       onCurrentImages,
@@ -236,7 +249,7 @@
       else root.querySelector(".bf-dialog")?.focus();
     }
     function close() {
-      if (v.phase === "saving" || v.phase === "retrying") return;
+      if (["saving", "removing", "retrying"].includes(v.phase)) return;
       dead = true;
       request++;
       const input = root.querySelector("#bf-local-key");
@@ -261,6 +274,20 @@
           close();
           return onCurrentImages?.();
         }
+        if (action === "key-remove" && v.canRemove && onRemove) {
+          const current = ++request;
+          render({ phase: "removing" }, false);
+          try {
+            const result = await onRemove();
+            if (dead || current !== request) return;
+            if (result.removed !== true) { render({ phase: "removefailed" }); return; }
+            v = { ...v, phase: "missing", available: false, canRemove: false };
+            close();
+          } catch (error) {
+            if (!dead && current === request) render({ phase: "removefailed" });
+          }
+          return;
+        }
         if (action === "key-submit") {
           const input = root.querySelector("#bf-local-key");
           let token = input?.value || "";
@@ -276,7 +303,7 @@
             const result = await onSubmit(token);
             token = "";
             if (dead || current !== request) return;
-            render({ phase: keyPhase(result) });
+            render({ phase: keyPhase(result), available: result.saved === true ? true : v.available });
           } catch (error) {
             token = "";
             if (dead || current !== request) return;

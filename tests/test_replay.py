@@ -1,23 +1,27 @@
 import asyncio
+import io
 import json
 import re
 import shutil
-from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
-from campaign_fixtures import export_ref, independent_brief, seed_campaign
+from campaign_fixtures import independent_brief, seed_campaign
 from fastapi.testclient import TestClient
+from PIL import Image
 from pydantic import ValidationError
+from test_provider_runner import save_current
 
 from campaign_studio.app import create_app
 from campaign_studio.brief import Brief
 from campaign_studio.config import Settings
-from campaign_studio.exporting import export_package
-from campaign_studio.planning import compare_plans, make_plan
+from campaign_studio.handoff import DeliveryAction, Handoff
+from campaign_studio.planning import make_plan
 from campaign_studio.runner import Runner
 from campaign_studio.sample import write_replay
 from campaign_studio.state import State, StateError
 from campaign_studio.storage import Storage
+from campaign_studio.workspace import Workspace
 
 
 @pytest.fixture
@@ -42,44 +46,57 @@ def test_genuine_replay_corrects_six_reopens_after_move_and_exports_without_atte
     state.confirm(run_id, state.plan(run_id).digest)
     runner = Runner(state)
     first = asyncio.run(runner.execute(run_id))
-    assert first["complete"] and len(first["outputs"]) == 12
-    assert first["evidence"] == "genuine_saved_source_replay"
-    assert first["replay"]["historical_requests"] == 1
-    assert "human_review" not in first
-    assert first["replay"]["historical_requests"] == plan.brief.replay.historical_requests
-    assert first["metrics"]["attempted_requests"] == 0
-    value = state.plan(run_id).brief.model_dump()
-    value["markets"]["es-MX"]["copy"]["message"] = "Para cada día."
-    changed = make_plan(Brief.model_validate(value), storage)
-    impact = compare_plans(state.plan(run_id), changed)
-    assert len(impact.render_outputs) == 6 and impact.generation_products == []
-    second = runner.revise(run_id, changed.brief, first["revision_id"], changed.digest)
-    assert second["complete"]
-    assert (
-        sum(
-            a["sha256"] != b["sha256"]
-            for a, b in zip(first["outputs"], second["outputs"], strict=True)
-        )
-        == 6
+    assert first["complete"] and first["sources_ready"] == 2
+    assert first["outputs"] == [] and first["metrics"]["attempted_requests"] == 0
+    with (
+        Handoff(state).create_current_zip(
+            brief.campaign_id, DeliveryAction(version=first["version"])
+        ) as download,
+        ZipFile(download.stream) as archive,
+    ):
+        initial = {
+            name.split("/", 1)[1]: archive.read(name)
+            for name in archive.namelist()
+            if name.endswith(".png")
+        }
+    saved = save_current(
+        state,
+        brief.campaign_id,
+        lambda b: b["markets"]["es-MX"]["copy"].update(message="Para cada día."),
     )
-    assert state.attempts(run_id) == []
-    shutil.rmtree(
-        storage.path(storage.project(brief.campaign_id).ref("Assets/Replays"))
-    )  # Snapshotted inputs are sufficient.
+    with (
+        Handoff(state).create_current_zip(
+            brief.campaign_id, DeliveryAction(version=saved["version"])
+        ) as download,
+        ZipFile(download.stream) as archive,
+    ):
+        changed = {
+            name.split("/", 1)[1]: archive.read(name)
+            for name in archive.namelist()
+            if name.endswith(".png")
+        }
+
+    def pixels(payload):
+        with Image.open(io.BytesIO(payload)) as image:
+            return image.convert("RGB").tobytes()
+
+    assert len(changed) == 12
+    assert sum(pixels(initial[name]) != pixels(value) for name, value in changed.items()) == 6
+    assert state.attempts(run_id) == [] and state.revision_count(run_id) == 0
     moved = storage.root.with_name("moved-runtime")
     shutil.move(storage.root, moved)
     reopened = State(Storage(moved))
-    third = Runner(reopened).recover_local(run_id)
-    assert third["complete"] and len(third["outputs"]) == 12
+    version = Workspace(reopened).current_composition(brief.campaign_id)["version"]
     assert reopened.attempts(run_id) == []
-    index = export_package(
-        reopened, third["revision_id"], export_ref(reopened, third["revision_id"], "replay")
-    )
-    package = moved.parent / "moved-package"
-    shutil.move(
-        reopened.storage.path(export_ref(reopened, third["revision_id"], "replay")), package
-    )
-    html = (package / Path(index).name).read_text(encoding="utf-8")
+    with (
+        Handoff(reopened).create_current_zip(
+            brief.campaign_id, DeliveryAction(version=version)
+        ) as download,
+        ZipFile(download.stream) as archive,
+    ):
+        archive.extractall(moved.parent / "delivered")
+        package = moved.parent / "delivered" / download.filename.removesuffix(".zip")
+    html = (package / "index.html").read_text(encoding="utf-8")
     assert "Campaign spend estimate" in html
     assert "No generation attempts in this campaign." in html
     assert (
@@ -93,8 +110,7 @@ def test_genuine_replay_corrects_six_reopens_after_move_and_exports_without_atte
         else:
             assert (package / reference).is_file()
     public = json.loads((package / "manifest.json").read_bytes())
-    assert public["metrics"]["attempted_requests"] == 0
-    assert public["metrics"]["cost_status"] == "no_requests"
+    assert public["metrics"]["completed_images"] == 12
     assert public["campaign_metrics"]["coverage"] == "complete"
     assert public["campaign_metrics"]["attempted_requests"] == 0
     assert public["campaign_metrics"]["usage_cost_estimate"]["estimated_usd"] == 0
@@ -203,7 +219,13 @@ def test_replay_loads_from_installed_resources_in_key_free_http_workspace(tmp_pa
         assert not client.get("/api/motif/workspace").json()["key_available"]
         assert client.get(model["concept_previews"]["product-a"]).status_code == 200
         run = app.state.workspace.run_for("74d68837-ca7c-509b-b296-2abd7122b1b8")
-        assert app.state.workspace.state.attempts(run["id"]) == []
+        assert run is None
+        assert (
+            app.state.workspace.state.campaign_metrics(model["value"]["campaign_id"])[
+                "attempted_requests"
+            ]
+            == 0
+        )
 
 
 def test_loading_curated_example_preserves_an_existing_edited_example(tmp_path):
@@ -223,8 +245,7 @@ def test_loading_curated_example_preserves_an_existing_edited_example(tmp_path):
     assert cid == "74d68837-ca7c-509b-b296-2abd7122b1b8"
     assert state.plan(original_run).digest == original_digest
     assert state.plan(original_run).brief.markets["en-US"].text.message == "My existing words"
-    assert ws.run_for(cid)["id"] != original_run
-    new_run = ws.run_for(cid)["id"]
-    assert ws.run_for(cid)["id"] == new_run
-    assert ws.state.plan(new_run).brief.campaign_id == cid
-    assert state.attempts(new_run) == [] and state.attempts(original_run) == []
+    assert ws.run_for(cid) is None
+    assert ws.current_composition(cid)["plan"].brief.campaign_id == cid
+    assert state.attempts(original_run) == []
+    assert ws.state.campaign_metrics(cid)["attempted_requests"] == 0

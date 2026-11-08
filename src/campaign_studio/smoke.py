@@ -34,7 +34,7 @@ def run_smoke(storage: Storage) -> SmokeResult:
         raise RuntimeError("The installed application template is missing.")
     reference = f"smoke/{uuid4().hex}"
     directory = storage.path(reference)
-    directory.mkdir(mode=0o700)
+    directory.mkdir(parents=True, mode=0o700)
     image_path = storage.path(f"{reference}/synthetic.png")
     with Image.new("RGB", (128, 128), "#f4f0e8") as image:
         draw = ImageDraw.Draw(image)

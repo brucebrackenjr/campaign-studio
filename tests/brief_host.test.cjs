@@ -5,7 +5,7 @@ const {readFileSync} = require('node:fs');
 const vm = require('node:vm');
 const {EventEmitter, once} = require('node:events');
 function harness() {
-  const pending = [], timers = new Map(); let next = 1;
+  const pending = [], timers = new Map(), saveListeners = new Set(); let next = 1, saveState = null;
   const requests = new EventEmitter();
   async function waitForRequests(count) {
     while (pending.length < count) await once(requests, 'submitted');
@@ -13,6 +13,7 @@ function harness() {
   const c = vm.createContext({
     AbortController, structuredClone, TextEncoder, crypto:require('node:crypto').webcrypto,
     setTimeout(fn) { const id=next++; timers.set(id,fn); return id; }, clearTimeout(id) { timers.delete(id); },
+    getSaveState:()=>saveState,subscribeSaveState(fn){saveListeners.add(fn);fn(saveState);return()=>saveListeners.delete(fn);},
     operation:null, copy:structuredClone, page:'campaign', tab:'brand', lang:'en', productLimit:5,
     currentProduct:0,currentFormat:0, LANG:{en:'English (United States)',es:'Spanish (Mexico)'}, MARKET:{en:'en-US',es:'es-MX'},FMT:[{ratio:'1:1'}],
     C:{products:[{id:'a'}]}, projectBuffers:{form_drafts:{},feedback:{}},
@@ -27,7 +28,7 @@ function harness() {
       requests.emit('submitted');
     }),
     wordingCheckPhase:null, paintWordingAvailability(){},
-    showCapacity(){},dispatchAction:async()=>{},updateURL(){},render(){},
+    showCapacity(){},dispatchAction:async()=>{},updateURL(){},render(){},flushCurrentWork:async()=>true,
   });
   const run=code=>vm.runInContext(code,c);
   c.window=c;
@@ -37,7 +38,7 @@ function harness() {
   run(`briefFacts.campaign='292e9e84-eb00-5fdb-87e8-423f5e51fac4';briefFacts.logos.set(draft.brand.logo_path,{width:200,height:80,type:'PNG'});
     briefHost={owner:'292e9e84-eb00-5fdb-87e8-423f5e51fac4',productId:'a',ratio:'1:1',generation:0,upload:0,dead:false,view:{render(){},preview(request){return requestBriefPreview(briefHost,request)}}};
     refreshBriefFlow();`);
-  return {c,run,pending,timers,waitForRequests,plain:code=>JSON.parse(run('JSON.stringify('+code+')'))};
+  return {c,run,pending,timers,waitForRequests,publishSaveState(state){saveState=state;for(const listener of saveListeners)listener(state);},plain:code=>JSON.parse(run('JSON.stringify('+code+')'))};
 }
 function previewView(h, decode = () => Promise.resolve()) {
   let renders = 0, stage = {}, caption = {};
@@ -58,43 +59,34 @@ async function respondPreview(h, request, extra = {}) {
     status:'ready',kind:'typography',image:{url:'/current-preview'},fitted_outputs:[],...extra});
 }
 
-test('Brand edit settles its existing save before one preview; identical acknowledgements and source facts do not reload it', async () => {
-  const h=harness(), view=previewView(h);let phase='dirty', writes=0, finishSave;
-  const saved=new Promise(resolve=>finishSave=resolve);
-  h.c.viewModel=()=>{};
-  h.c.getSaveState=()=>({phase});
-  h.c.saveProject=async()=>{writes++;phase='saving';await saved;phase='saved';return true;};
+test('Brand preview renders current fields without waiting for or forcing Campaign autosave', async () => {
+  const h=harness(), view=previewView(h);
+  h.publishSaveState({phase:'dirty'});
+  h.c.saveProject=()=>assert.fail('a preview cannot save early');
   h.run("changeBriefField(briefHost,'brandName','Updated Brand');flushBriefPreview(briefHost)");
-  assert.equal(writes,1);assert.equal(h.pending.length,0,'no pixels requested against a soon-to-expire version');
-  h.run("model.version='v2';refreshBriefFlow()");
-  const facts=h.run("refreshBriefSources('v2',copy(draft))");
-  h.pending[0].resolve({version:'v2',value:{campaign_id:h.c.draft.campaign_id},concept_previews:{}});
-  await facts;finishSave();await h.waitForRequests(2);
-  const request=h.pending[1];assert.match(request.url,/brief-preview$/);
-  assert.equal(request.body.version,'v2');assert.equal(request.body.brief.brand.name,'Updated Brand');
-  await respondPreview(h,request);await h.run('briefHost.flight');
-  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.match(view.stage(),/current-preview/);
+  await h.waitForRequests(1);
+  assert.equal(h.pending[0].body.version,'v1');
+  assert.equal(h.pending[0].body.brief.brand.name,'Updated Brand');
+  await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
   const renders=view.renders();
-  h.run('refreshBriefFlow()');
-  const repeated=h.run("refreshBriefSources('v2',copy(draft))");
-  h.pending[2].resolve({version:'v2',value:{campaign_id:h.c.draft.campaign_id},concept_previews:{}});
-  await repeated;
-  assert.equal(view.renders(),renders,'the decoded preview DOM remains mounted');
-  assert.equal(h.pending.filter(p=>p.url.endsWith('/brief-preview')).length,1);
-  assert.equal(h.timers.size,0,'no duplicate preview remains scheduled');assert.equal(writes,1);
+  h.run("model.version='v2';model.manifest.revision_id='v2';refreshBriefFlow()");
+  h.publishSaveState({phase:'saved'});
+  assert.equal(view.renders(),renders,'an acknowledgement does not clear decoded pixels');
+  assert.equal(h.pending.length,1);assert.equal(h.timers.size,0);
 });
 
-test('new typing during a preview save is coalesced into the acknowledged current request', async () => {
-  const h=harness();previewView(h);let finishSave,writes=0;
-  h.c.getSaveState=()=>({phase:'saving'});
-  h.c.saveProject=()=>{writes++;return new Promise(resolve=>finishSave=resolve);};
+test('typing during an active preview coalesces the newest fields and ignores the old response', async () => {
+  const h=harness();previewView(h);h.publishSaveState({phase:'saving'});
+  h.c.saveProject=()=>assert.fail('a preview cannot start another save');
   h.run("changeBriefField(briefHost,'message','First');flushBriefPreview(briefHost)");
+  await h.waitForRequests(1);
   h.run("changeBriefField(briefHost,'message','Latest');flushBriefPreview(briefHost);model.version='v3';refreshBriefFlow()");
-  assert.equal(h.pending.length,0);finishSave(true);await h.waitForRequests(1);
-  assert.equal(writes,1);assert.equal(h.pending[0].body.version,'v3');
-  assert.equal(h.pending[0].body.brief.markets['en-US'].copy.message,'Latest');
-  await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
-  assert.equal(h.pending.length,1);assert.equal(h.timers.size,0);
+  await respondPreview(h,h.pending[0]);await h.waitForRequests(2);
+  assert.equal(h.pending[1].body.version,'v3');
+  assert.equal(h.pending[1].body.brief.markets['en-US'].copy.message,'Latest');
+  await respondPreview(h,h.pending[1]);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.equal(h.timers.size,0);
 });
 
 test('other product source facts during decode update cards without restarting the selected image request', async () => {
@@ -116,8 +108,8 @@ test('other product source facts during decode update cards without restarting t
   assert.equal(h.timers.size,0);
 });
 
-test('changed selected imagery or accepted revision still invalidates a ready preview', async () => {
-  for(const change of ['source','revision','run']) {
+test('changed selected imagery or production run invalidates a ready preview', async () => {
+  for(const change of ['source','run']) {
     const h=harness();previewView(h);h.c.viewModel=()=>{};
     h.run("model.run={id:'run-1'};refreshBriefFlow();flushBriefPreview(briefHost)");
     await h.waitForRequests(1);await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
@@ -146,23 +138,83 @@ test('selection-only preview changes do not write an already saved campaign', as
   assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
 });
 
-test('preview does not retry failed saves, and retired owners never request pixels after a save settles', async () => {
-  for (const outcome of ['failure','retired']) {
-    const h=harness();previewView(h);let resolveSave,rejectSave,writes=0;
-    h.c.getSaveState=()=>({phase:'dirty'});
-    h.c.saveProject=()=>{writes++;return new Promise((resolve,reject)=>{resolveSave=resolve;rejectSave=reject;});};
-    h.run('flushBriefPreview(briefHost)');const flight=h.run('briefHost.flight');
-    if(outcome==='retired'){h.run('briefHost.dead=true');resolveSave(true);}
-    else rejectSave(new Error('Save failed'));
-    await flight;assert.equal(writes,1);assert.equal(h.pending.length,0);
-    if(outcome==='failure')assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
-  }
+test('preview never retries a failed autosave and an abandoned response is ignored', async () => {
   for(const phase of ['error','conflict']) {
-    const h=harness();previewView(h);
-    h.c.getSaveState=()=>({phase,problem:{phase}});h.c.saveProject=()=>assert.fail('no hidden save retry');
+    const h=harness();previewView(h);h.publishSaveState({phase,problem:{phase}});
+    h.c.saveProject=()=>assert.fail('no hidden save retry');
     h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
     await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
     assert.equal(h.pending.length,1);
+  }
+  const h=harness();previewView(h);h.run('flushBriefPreview(briefHost)');
+  await h.waitForRequests(1);const flight=h.run('briefHost.flight');
+  h.run('briefHost.dead=true;briefHost.view.destroy()');await respondPreview(h,h.pending[0]);await flight;
+  assert.equal(h.run('briefHost.vm.preview.phase'),'pending');
+});
+
+test('an own save racing a read permits one new-version preview, never adopts an external version',async()=>{
+  const h=harness();previewView(h);h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+  h.run("model.version='v2';refreshBriefFlow()");
+  h.pending[0].reject(Object.assign(Error('stale'),{status:409}));await h.waitForRequests(2);
+  assert.equal(h.pending[1].body.version,'v2');await respondPreview(h,h.pending[1]);await h.run('briefHost.flight');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'ready');
+  h.run("changeBriefField(briefHost,'message','Changed');flushBriefPreview(briefHost)");await h.waitForRequests(3);
+  h.pending[2].reject(Object.assign(Error('stale elsewhere'),{status:409}));await h.run('briefHost.flight');
+  assert.equal(h.pending.length,3);assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
+});
+
+test('a preview PNG or layer expired by our autosave refreshes once without clearing current pixels',async()=>{
+  for(const expired of ['image','layer']) {
+    const h=harness();let failDecode,started;
+    const decoding=new Promise(resolve=>started=resolve);
+    const view=previewView(h,url=>url===(expired==='image'?'/old-image':'/old-base')
+      ?(started(),new Promise((_resolve,reject)=>failDecode=reject)):Promise.resolve());
+    h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+    const flight=h.run('briefHost.flight');
+    await respondPreview(h,h.pending[0],{image:{url:'/old-image'},layers:{base_url:'/old-base',text_blocks:{}}});
+    await decoding;
+    const stage=h.c.root.querySelector('[data-bf-preview-stage]');
+    stage.innerHTML='current recolored pixels';stage.firstElementChild={tagName:'CANVAS'};
+    const renders=view.renders();
+    h.run("model.version='v2';refreshBriefFlow()");
+    assert.equal(h.pending.length,1,'a normal acknowledgement does not duplicate the request');
+    failDecode(Error('404 after own autosave'));await h.waitForRequests(2);
+    assert.equal(h.pending[1].body.version,'v2');
+    assert.equal(view.stage(),'current recolored pixels');assert.equal(view.renders(),renders);
+    await respondPreview(h,h.pending[1],{image:{url:'/new-image'}});await flight;
+    assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.equal(h.pending.length,2);
+    assert.match(view.stage(),/new-image/);assert.equal(h.timers.size,0);
+  }
+});
+
+test('a failed image decode without our own newer save remains actionable and does not retry',async()=>{
+  const h=harness(),view=previewView(h,()=>Promise.reject(Error('image unavailable')));
+  h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+  await respondPreview(h,h.pending[0]);await h.run('briefHost.flight');
+  assert.equal(h.pending.length,1);assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
+  assert.match(view.stage(),/Retry preview/);
+});
+
+test('a late expired image cannot retry or replace a newer edit, target, or abandoned component',async()=>{
+  for(const change of ['edit','target','leave']) {
+    const h=harness();let failDecode,started;
+    h.run("draft.products.push({id:'b',name:'Beta',source:{role:'concept'},framing:{},copy_overrides:{}})");
+    const decoding=new Promise(resolve=>started=resolve);
+    previewView(h,url=>url==='/old-image'?(started(),new Promise((_resolve,reject)=>failDecode=reject)):Promise.resolve());
+    h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+    const flight=h.run('briefHost.flight');await respondPreview(h,h.pending[0],{image:{url:'/old-image'}});await decoding;
+    h.run("model.version='v2';refreshBriefFlow()");
+    if(change==='edit') h.run("changeBriefField(briefHost,'message','Newest wording');flushBriefPreview(briefHost)");
+    if(change==='target') h.run("changeBriefField(briefHost,'previewProduct','b');flushBriefPreview(briefHost)");
+    if(change==='leave') h.run('briefHost.dead=true;briefHost.view.destroy()');
+    failDecode(Error('obsolete image'));await flight;
+    if(change==='leave'){assert.equal(h.pending.length,1);continue;}
+    await h.waitForRequests(2);
+    assert.equal(h.pending.length,2,'the second request belongs to the new edit, not the expired one');
+    if(change==='edit') assert.equal(h.pending[1].body.brief.markets['en-US'].copy.message,'Newest wording');
+    if(change==='target') assert.equal(h.pending[1].body.product_id,'b');
+    await respondPreview(h,h.pending[1]);await h.run('briefHost.flight');
+    assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.equal(h.pending.length,2);
   }
 });
 
@@ -229,7 +281,7 @@ test('raw default is preserved without silently expanding palette; explicit use 
   h.run("changeBriefField(briefHost,'defaultColor',' 61177c ',{commit:false})");
   assert.equal(h.run('draft.brand.text_color'),' 61177c ');
   assert.deepEqual(h.plain('draft.brand.palette'),['#FFFFFF']);
-  assert.equal(h.run('briefHost.vm.preview.phase'),'color');
+  assert.equal(h.run('briefHost.vm.preview.phase'),'invalid');
   await h.run("briefAction(briefHost,'add-default')");
   assert.equal(h.run('draft.brand.text_color'),'#61177C');
   assert.deepEqual(h.plain('draft.brand.palette'),['#FFFFFF','#61177C']);
@@ -237,35 +289,22 @@ test('raw default is preserved without silently expanding palette; explicit use 
   assert.deepEqual(h.plain('draft.brand.palette'),['#FFFFFF']);
   assert.equal(h.run('briefHost.vm.preview.phase'),'invalid');
 });
-test('Brand color readiness follows the existing inline choice and ignores unrelated missing copy',async()=>{
-  const h=harness();h.c.brandChangesPending=()=>true;
-  const updateButton=()=>h.run('MotifBriefFlow.renderBrief(briefViewModel(briefHost))').match(/<button[^>]*data-bf-action="update-images"[^>]*>/)[0];
-  assert.equal(h.run('briefBrandColorProblem()'),'');
-  assert.doesNotMatch(updateButton(),/disabled/);
+test('Brand default color saves directly and palette errors retain a clear remedy', async()=>{
+  const h=harness();
   h.run("changeBriefField(briefHost,'defaultColor','611')");
   assert.ok(h.run('briefBrandColorProblem()'));
-  assert.match(updateButton(),/disabled/);
   h.run("changeBriefField(briefHost,'defaultColor','61177c')");
-  assert.match(h.run('briefBrandColorProblem()'),/Add #61177C to the palette/);
+  assert.match(h.run('briefBrandColorProblem()'),/palette/);
   const html=h.run('MotifBriefFlow.renderBrief(briefViewModel(briefHost))');
-  assert.match(html,/Add color and use as default/,'the existing corrective action remains available');
-  assert.match(updateButton(),/disabled/);
-  assert.equal(h.run('draft.brand.text_color'),'61177c','readiness never trims or accepts the raw choice');
-  await h.run("briefAction(briefHost,'add-default')");
+  assert.doesNotMatch(html,/data-bf-action="(?:update-images|use-default)"/);
+  assert.match(html,/Add default back/);
+  await h.run("briefAction(briefHost,'restore-default')");
   assert.equal(h.run('briefBrandColorProblem()'),'');
-  assert.doesNotMatch(updateButton(),/disabled/);
   h.run("changeBriefField(briefHost,'defaultColor','#FFFFFF')");
-  assert.match(h.run('briefBrandColorProblem()'),/Use this palette color/,'an in-palette choice still waits for its explicit Use action');
-  await h.run("briefAction(briefHost,'use-default')");
   assert.equal(h.run('briefBrandColorProblem()'),'');
-  h.run("draft.markets['en-US'].copy.message='';draft.audience='';draft.products[0].source={role:'finished_photo',path:'photo.png'};refreshBriefFlow()");
-  assert.equal(h.run('briefHost.vm.preview.phase'),'source');
-  assert.equal(h.run('briefBrandColorProblem()'),'','Brand does not inherit whole-brief preview admission');
-  assert.doesNotMatch(updateButton(),/disabled/);
-  h.run("changeBriefField(briefHost,'palette-0','')");
-  assert.match(h.run('briefBrandColorProblem()'),/each palette color/);
-  assert.match(updateButton(),/disabled/);
+  assert.equal(h.run('draft.brand.text_color'),'#FFFFFF');
 });
+
 test('Campaign can continue to Production with zero products and unfinished values without preparing a plan',async()=>{
   const h=harness(), actions=[];
   h.c.dispatchAction=async action=>actions.push(action.action);
@@ -314,7 +353,7 @@ test('acknowledged Brief refresh replaces only authoritative concept facts and u
   h.run("model.concept_previews={a:'/old-master'};model.run={id:'run'}");
   const before = h.plain('draft');
   const refreshing = h.run("refreshBriefSources('v1', copy(draft))");
-  assert.equal(h.pending[0].url, '/api/motif/campaigns/292e9e84-eb00-5fdb-87e8-423f5e51fac4');
+  assert.equal(h.pending[0].url, '/api/motif/campaigns/292e9e84-eb00-5fdb-87e8-423f5e51fac4?after_edit=true');
   h.pending[0].resolve({version:'v1',value:{campaign_id:'292e9e84-eb00-5fdb-87e8-423f5e51fac4'},run:{id:'run'},concept_previews:{}});
   await refreshing;
   assert.deepEqual(h.plain('model.concept_previews'), {});

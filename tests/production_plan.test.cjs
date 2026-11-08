@@ -6,6 +6,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function harness(){
   const calls=[],updates=[],microtasks=[],saves=[];
   const context=vm.createContext({
+    AbortController,setTimeout,clearTimeout,
     draft:{campaign_id:'one',products:[{id:'product',source:{path:'old.png'},copy_overrides:{}}],name:'Original'},
     copy:structuredClone,projectBuffers:{form_drafts:{}},modalProduct:null,
     model:{version:'v1',unplanned_draft:true,plan:{digest:'old'},run:{id:'old',state:'complete'}},
@@ -39,6 +40,23 @@ test('automatic preparation saves and prepares once, never starts, and leaves a 
   assert.equal(h.updates.length,1);assert.equal(h.context.page,'production');
   for(const fn of h.microtasks.splice(0))fn();assert.equal(h.saves.length,0);
   assert.equal(h.calls.filter(c=>c.url.endsWith('/start')).length,0);
+});
+test('an obsolete plan response stops with a retry instead of re-preparing forever',async()=>{
+  const h=harness();const pending=h.run('prepareCurrentPlan()');h.saves.shift().resolve();await flush();
+  h.calls[0].resolve({version:'v1',plan:{digest:'obsolete'},unplanned_draft:true,project:{authored:{brief:structuredClone(h.context.draft)}}});
+  await pending;
+  for(const fn of h.microtasks.splice(0))fn();
+  assert.equal(h.calls.length,1);
+  assert.equal(h.saves.length,0);
+  assert.equal(h.run('currentPreparation().status'),'error');
+  assert.match(h.run('currentPreparation().error.message'),/estimate could not be updated/);
+});
+test('a stalled estimate aborts with an actionable message and no generation',async()=>{
+  const h=harness();let expired;h.context.setTimeout=fn=>{expired=fn;return 1;};h.context.clearTimeout=()=>{};
+  let signal;h.context.stalled=s=>{signal=s;return new Promise(()=>{});};
+  const pending=h.run('boundedEstimateRequest(stalled)');expired();
+  await assert.rejects(pending,/No image generation has started/);
+  assert.equal(signal.aborted,true);assert.equal(h.calls.length,0);
 });
 test('a held plan cannot adopt after a newer edit, completed Save, or campaign switch',async()=>{
   for(const mutation of ['edit','save','campaign']){

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 
+from PIL import Image
 from pydantic import Field, TypeAdapter, ValidationError
 
 from campaign_studio.authored import AuthoredProjects
@@ -21,12 +22,16 @@ from campaign_studio.brief import (
 from campaign_studio.imaging import (
     ImageProblem,
     compose,
+    composition_base,
     creative_overlay,
     fit_logo_placement,
     load_image,
+    logo_placement,
     placed_logo_bounds,
     require_visible_logo,
     save_srgb,
+    text_block_overlay,
+    text_blocks,
 )
 from campaign_studio.planning import canonical_hash
 from campaign_studio.validation import field_issue, validation_issues
@@ -66,7 +71,7 @@ class BriefPreview(Contract):
     ratio: Ratio
 
 
-def representative_preview(state, campaign_id, action):
+def representative_preview(state, campaign_id, action, *, with_layers=False):
     """Validate only visible inputs; never substitute earlier valid authoring values."""
     workspace = Workspace(state)
     projects = AuthoredProjects(workspace)
@@ -265,7 +270,8 @@ def representative_preview(state, campaign_id, action):
                     problem(
                         ["products", index, "source"],
                         "scene_coverage",
-                        "Choose a photo without transparent gaps for this source.",
+                        "This image has transparent areas. "
+                        "Select a product image without transparency.",
                     )
                 if (
                     framing.subject_box is None
@@ -321,8 +327,39 @@ def representative_preview(state, campaign_id, action):
             kind = "composition"
         opened.append(rendered)
         with io.BytesIO() as buffer:
-            save_srgb(rendered, buffer)
+            save_srgb(rendered, buffer, compress_level=3)
             payload = buffer.getvalue()
+        if with_layers:
+            # These exact renderer layers let the browser recolor inherited text
+            # immediately. Custom block colors remain explicit and unchanged.
+            base = (
+                composition_base(scene, action.ratio, cutout, framing)
+                if scene is not None
+                else Image.new("RGBA", FORMATS[action.ratio])
+            )
+            opened.append(base)
+            if logo is not None:
+                artwork, position = logo_placement(logo, base.size, framing.logo_placement)
+                try:
+                    base.alpha_composite(artwork, position)
+                finally:
+                    artwork.close()
+            layers = {}
+            with io.BytesIO() as buffer:
+                save_srgb(base, buffer, compress_level=3)
+                layers["base"] = buffer.getvalue()
+            blocks = {}
+            for block in text_blocks(text, action.ratio, framing):
+                layer = text_block_overlay(block["lines"], base.size, "#FFFFFF")
+                try:
+                    with io.BytesIO() as buffer:
+                        save_srgb(layer, buffer, compress_level=3)
+                        layers[block["id"]] = buffer.getvalue()
+                finally:
+                    layer.close()
+                blocks[block["id"]] = {"color": block["placement"].get("color")}
+            result["layers"] = {"text_blocks": blocks}
+            result["_layer_payloads"] = layers
         result.update(status="ready", kind=kind)
         result["image"] = {
             "width": rendered.width,

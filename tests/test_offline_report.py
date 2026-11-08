@@ -3,6 +3,7 @@
 import asyncio
 import json
 from html.parser import HTMLParser
+from zipfile import ZipFile
 
 import httpx
 import pytest
@@ -10,10 +11,20 @@ from test_provider_runner import generated_case
 from test_workflow import setup_case
 
 from campaign_studio.brief import Brief
-from campaign_studio.exporting import package_payloads
-from campaign_studio.planning import make_plan
+from campaign_studio.delivery import prepare_current_zip
 from campaign_studio.provider import OpenAIImages
 from campaign_studio.review import CreativeUpdate
+from campaign_studio.workspace import Workspace
+
+
+def current_payloads(state, campaign_id, *, allow_partial=False, snapshot=None):
+    snapshot = snapshot or Workspace(state).current_composition(campaign_id)
+    with (
+        prepare_current_zip(state, snapshot, allow_partial=allow_partial) as download,
+        ZipFile(download.stream) as archive,
+    ):
+        prefix = archive.namelist()[0].split("/", 1)[0] + "/"
+        return {name.removeprefix(prefix): archive.read(name) for name in archive.namelist()}
 
 
 class Report(HTMLParser):
@@ -36,7 +47,7 @@ class Report(HTMLParser):
 def test_complete_and_partial_report_preserves_content_and_safe_origins(
     tmp_path, partial, monkeypatch
 ):
-    state, runner, _, brief = setup_case(tmp_path)
+    state, _, _, brief = setup_case(tmp_path)
     value = brief.model_dump()
     value["brand"]["name"] = "Bridle & Bough" if partial else "Autumn Winds"
     value["name"] = value["brand"]["name"] + " – Slogan"
@@ -55,44 +66,38 @@ def test_complete_and_partial_report_preserves_content_and_safe_origins(
         "synthetic": True,
     }
     value["markets"]["en-US"]["phrase_rules"] = None
-    run_id = state.create(make_plan(Brief.model_validate(value), state.storage), 0)
-    state.confirm(run_id, state.plan(run_id).digest)
-    import campaign_studio.rendering as rendering
-    from campaign_studio.imaging import ImageProblem
+    from campaign_studio.authored import AuthoredProjects, AuthoredSave
 
-    inspect = rendering.inspect_png
+    cid = value["campaign_id"]
+    workspace = Workspace(state)
+    projects = AuthoredProjects(workspace)
+    current = projects.read(cid)
+    current["authored"]["brief"] = Brief.model_validate(value).model_dump(mode="json")
+    projects.save(cid, AuthoredSave(**{k: current[k] for k in ("version", "base", "authored")}))
+    from campaign_studio.compositions import save_metadata
 
-    def controlled_failure(path, output, *args, **kwargs):
-        if partial and output.market == "en-US":
-            raise ImageProblem("Controlled output integrity failure")
-        return inspect(path, output, *args, **kwargs)
-
-    monkeypatch.setattr(rendering, "inspect_png", controlled_failure)
-    manifest = asyncio.run(runner.execute(run_id))
-    revision = manifest["revision_id"]
     description = 'Un círculo <azul> & una etiqueta "café".'
-    state.update_creative(
-        revision,
-        "product-1/es-MX/1x1",
-        CreativeUpdate(
-            expected_version=0,
-            description=description,
-        ),
-    )
-    state.update_creative(
-        revision,
-        "product-2/es-MX/1x1",
-        CreativeUpdate(expected_version=0, description="Another supplied image description."),
-    )
-    state.update_creative(
-        revision,
-        "product-2/es-MX/9x16",
-        CreativeUpdate(expected_version=0, description="A third supplied image description."),
-    )
-    prefix = state.revision(revision)["manifest_ref"].rsplit("/", 1)[0]
-    state.storage.write(f"{prefix}/response.json", b"PRIVATE_RESPONSE_CANARY")
+    for creative_id, wording in (
+        ("product-1/es-MX/1x1", description),
+        ("product-2/es-MX/1x1", "Another supplied image description."),
+        ("product-2/es-MX/9x16", "A third supplied image description."),
+    ):
+        current = workspace.current_composition(cid)
+        save_metadata(
+            workspace,
+            cid,
+            current["version"],
+            creative_id,
+            CreativeUpdate(expected_version=0, description=wording),
+        )
+    snapshot = workspace.current_composition(cid)
+    # A partial package omits a source known missing before export. A failed
+    # PNG inspection must never be repackaged as an accepted partial download.
+    if partial:
+        snapshot["sources"].pop("product-2")
+    state.storage.write("private/response.json", b"PRIVATE_RESPONSE_CANARY")
     state.storage.write("private/config.env", b"PRIVATE_KEY_CANARY")
-    payloads = package_payloads(state, revision, allow_partial=partial)
+    payloads = current_payloads(state, cid, allow_partial=partial, snapshot=snapshot)
     html = payloads["index.html"].decode()
     public = json.loads(payloads["manifest.json"])
     package_name = public["package_name"]
@@ -134,11 +139,11 @@ def test_complete_and_partial_report_preserves_content_and_safe_origins(
     ):
         assert retired not in text
     assert all(f["severity"] in {"pass", "blocking"} for f in public["findings"])
-    assert "0 image requests for this saved run" in text
-    assert "$0.00 USD for 0 planned new generation requests" in text
-    assert "not total campaign working time" in text
-    assert "Time saved has not been measured." in text
-    assert public["producer_metadata_snapshot"]["snapshot_id"] in text
+    assert "0 recorded campaign generation attempts" in text
+    assert "does not send an image-generation request" in text
+    assert "Not estimated – complete baseline not supplied" in text
+    assert public["composition_version"] in text
+    assert public["producer_metadata_snapshot"]["snapshot_id"]
     assert not report.scripts
     assert all(
         (f'id="{link[1:]}"' in html if link.startswith("#") else link in payloads)
@@ -167,7 +172,7 @@ def test_report_distinguishes_failed_unknown_and_unreported_charges(tmp_path, un
             raise httpx.ReadTimeout("Synthetic interruption", request=request)
         return httpx.Response(500, json={"error": {"message": "Synthetic failure"}})
 
-    manifest = asyncio.run(
+    asyncio.run(
         runner.execute(
             run_id,
             OpenAIImages(
@@ -176,16 +181,20 @@ def test_report_distinguishes_failed_unknown_and_unreported_charges(tmp_path, un
             ),
         )
     )
-    payloads = package_payloads(state, manifest["revision_id"], allow_partial=True)
+    payloads = current_payloads(state, state.run(run_id)["campaign_id"], allow_partial=True)
     text = " ".join(Report(payloads["index.html"].decode()).text)
-    assert "1 image request for this saved run" in text
+    public = json.loads(payloads["manifest.json"])
+    counts = public["campaign_metrics"]
+    assert counts["attempted_requests"] == 1
+    assert counts["unknown_requests" if unknown else "failed_requests"] == 1
+    assert counts["usage_cost_estimate"]["estimated_usd"] is None
+    assert "1 recorded campaign generation attempts" in text
     assert ("1 request without a confirmed result" if unknown else "1 failed request") in text
-    assert "usage:" in text and "Not reported." in text
-    assert "This run · usage estimate:" in text and "Estimate incomplete." in text
+    assert "Incomplete" in text and "could not be estimated" in text
     assert "Estimates are not provider bills." in text
     assert "Failed or interrupted requests may still incur charges." in text
-    assert "No new image requests or generation charges" not in text
-    assert "Saved plan estimate:" in text and "not invoices or spending caps" in text
+    assert "No generation attempts in this campaign" not in text
+    assert "does not send an image-generation request" in text
     assert state.attempts(run_id)[0]["state"] == ("unknown" if unknown else "failed")
 
 
@@ -196,17 +205,20 @@ def test_generated_and_supplied_synthetic_sources_keep_actual_origins(tmp_path):
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response)),
     )
     manifest = asyncio.run(runner.execute(run_id, provider))
-    assert manifest["complete"] and manifest["evidence"] == "synthetic"
+    assert manifest["complete"]
     attempts = state.attempts(run_id)
-    payloads = package_payloads(state, manifest["revision_id"])
+    payloads = current_payloads(state, state.run(run_id)["campaign_id"])
     report = Report(payloads["index.html"].decode())
     text = " ".join(report.text)
     public = json.loads(payloads["manifest.json"])
     assert "geometric test fixtures for engineering verification" not in text
     assert "Description-only concept" in text and "Supplied finished scene" in text
-    assert public["sources"] == manifest["sources"]
-    assert public["metrics"] == manifest["metrics"]
-    assert public["report_format_version"] == 9
+    assert len(public["sources"]) == 2
+    assert all(s["sha256"] for s in public["sources"])
+    assert public["campaign_metrics"] == state.campaign_metrics(state.run(run_id)["campaign_id"])
+    assert public["metrics"]["completed_images"] == 12
+    assert public["metrics"]["local_render_seconds"] > 0
+    assert public["report_format_version"] == 10
     for source in public["sources"]:
         assert source["provenance"]["label"] in text
         assert source["provenance"]["rights"] in text

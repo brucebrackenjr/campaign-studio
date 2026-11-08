@@ -1,6 +1,5 @@
 """Damaged neighbors and interrupted actions must not strand unrelated campaigns."""
 
-import asyncio
 import copy
 import json
 import sqlite3
@@ -19,27 +18,21 @@ from campaign_studio.sample import write_sample
 from campaign_studio.storage import Storage
 
 
-@pytest.mark.parametrize("damage", ["missing_manifest", "malformed_manifest", "wrong_shape"])
+@pytest.mark.parametrize("damage", ["{", "[]", '{"authored":null}'])
 def test_damaged_saved_campaign_does_not_hide_healthy_workbench_cards(tmp_path, damage):
     app = create_app(Settings(data_dir=tmp_path), key_available=lambda: False)
     with TestClient(app, base_url="http://localhost") as client:
         ws = app.state.workspace
         damaged = seed_campaign(ws, replay=True)
-        run = ws.run_for(damaged)["id"]
-        ws.state.confirm(run, ws.state.plan(run).digest)
-        saved = asyncio.run(app.state.runner.execute(run))
         healthy, _ = Intake(ws.storage).new(name="Keep editing me")
-        ref = ws.state.revision(saved["revision_id"])["manifest_ref"]
-        path = ws.storage.path(ref)
-        if damage == "missing_manifest":
-            path.unlink()
-        else:
-            path.write_bytes(b"{" if damage == "malformed_manifest" else b"[]")
+        with ws.storage.connect() as db:
+            db.execute(
+                "UPDATE campaign_drafts SET document_json=? WHERE campaign_id=?", (damage, damaged)
+            )
         response = client.get("/api/motif/workspace")
         assert response.status_code == 200, response.text
         rows = {c["id"]: c for c in response.json()["campaigns"]}
         assert rows[damaged]["status"] == "damaged"
-        assert "Restore" in rows[damaged]["recovery_message"]
         assert rows[healthy]["status"] == "draft"
         assert client.get(f"/api/motif/campaigns/{healthy}").status_code == 200
 
@@ -75,7 +68,7 @@ def test_catalog_deletion_overlap_is_skipped_but_database_failure_is_not_hidden(
         assert client.get("/api/motif/workspace").status_code == 503
 
 
-@pytest.mark.parametrize("bad_draft", [b"{", b"[]", b'{"value":null}'])
+@pytest.mark.parametrize("bad_draft", ["{", "[]", '{"authored":null}'])
 def test_damaged_draft_can_be_deleted_only_with_owned_inventory_and_current_token(
     tmp_path, bad_draft
 ):
@@ -85,19 +78,38 @@ def test_damaged_draft_can_be_deleted_only_with_owned_inventory_and_current_toke
         intake, cleanup = Intake(ws.storage), Cleanup(ws.state)
         damaged, _ = intake.new(name="Damaged")
         healthy, original = intake.new(name="Healthy")
-        root = ws.storage.path(ws.storage.project(damaged).draft).parents[1]
+        project = ws.storage.project(damaged)
+        root = ws.storage.path(f"Campaigns/{project.folder}")
+        root.mkdir(parents=True, exist_ok=True)
         unmanaged = root / "keep-my-file.txt"
         unmanaged.write_text("not managed by Motif")
-        draft = ws.storage.path(ws.storage.project(damaged).draft)
-        draft.write_bytes(bad_draft)
-        before = ws.storage.path(ws.storage.project(healthy).draft).read_bytes()
+        with ws.storage.connect() as db:
+            db.execute(
+                "UPDATE campaign_drafts SET document_json=? WHERE campaign_id=?",
+                (bad_draft, damaged),
+            )
+            before = db.execute(
+                "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (healthy,)
+            ).fetchone()
         preview = cleanup.preview_campaign(damaged)
         assert preview["unmanaged_file_count"] == 1
         assert preview["name"] == f"Campaign {damaged[:8]}"
         result = cleanup.delete_campaign(damaged, preview["token"])
         assert result["state"] == "complete"
-        assert not draft.exists() and unmanaged.read_text() == "not managed by Motif"
-        assert ws.storage.path(ws.storage.project(healthy).draft).read_bytes() == before
+        assert unmanaged.read_text() == "not managed by Motif"
+        with ws.storage.connect() as db:
+            assert (
+                db.execute(
+                    "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (damaged,)
+                ).fetchone()
+                is None
+            )
+            assert (
+                db.execute(
+                    "SELECT document_json FROM campaign_drafts WHERE campaign_id=?", (healthy,)
+                ).fetchone()
+                == before
+            )
         assert intake.read(healthy) == original
 
 

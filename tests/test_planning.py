@@ -261,3 +261,22 @@ def test_background_request_excludes_product_description_and_concept_keeps_its_s
     assert (
         concept.products[0].source.description in request_for(concept, concept.products[0]).prompt
     )
+
+
+def test_brand_metadata_and_fully_custom_colors_leave_saved_pixels_in_place(sample):
+    from campaign_studio.brief import TextPlacement
+
+    storage, brief = sample
+    plan = make_plan(brief, storage)
+    chosen = plan.outputs[0]
+    placement = TextPlacement(
+        left=0.1, top=0.1, width=0.6, font_size=40, color=brief.brand.text_color
+    )
+    chosen.framing.text_placements = {"message": placement, "cta": placement}
+    new = plan.model_copy(deep=True)
+    new.brief.brand.name = "Renamed brand"
+    assert compare_plans(plan, new).render_outputs == []
+    new.brief.brand.text_color = "#12AB34"
+    assert set(compare_plans(plan, new).render_outputs) == {
+        o.id for o in plan.outputs if o.id != chosen.id
+    }

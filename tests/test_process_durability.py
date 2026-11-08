@@ -113,6 +113,15 @@ def recover(client, run_id):
     return settle(client)
 
 
+def pixel_hash(payload):
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(payload)) as image:
+        return hashlib.sha256(image.convert("RGB").tobytes()).hexdigest()
+
+
 def dispatch_count(root):
     return len((root / "dispatches.jsonl").read_text().splitlines())
 
@@ -132,37 +141,32 @@ def test_killed_after_intent_restarts_unknown_without_duplicate_dispatch(tmp_pat
         recovered = recover(client, run_id)
         assert not recovered["active"]
         data = model(client)
-        assert data["manifest"]["metrics"]["completed_images"] == 6
+        assert len(data["manifest"]["outputs"]) == 12
+        assert sum(bool(o.get("url")) for o in data["manifest"]["outputs"]) == 6
         assert not data["manifest"]["complete"]
         assert data["retry_plan"]["previous_attempts"] == 1
         assert data["retry_plan"]["allowance"] == 2
         assert len(state.attempts(run_id)) == dispatch_count(tmp_path) == 1
 
 
-def test_killed_during_composition_recovers_and_reopens_draft_revision_metadata(tmp_path):
+def test_killed_after_source_decode_recovers_without_dispatch_and_reopens_saved_fields(tmp_path):
     state, run_id = fixture(tmp_path)
-    with process(tmp_path, "composition") as (child, client):
+    cid = state.run(run_id)["campaign_id"]
+    with process(tmp_path, "source_commit") as (child, client):
         start(client, state, run_id)
         wait_until(lambda: (tmp_path / "checkpoint").exists())
         assert state.attempts(run_id)[0]["state"] == "decoded"
         assert state.run(run_id)["current_revision"] is None
-        revisions = next((tmp_path / "runtime" / "Campaigns").glob(f"*/Runs/{run_id}/Revisions"))
-        assert len(list(revisions.rglob("*.png"))) == 1
-        assert state.revision_count(run_id) == 0
+        assert not list((tmp_path / "runtime" / "Campaigns").glob("*/Outputs"))
         child.kill()
         child.wait(timeout=10)
     with process(tmp_path) as (_, client):
         recover(client, run_id)
         data = model(client)
-        assert data["manifest"]["complete"]
-        assert data["manifest"]["metrics"]["completed_images"] == 12
-        revision = data["manifest"]["revision_id"]
-        base = (
-            "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde"
-            f"/runs/{run_id}/revisions/{revision}/metadata"
-        )
+        assert data["manifest"]["complete"] and len(data["manifest"]["outputs"]) == 12
+        assert not list((tmp_path / "runtime" / "Campaigns").glob("*/Outputs"))
         notes = client.post(
-            base + "/product-1/en-US/1x1",
+            f"/api/campaigns/{cid}/composition/{data['version']}/metadata/product-1/en-US/1x1",
             json={
                 "mode": "current",
                 "expected_version": 0,
@@ -170,29 +174,30 @@ def test_killed_during_composition_recovers_and_reopens_draft_revision_metadata(
             },
         )
         assert notes.status_code == 200, notes.text
-        data["value"]["name"] = "Draft after recovery"
-        action = authored_edit(client, data["value"]["campaign_id"])
-        action["authored"]["brief"] = data["value"]
-        saved = client.post(
-            "/api/motif/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/authored",
-            json=action,
-        )
+        action = authored_edit(client, cid)
+        action["authored"]["brief"]["name"] = "Saved after recovery"
+        saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=action)
         assert saved.status_code == 200, saved.text
-        hashes = {
-            o["id"]: hashlib.sha256(client.get(o["url"]).content).hexdigest()
-            for o in data["manifest"]["outputs"]
-        }
+        data = model(client)
+        hashes = {}
+        for output in data["manifest"]["outputs"]:
+            response = client.get(output["url"])
+            assert response.status_code == 200
+            hashes[output["id"]] = pixel_hash(response.content)
     with process(tmp_path) as (_, client):
         reopened = model(client)
-        assert reopened["project"]["authored"]["brief"] == data["value"]
+        assert reopened["project"]["authored"]["brief"]["name"] == "Saved after recovery"
         assert reopened["version"] == saved.json()["version"]
-        assert reopened["manifest"]["revision_id"] == revision
-        assert reopened["metadata"] == notes.json()
+        assert (
+            reopened["metadata"]["creatives"]["product-1/en-US/1x1"]["description"]
+            == "Un círculo azul en un espacio claro."
+        )
         assert hashes == {
-            o["id"]: hashlib.sha256(client.get(o["url"]).content).hexdigest()
+            o["id"]: pixel_hash(client.get(o["url"]).content)
             for o in reopened["manifest"]["outputs"]
         }
         assert len(state.attempts(run_id)) == dispatch_count(tmp_path) == 1
+        assert state.revision_count(run_id) == 0
 
 
 @pytest.mark.parametrize("valid_image", [False, True])
@@ -219,7 +224,10 @@ def test_killed_after_response_recovers_before_first_revision(tmp_path, valid_im
             assert attempt["state"] == ("decoded" if valid_image else "received")
             assert json.loads(attempt["usage_json"]) == body["usage"]
             data = model(client)
-            assert data["manifest"]["metrics"]["completed_images"] == (12 if valid_image else 6)
+            assert len(data["manifest"]["outputs"]) == 12
+            assert sum(bool(o.get("url")) for o in data["manifest"]["outputs"]) == (
+                12 if valid_image else 6
+            )
             totals = data["campaign_metrics"]
             assert totals["attempted_requests"] == 1
             assert totals["usage_cost_estimate"]["estimated_usd"] == 0.00108
@@ -255,7 +263,7 @@ def test_committed_copy_save_with_lost_response_reopens_once_and_rejects_old_ret
                 headers={"X-Test-Hold-Response": "yes"},
             )
             wait_until(lambda: (tmp_path / "checkpoint").exists())
-            assert state.run(run_id)["current_revision"] != edit["revision_id"]
+            assert model(client)["version"] != edit["revision_id"]
             child.kill()
             child.wait(timeout=10)
             with pytest.raises(httpx.TransportError):
@@ -264,23 +272,25 @@ def test_committed_copy_save_with_lost_response_reopens_once_and_rejects_old_ret
         saved = model(client)
         assert saved["value"]["markets"]["es-MX"]["copy"] == values
         assert "revisions" not in saved
-        assert state.revision_count(run_id) == 2
+        assert state.revision_count(run_id) == 0
         retry = client.post(
             "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply", json=edit
         )
-        assert retry.status_code == 409
+        assert retry.status_code == 200
+        assert retry.json()["version"] == saved["version"]
         after = model(client)
         assert after["manifest"]["revision_id"] == saved["manifest"]["revision_id"]
         assert "revisions" not in after
-        assert state.revision_count(run_id) == 2
-        assert (
-            sum(
-                a["sha256"] != b["sha256"]
-                for a, b in zip(
-                    before["manifest"]["outputs"], saved["manifest"]["outputs"], strict=True
-                )
-            )
-            == 6
+        assert state.revision_count(run_id) == 0
+        assert all(
+            o["copy"]["message"] == "Para cada día."
+            for o in saved["manifest"]["outputs"]
+            if o["market"] == "es-MX"
+        )
+        assert all(
+            o["copy"]["message"] != "Para cada día."
+            for o in saved["manifest"]["outputs"]
+            if o["market"] == "en-US"
         )
         assert len(State(Storage(tmp_path / "runtime")).attempts(run_id)) == 1
         assert dispatch_count(tmp_path) == 1

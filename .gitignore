@@ -15,6 +15,7 @@
 .venv/
 .venv-*/
 .checks/
+.playwright-cli/
 *.sqlite*
 *.db
 *.log

@@ -1,7 +1,6 @@
 """Apply saved Brand choices to existing images without admitting another draft."""
 
 import copy
-import hashlib
 
 from pydantic import Field
 
@@ -101,24 +100,6 @@ class BrandUpdates:
         available = {item["id"] for item in manifest["outputs"] if item["file"]}
         if not available:
             raise ActionError("no_images", "Create campaign images before updating their Brand.")
-        prefix = self.state.revision(edit.revision_id)["manifest_ref"].rsplit("/", 1)[0]
-        for item in manifest["outputs"]:
-            if not item["file"]:
-                continue
-            try:
-                intact = (
-                    hashlib.sha256(
-                        self.storage.path(f"{prefix}/{item['file']}").read_bytes()
-                    ).hexdigest()
-                    == item["sha256"]
-                )
-            except OSError:
-                intact = False
-            if not intact:
-                raise ActionError(
-                    "saved_images_unavailable",
-                    "A saved image needs local recovery before updating Brand.",
-                )
         value = old.brief.model_dump(mode="json")
         value["brand"] = brand.model_dump(mode="json")
         for target in edit.default_color_targets:
@@ -159,7 +140,8 @@ class BrandUpdates:
         impact = compare_plans(old, plan)
         impact.render_outputs = [o for o in impact.render_outputs if o in available]
         impact.recheck_outputs = [o for o in impact.recheck_outputs if o in available]
-        self.state.require_edit_inputs(edit.run_id, plan, available)
+        self.workspace.require_saved_outputs(edit.revision_id, manifest, impact.render_outputs)
+        self.state.require_edit_inputs(edit.run_id, plan, impact.render_outputs)
         if any(
             blocks_output(f, o) for f in plan.findings for o in plan.outputs if o.id in available
         ):

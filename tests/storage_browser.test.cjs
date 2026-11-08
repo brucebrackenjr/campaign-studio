@@ -259,3 +259,19 @@ test('deletion inventory updates one confirmation shell and preserves Cancel foc
   assert.equal(nodes.get('[data-action="storage:confirm-delete"]').disabled,false);
   assert.equal(h.run('deletion.inventory.token'),'verified');
 });
+
+test('transparent product photo opens a persistent warning and preserves the product form', () => {
+  const h = harness(); h.context.window = h.context;
+  h.run(readFileSync('src/campaign_studio/static/motif/storage-components.js', 'utf8'));
+  h.context.modalProduct = {name: 'Fourth product', source: {path: 'previous-photo.png'}, description: 'Typed details'};
+  const before = JSON.stringify(h.context.modalProduct);
+  h.run("imageInputFailure({input_image:{kind:'transparent_scene'},message:'diagnostic text'}, {name:'logo.png',size:20}, false, draft)");
+  assert.equal(h.run('storageView.state'), 'image-transparent');
+  const view = h.run('MotifStorage.getView(storageView.state,storageView.data)');
+  assert.equal(view.title, 'This image has transparent areas.');
+  assert.match(view.body, /solid background with no transparent areas/);
+  assert.doesNotMatch(view.body, /diagnostic text|image editor/);
+  assert.match(view.footer, /Close/);
+  assert.equal(JSON.stringify(h.context.modalProduct), before);
+  assert.equal(h.requests.length, 0);
+});

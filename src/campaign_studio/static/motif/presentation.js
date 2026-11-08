@@ -113,7 +113,7 @@ function workbenchCard(c) {
 
 function library() {
   let cards = workbenchCampaigns();
-  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${typeof setupNotice !== "undefined" && setupNotice ? notice(setupNotice, "", "info") : ""}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0">${cards.map(workbenchCard).join("")}<button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:transparent;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px">Bring your products, your words,<br>and your point of view.</p></button></div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
+  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${typeof setupNotice !== "undefined" && setupNotice ? notice(setupNotice, "", "info") : ""}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0"><button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:#e8e2d5;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px;color:#596059">Bring your products, your words,<br>and your point of view.</p></button>${cards.map(workbenchCard).join("")}</div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
 }
 function brief() {
   return '<div id="brief-root"></div>';
@@ -220,19 +220,10 @@ function sourceRecoveryNotice() {
 function production() {
   const context = productionContext();
   const { plan, pending, active, retry, proposal } = context;
-  if (active || (!pending && !retry && ["partial", "paused", "stopped"].includes(model.run.state)))
-    return progressView(context);
-  const notices = `${retry ? notice("This is the revised retry plan for the same saved run.", `${retry.previous_attempts} previous attempts remain recorded. ${plan.generation_products.length} new requests are proposed; cumulative allowance is ${retry.allowance}. The new-request estimate excludes earlier attempts.`) : ""}
-    ${unavailableSource() ? sourceRecoveryNotice() : ""}${wordingNotice()}${planInputErrors(proposal?.findings || plan?.findings || [])}
-    ${model.notice ? notice(model.notice.message, "Saved work remains available. No automatic retry occurs.", "block", model.notice.code === "missing_key" ? "missingKey" : ["rejected_key", "access_denied"].includes(model.notice.code) ? "updateKey" : "attempts", model.notice.code === "missing_key" ? "Add OpenAI API key" : ["rejected_key", "access_denied"].includes(model.notice.code) ? "Update API key" : "Attempt details") : ""}`;
-  const done = !pending && !retry && !["planned", "confirmed"].includes(model.run.state);
-  let operationHtml = "";
-  if (done && !context.complete) operationHtml = `<div class="pr-eyebrow">SAVED IMAGES</div><h2>${damagedFiles() ? "Saved images need recovery." : rulesOnlyResult() ? "Images are withheld by current rules." : "Some images need attention."}</h2><p>${model.manifest?.outputs.filter(output => output.url).length || 0} of ${context.total} images saved.</p>
-    ${btn("Open Studio →", "nav:review", "pr-button pr-primary pr-wide")}
-    ${canRecoverCurrentOutputs() ? `${canRecoverSingleSavedOutput() ? '<p>Rebuild the missing format using its saved product image. No new AI request is needed.</p>' : ""}${btn(canRecoverSingleSavedOutput() ? "Recover missing image →" : "Recover saved sources · 0 calls", "recover", "pr-button pr-wide")}` : ""}
-    ${model.retry_plan ? btn("Review retry plan", "retryPlan", "pr-button pr-wide") : ""}
-    <div class="pr-rule"></div><p>No new request starts automatically from this saved run.</p>${Object.keys(model.plan?.generation_requests || {}).length ? btn("Exact prompt & settings", "settings", "pr-button pr-wide") : ""}`;
-  return productionView(context, operationHtml, notices);
+  const done = !!model.run && !pending && !retry && !["planned", "confirmed"].includes(model.run.state);
+  if (active || (done && !context.complete) || (!pending && (context.resumeGeneration || model.notice))) return progressView(context);
+  const notices = `${unavailableSource() ? sourceRecoveryNotice() : ""}${wordingNotice()}${planInputErrors(proposal?.findings || plan?.findings || [])}`;
+  return productionView(context, "", notices);
 }
 
 function emptyPage(title, text, action = "nav:campaign", label = "Open Campaign") {
@@ -240,70 +231,60 @@ function emptyPage(title, text, action = "nav:campaign", label = "Open Campaign"
 }
 function planInputErrors(findings = model?.plan?.findings || []) {
   const seen = new Set();
-  return findings.map((finding, index) => {
+  const products = currentBriefValue().products || [];
+  const items = findings.map((finding, index) => {
     if (finding.severity !== "blocking" || finding.context?.phrase) return "";
+    const field = finding.context?.fields?.[0];
+    const product = products.find(item => item.id === finding.context?.product_id) ||
+      (field?.path?.[0] === "products" ? products[field.path[1]] : null);
+    // The missing-image card already names this product and offers both paths.
+    if (product && !product.source?.path && product.source?.role !== "concept" &&
+        (finding.rule === "asset" || field?.path?.includes("source"))) return "";
     const text = [finding.evidence, finding.remedy].filter(Boolean).join(" ");
     if (seen.has(text)) return "";
     seen.add(text);
-    const field = finding.context?.fields?.[0];
-    return notice("Correct this input before production.", text, "block",
-      field ? `planInput:${index}` : "nav:campaign",
-      field?.path[0] === "products" ? "Edit product" : "Open Campaign");
+    return `<div class="pr-input-issue"><strong>${esc(product?.name || "Campaign details")}</strong><p>${esc(text)}</p>${btn(product ? "Edit product" : "Open Campaign", field ? `planInput:${index}` : "nav:campaign", "pr-button pr-small")}</div>`;
   }).join("");
+  return items ? `<section class="pr-input-issues" role="status">${items}</section>` : "";
 }
 
+function productionSourceCounts(context) {
+  if (operation?.run_id === model.run?.id &&
+      Number.isInteger(operation?.sources_completed) && Number.isInteger(operation?.sources_total))
+    return { completed: operation.sources_completed, total: operation.sources_total };
+  const productIds = new Set(context.products.map(product => product.id));
+  return {
+    completed: Object.keys(model.source_urls || {}).filter(id => productIds.has(id)).length,
+    total: productIds.size,
+  };
+}
 function progressView(context = productionContext()) {
   const active = context.active;
-  const currentOutputs =
-    model.output_run_id === model.run.id ? model.manifest?.outputs || [] : [];
-  const completed =
-    active ? operation.completed ?? currentOutputs.filter((item) => item.url).length
-      : currentOutputs.filter((item) => item.url).length;
-  const expected = active ? operation.total ?? model.plan.outputs : model.plan.outputs;
+  const { completed, total: expected } = productionSourceCounts(context);
   const attempts = operation?.attempts || model.run_attempts || [];
   const attempted = operation?.attempted ?? attempts.length;
-  // A retry can increase allowance after this page's model was loaded. Keep
-  // the line on one received status snapshot rather than mixing both records.
   const allowance = operation?.attempted != null && operation?.remaining != null
     ? operation.attempted + operation.remaining : model.run.allowance;
   const remaining = operation?.remaining ?? Math.max(0, allowance - attempted);
-  const unknown = attempts.some((item) => item.state === "unknown" || (!active && item.state === "dispatching"));
-  const dispatching = active && attempts.some(item => item.state === "dispatching");
+  const unknown = attempts.some(item => item.state === "unknown" || (!active && item.state === "dispatching")) ||
+    (operation?.notice_code || model.notice?.code) === "unknown_request";
   const stopped = model.run.state === "stopped";
   const recoverable = canRecoverCurrentOutputs();
-  const rulesOnly = rulesOnlyResult();
   const retained = recoverable && model.local_recovery.saved_result;
-  const singleLocalOutput = canRecoverSingleSavedOutput();
-  const available = model.manifest?.outputs.filter((item) => item.url) || [];
   const noticeText = operation?.notice || model.notice?.message;
-  const stateLabel = active
-    ? "In progress"
-    : unknown
-      ? "Result not confirmed"
-      : stopped
-        ? "Stopped"
-        : rulesOnly ? "Withheld" : "Paused";
-  const title = active
-    ? "Creating campaign images…"
-    : unknown
-      ? "The image request could not be confirmed."
-      : stopped
-        ? "Production stopped."
-        : rulesOnly ? "Images are withheld by current rules." : "Some images need attention.";
-  const body = `${wordingNotice()}${!active && retained && completed < expected ? notice("A provider result is already saved.", "A saved response is available for local recovery. No new image request is sent.", "block", "recover", "Recover saved imagery · 0 calls") : ""}${unknown ? notice("The request may have completed and may be charged.", `${attempted} of ${allowance} allowance used. Check for a saved result first. Nothing will be resent automatically.`, "", recoverable ? "recover" : null, recoverable ? "Look for saved result" : null) : noticeText ? notice(noticeText, "Saved work is retained. Nothing is resent automatically.", "block", ["rejected_key", "access_denied"].includes(operation?.notice_code || model.notice?.code) ? "updateKey" : "attempts", ["rejected_key", "access_denied"].includes(operation?.notice_code || model.notice?.code) ? "Update API key" : "Attempt details") : stopped ? notice("No further requests will be sent.", "An in-flight request may still finish and incur a charge. Completed files and any arriving result are retained.", "info") : ""}${unavailableSource() ? sourceRecoveryNotice() : ""}`;
-  const card = `<div class="pr-eyebrow">COMPLETED / EXPECTED</div><div class="pr-operation-count">${completed} <small>/ ${expected} images</small></div>
-    ${badge(stateLabel, active ? "neutral" : "warning")}
-    <div class="pr-operation-progress"><i style="width:${expected ? Math.min(100, (completed / expected) * 100) : 0}%"></i></div>
-    <p class="pr-operation-detail">${operation?.elapsed_seconds != null ? `${operation.elapsed_seconds}s` : model.output_run_id === model.run.id && model.manifest?.metrics.elapsed_processing_seconds != null ? `${model.manifest.metrics.elapsed_processing_seconds}s` : "Not recorded"} · This run · elapsed</p>
-    <p class="pr-operation-detail">${allowance === 0 ? "No image requests in this run." : `This run: ${attempted} of ${allowance} requests used · ${remaining} remaining.${unknown ? " The request result was not confirmed. A charge may still apply." : dispatching ? " Image request in progress." : " This count is not a confirmed charge."}`}</p>
-    ${active ? `<div class="pr-rule"></div><p class="pr-operation-detail">${esc(operation.stage || "Preparing images")}</p>${operation.stoppable ? btn("Stop unsent work", "stop", "pr-button pr-wide") : ""}` : ""}
-    <div class="pr-rule"></div><p class="pr-operation-detail">${model.output_run_id && model.output_run_id !== model.run.id ? "Previously created images remain available in Studio." : "Available images remain inspectable while unfinished work is resolved."}</p>
-    ${btn("Review available images", "partialReview", "pr-button pr-primary pr-wide", available.length ? "" : "disabled")}
-    ${!active ? `${singleLocalOutput ? '<p class="pr-operation-detail">Rebuild the missing format using its saved product image. No new AI request is needed.</p>' : ""}${btn(singleLocalOutput ? "Recover missing image →" : "Recover saved imagery · 0 calls", "recover", "pr-button pr-wide", !recoverable || unavailableSource() ? "disabled" : "")}
-      ${btn("Attach a replacement", "nav:products", "pr-button pr-wide")}${btn("Review a new attempt", "retryPlan", "pr-button pr-wide", !model.retry_plan ? "disabled" : "")}
-      ${btn("Hand off available images", "nav:handoff", "pr-button pr-wide", available.length ? "" : "disabled")}` : ""}
-    ${allowance > 0 ? '<p class="pr-operation-detail">A new attempt needs a reviewed plan and available allowance. Failed or interrupted requests may still incur charges.</p>' : ""}`;
-  return productionView(context, `<h2>${esc(title)}</h2>${body}${card}`);
+  const credentials = !active ? MotifProducerRepair.credentialPanel(context) : "";
+  let content;
+  if (credentials) content = credentials;
+  else if (active) content = `<h2>Preparing source images…</h2><p>${esc(operation?.stage || "Generating the next product image.")}</p>${operation?.stoppable ? btn("Stop unsent work", "stop", "pr-button pr-wide") : ""}`;
+  else if (unknown) content = `<h2>The image request could not be confirmed.</h2><p>The request may have completed and may be charged. Nothing will be resent automatically.</p>${recoverable ? btn("Look for saved result", "recover", "pr-button pr-primary pr-wide") : context.resumeGeneration ? btn("Review a new attempt", context.resumeAction, "pr-button pr-primary pr-wide") : ""}`;
+  else if (retained) content = `<h2>A provider result is already saved.</h2><p>Recover the source image without another AI request.</p>${btn("Recover saved source images · 0 calls", "recover", "pr-button pr-primary pr-wide")}`;
+  else if (context.resumeGeneration) content = `<h2>${stopped ? "Production stopped." : "Generation paused."}</h2>${noticeText ? `<p>${esc(noticeText)}</p>` : ""}${btn("Resume generation", context.resumeAction, "pr-button pr-primary pr-wide")}`;
+  else content = `<h2>${stopped ? "Production stopped." : rulesOnlyResult() ? "Images are withheld by current rules." : noticeText ? "Generation paused." : "Add the remaining images."}</h2><p>${noticeText ? esc(noticeText) : "Use the product cards to select a photo or choose a new image to generate."}</p>`;
+  const elapsed = Number.isFinite(operation?.elapsed_seconds) ? Math.max(0, Math.floor(operation.elapsed_seconds)) : 0;
+  const count = `<div class="pr-source-progress" ${active ? 'aria-busy="true"' : ''}><div class="pr-operation-count">${completed} <small>/ ${expected} source images</small></div><div class="pr-operation-progress${active ? ' is-active' : ''}"><i style="width:${expected ? Math.min(100, (completed / expected) * 100) : 0}%"></i></div>${active ? `<p class="pr-generation-elapsed"><span class="pr-working-indicator" aria-hidden="true"></span><span>${elapsed}s elapsed</span></p>` : ''}</div>`;
+  const accounting = allowance === 0 ? "No image requests in this run." : `This run: ${attempted} of ${allowance} requests used · ${remaining} remaining.${unknown ? " The request result was not confirmed. A charge may still apply." : " This count is not a confirmed charge."}`;
+  const details = `<details class="pr-request-details"><summary>Request details</summary><p>${esc(accounting)}</p>${operation?.elapsed_seconds != null ? `<p>${operation.elapsed_seconds}s elapsed</p>` : ""}${btn("Attempt details", "attempts", "pr-button pr-small pr-wide")}${Object.keys(model.plan?.generation_requests || {}).length ? btn("Exact prompt & settings", "settings", "pr-button pr-small pr-wide") : ""}<p>Available sources can be edited in Studio. Finished formats are created when you download.</p></details>`;
+  return productionView(context, `${content}${count}${details}`, wordingNotice());
 }
 
 function currentRuleWithholding() {
@@ -313,7 +294,26 @@ function currentRuleWithholding() {
 }
 function otherUnavailableOutputs() {
   const withheld = new Set(currentRuleWithholding());
-  return (model.manifest?.outputs || []).filter(item => !item.url && !withheld.has(item.id));
+  return (model.manifest?.outputs || []).filter(item => !item.url && !withheld.has(item.id) && !layoutFindingsFor(item).length);
+}
+function layoutRepairTarget(output) {
+  const issue = layoutFindingsFor(output)[0];
+  const product = C.products.findIndex(item => item.id === output?.product_id);
+  const language = Object.keys(MARKET).find(key => MARKET[key] === output?.market);
+  const format = FMT.findIndex(item => item.ratio === output?.ratio);
+  if (!issue || product < 0 || !language || format < 0) return null;
+  const available = !!model.editable_products?.[output.product_id];
+  return { action: available ? `repairLayout:${product}:${format}:${language}:text` : "nav:production",
+    label: available ? "Adjust text in Studio" : "Restore source in Production",
+    title: `${C.products[product].name} · ${LANG[language]} · ${FMT[format].name}` };
+}
+function layoutNotice() {
+  const affected = (model?.manifest?.outputs || []).filter(output => layoutFindingsFor(output).length);
+  if (!affected.length) return "";
+  return `<section class="notice block layout-notice" role="status"><div><strong>Adjust these layouts before exporting.</strong><p>${affected.every(output => model.editable_products?.[output.product_id]) ? "The source images are available. Move or resize the affected text in Studio." : "Restore unavailable source images in Production, then adjust the affected text in Studio."}</p>${affected.map(output => {
+    const target = layoutRepairTarget(output);
+    return `<div class="layout-issue"><strong>${esc(target?.title || output.id)}</strong><p>${esc([...new Set(layoutFindingsFor(output).map(finding => finding.evidence))].join(" "))}</p>${target ? btn(target.label, target.action, "small") : ""}</div>`;
+  }).join("")}</div></section>`;
 }
 function nonRuleOmissions() {
   return otherUnavailableOutputs().length > 0;
@@ -323,10 +323,6 @@ function canRecoverCurrentOutputs() {
     !!model.local_recovery?.output_ids?.length &&
     (!model.manifest || model.output_run_id === model.run?.id) &&
     (!operation?.run_id || operation.run_id === model.run?.id);
-}
-function canRecoverSingleSavedOutput() {
-  return canRecoverCurrentOutputs() && !model.local_recovery.saved_result &&
-    model.local_recovery.output_ids.length === 1;
 }
 function rulesOnlyResult() {
   const attempts = operation?.attempts || model.run_attempts || [];
@@ -344,7 +340,7 @@ function partialExportOmissions() {
 function review() {
   if (!C.products.length)
     return emptyPage("The work will live here.", "Add your first product and review a production plan.", "nav:production", "Add products in Production");
-  const notices = `${unavailableSource() ? sourceRecoveryNotice() : damagedFiles() ? notice("Saved image files need local recovery.", "Missing or changed files cannot be exported. Local recovery first verifies the saved sources before rebuilding outputs.", "block", "nav:production", "Open recovery") : ""}${wordingNotice()}${model.manifest && !model.manifest.complete && !unavailableSource() && nonRuleOmissions() ? notice("This is a partial saved version.", "Available images can be reviewed and exported. Recover locally before considering a deliberate retry.", "info", "nav:production", "Review recovery options") : ""}`;
+  const notices = `${unavailableSource() ? sourceRecoveryNotice() : damagedFiles() ? notice("Saved image files need local recovery.", "Missing or changed files cannot be exported. Local recovery first verifies the saved sources before rebuilding outputs.", "block", "nav:production", "Open recovery") : ""}${wordingNotice()}${layoutNotice()}`;
   if (reviewTab === "activity")
     return `${head("Production record", "Saved requests, elapsed time, and estimates.", btn("← All products", "reviewTab:products"))}${activityView()}`;
   return notices + studioView();
@@ -385,18 +381,19 @@ function overviewView(exporting = false) {
     .map((e) => {
       const output = outputFor(e.p, e.l, e.f), missing = !output?.url;
       const firstImages = !model.manifest;
+      const layout = layoutRepairTarget(output);
       const withheld = missing && currentRuleWithholding().includes(output?.id);
       return `<article class="overview-item">${
         missing
           ? `<div class="missing-tile">
-<strong>${firstImages ? "Ready for first images" : withheld ? "Image withheld by current rules." : "Image not available"}</strong>
-<p class="small">${esc(firstImages ? "Review the production plan to create this image." : withheld ? "Correct the prohibited wording above to update this image." : unavailableSource() ? "Replace the unavailable source in Production before rebuilding this image." : outputFor(e.p, e.l, e.f)?.omission || "This saved output is unavailable. Open Production to review recovery options.")}</p>
+<strong>${firstImages ? "Ready for first images" : layout ? "Layout needs attention" : withheld ? "Image withheld by current rules." : "Image not available"}</strong>
+<p class="small">${esc(firstImages ? "Review the production plan to create this image." : layout ? layoutFindingsFor(output).map(finding => finding.evidence).join(" ") : withheld ? "Correct the prohibited wording above to update this image." : unavailableSource() ? "Replace the unavailable source in Production before rebuilding this image." : outputFor(e.p, e.l, e.f)?.omission || "This saved output is unavailable. Open Production to review recovery options.")}</p>
 </div>`
           : `<div class="overview-image">${creative(e.p, e.l, e.f, `data-action="inspect:${e.p}:${e.f}:${e.l}" tabindex="0" role="button"`)}</div>`
       }<div class="info">
 <h3>${esc(C.products[e.p].name)}</h3>
 <p class="small muted">${LANG[e.l]} · ${FMT[e.f].name} ${FMT[e.f].ratio}</p>
-<div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${exportBlocked() ? "disabled" : ""}` : "")}</div>
+<div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : layout ? btn(layout.label, layout.action, "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${exportBlocked() ? "disabled" : ""}` : "")}</div>
 </div>
 </article>`;
     })
@@ -447,7 +444,7 @@ function activityView() {
 </div>`;
 }
 function handoffLogoNotice() {
-  if (model.logo_issue) return notice("This campaign requires a logo.", "Attach the logo in Brand, then generate the final images in Production.", "block", "nav:brand", "Open Brand");
+  if (model.logo_issue) return notice("This campaign requires a logo.", "Attach the logo in Brand. It saves automatically and will be included in the export.", "block", "nav:brand", "Open Brand");
   if (model.manifest?.findings?.some(f => f.rule === "logo_presence" && f.severity === "warning"))
     return notice("These images have no logo. You can export them as they are.", "", "", "nav:brand", "Open Brand");
   return "";
@@ -457,20 +454,21 @@ function handoff() {
   if (!model?.manifest)
     return `${head("A good handoff starts with saved work.", "Your brief is safe. Create campaign images before exporting.", btn("Review production plan →", "plan", "primary"), "04 / HANDOFF", "wf-stage-header")}<div class="empty">
 <div class="empty-symbol">↗</div>
-<h2>No saved images to package yet.</h2>
-<p>Saved brief and pending edits are preserved; exports need current image results. Return to the plan to create your first output set.</p>${btn("Open Production", "nav:production")}</div>`;
-  const partial = model.manifest && !model.manifest.complete,
+<h2>No composition is ready to export yet.</h2>
+<p>Finish any incomplete campaign fields and provide source imagery for your products. Production can generate missing source images.</p>${btn("Open Production", "nav:production")}</div>`;
+  const layoutBlocked = currentLayoutFindings().length > 0,
+    partial = model.manifest && !model.manifest.complete,
     empty = (model.manifest?.metrics.completed_images ?? 0) === 0,
     damaged = damagedFiles(),
     missing = otherUnavailableOutputs().length;
   return `${head("Ready for the next pair of eyes.", `${C.name} · Current images`, btn("← Studio", "nav:review", "small quiet"), "04 / HANDOFF", "wf-stage-header")}<section class="export-hero">
 <div>
-<span class="eyebrow">${damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
-<h2>${empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>
+<span class="eyebrow">${layoutBlocked ? "LAYOUT NEEDS ATTENTION" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
+<h2>${layoutBlocked ? "Review the affected layouts." : empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>
 <p class="small muted" style="margin-top:8px">${C.markets.length} ${C.markets.length === 1 ? "market" : "markets"} · 3 formats · offline review included</p>
 </div>
-<div class="row wrap">${btn("Preview offline report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Download ZIP ↓", "exportZip", "primary", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Export folder", "exportFolder", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}</div>
-</section><div data-logo-notice>${handoffLogoNotice()}</div>${wordingNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved sources or review a deliberate retry. Export does not create imagery." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing. The package will say so.`, "Only available images from this saved version will be included. Nothing is generated by export.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
+<div class="row wrap">${btn("Preview offline report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Download ZIP ↓", "exportZip", "primary", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}</div>
+</section><div data-logo-notice>${handoffLogoNotice()}</div>${wordingNotice()}${layoutNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : !layoutBlocked && empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved source images or review a new AI request. Export creates finished formats from available sources." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : !layoutBlocked && partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing. The package will say so.`, "Export creates finished images from the available sources and current saved settings. Missing sources are listed in the package.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
 <section class="panel">
 <h3>Everything travels together.</h3>
 <div class="file-list">Package contents<br>&nbsp; ├─ index.html &nbsp; <span class="muted">the visual review</span>
@@ -488,11 +486,11 @@ function handoff() {
 <span>Accessible descriptions</span>
 <b>${descriptionCount()} of ${total()} supplied</b>
 </div>
-<p class="small muted">Export includes every available image in this saved revision. Filters below change the view, never the package.</p>
+<p class="small muted">Export renders every available image from the current saved settings. Filters below change the view, never the package.</p>
 </section>
 </div>
 <div class="section-title">
-<h2>The campaign, at a glance</h2>${badge(damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Partial handoff" : "All formats included", damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
+<h2>The campaign, at a glance</h2>${badge(layoutBlocked ? "Layout needs attention" : damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Partial handoff" : "All formats included", layoutBlocked || damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
 }
 function editorParts(body, foot) {
   return `${body}<footer class="modal-foot">${foot}</footer>`;
@@ -501,6 +499,7 @@ function inspectorModal() {
   const p = C.products[currentProduct],
     f = FMT[currentFormat],
     key = `${p.id}-${lang}-${currentFormat}`;
+  const detail = model.metadata?.creatives?.[`${p.id}/${MARKET[lang]}/${f.ratio.replace(":", "x")}`];
   return dialog(
     `${esc(p.name)} · ${f.ratio}`,
     `<div class="large-inspector">
@@ -508,8 +507,8 @@ function inspectorModal() {
 <div>
 <div class="row wrap">${badge(LANG[lang], "neutral")}${badge(f.name, "outline")}</div>
 <div class="data-row">
-<span>Saved file</span>
-<b>${f.w} × ${f.h} PNG<br>Current image</b>
+<span>Export size</span>
+<b>${f.w} × ${f.h} PNG<br>Rendered on download</b>
 </div>
 <div class="data-row">
 <span>Source treatment</span>
@@ -519,7 +518,7 @@ function inspectorModal() {
 <span>Origin</span>
 <b>${esc(p.origin)}</b>
 </div>
-${area("Accessible image description", "image-description", C.descriptions[key] || "", "Producer supplied. Unspecified until you write it; no image generation.")}${btn("Update image details", "saveDescription", "small", !canDescribeCreative(currentProduct, lang, currentFormat) ? "disabled" : "")}<div class="rule">
+${area("Accessible image description", "image-description", C.descriptions[key] || "", detail?.reset_reason === "source_changed" ? "The source image changed. Check that this description still fits." : "Producer supplied. Unspecified until you write it; no image generation.")}<div class="rule">
 </div>
 <div class="row">${btn("Source details", `source:${currentProduct}`, "small")}</div>
 

@@ -1,12 +1,11 @@
 import copy
 import hashlib
 import io
-from pathlib import Path
 
 import pytest
 from campaign_fixtures import authored_edit, seed_campaign
 from PIL import Image
-from test_web_workflow import page_data, sample_plan, start, wait_for_work
+from test_web_workflow import page_data, sample_plan
 
 from campaign_studio.intake import BriefDraft, Intake
 from campaign_studio.sample import write_sample
@@ -31,7 +30,6 @@ def test_form_intake_owns_ids_assets_and_plan_boundary(ui, count):
     client, workspace = ui
     intake = Intake(workspace.storage)
     campaign, created = intake.new()
-    assert workspace.runs() == []
     _, fixture = write_sample(workspace.storage)
     imported = fixture.model_dump(mode="json")
     imported["campaign_id"] = campaign
@@ -48,62 +46,35 @@ def test_form_intake_owns_ids_assets_and_plan_boundary(ui, count):
     document = intake.save(
         campaign, BriefDraft(value=imported, version=created["version"]), workspace
     )
-    assert document["value"]["campaign_id"] == campaign
-    assert len({p["id"] for p in document["value"]["products"]}) == count
-    assert all(p["id"] != "external-id" for p in document["value"]["products"])
-    assert workspace.runs() == []
-    assert page_data(client, client.get(f"/campaigns/{campaign}/campaign"))["editingBrief"]
+    products = document["value"]["products"]
+    assert len({p["id"] for p in products}) == count
+    assert all(p["id"] != "external-id" for p in products)
     planned = client.post(
         f"/api/motif/campaigns/{campaign}/plan", json={"version": document["version"]}
     )
     assert planned.status_code == 200, planned.text
-    data = page_data(client, client.get(f"/campaigns/{campaign}/production"))
-    assert len(data["brief"]["products"]) == count
-    assert data["allowance"] == 0
-    assert len(workspace.state.plan(data["runId"]).outputs) == count * 3
-    assert workspace.state.attempts(data["runId"]) == []
-    assert len(workspace.runs()) == 1
-    start(client, data)
-    completed = wait_for_work(client, campaign)
-    assert completed["completed"] == count * 3 and completed["attempted"] == 0
-    if count == 5:
-        current = page_data(client, client.get(f"/campaigns/{campaign}/studio"))
-        selected = [p["id"] for p in current["brief"]["products"][-2:]]
-        edit = {
-            "ratio": "1:1",
-            "run_id": current["runId"],
-            "revision_id": current["currentRevision"],
-            "market": "en-US",
-            "product_id": current["brief"]["products"][0]["id"],
-            "field_scopes": {"message": "all_products", "cta": "all_products"},
-            "values": current["brief"]["markets"]["en-US"]["copy"]
-            | {"message": "One campaign for every product."},
-        }
-        preview = client.post(f"/api/campaigns/{campaign}/text/preview", json=edit)
-        assert preview.status_code == 200, preview.text
-        assert len(preview.json()["impact"]["render_outputs"]) == 15
-        assert len(preview.json()["images"]) == 1
-        assert {item["id"].split("/")[0] for item in preview.json()["images"]} == {
-            edit["product_id"]
-        }
-        saved = client.post(
-            f"/api/campaigns/{campaign}/text/apply",
-            json=edit | {"preview_digest": preview.json()["digest"]},
-        )
-        assert saved.status_code == 200 and saved.json()["complete"]
-        assert (
-            client.get(f"/api/motif/campaigns/{campaign}").json()["manifest"]["metrics"][
-                "completed_images"
-            ]
-            == 15
-        )
-        assert workspace.state.attempts(current["runId"]) == []
-
-        response = client.get(f"/campaigns/{campaign}/production?products=5")
-        reopened = page_data(client, response)
-        assert len(reopened["brief"]["products"]) == 5
-        assert [p["id"] for p in reopened["brief"]["products"][-2:]] == selected
-        assert len(reopened["manifest"]["outputs"]) == 15
+    assert workspace.runs(campaign) == []  # Supplied photos do not need a paid-source run.
+    current = client.get(f"/api/motif/campaigns/{campaign}").json()
+    assert current["manifest"]["metrics"]["completed_images"] == count * 3
+    edit = {
+        "ratio": "1:1",
+        "revision_id": current["version"],
+        "market": "en-US",
+        "product_id": products[0]["id"],
+        "field_scopes": {"message": "all_products"},
+        "values": {"message": "One campaign for every product."},
+    }
+    preview = client.post(f"/api/campaigns/{campaign}/text/preview", json=edit)
+    assert preview.status_code == 200, preview.text
+    assert len(preview.json()["images"]) == 1
+    saved = client.post(f"/api/campaigns/{campaign}/text/save", json=edit)
+    assert saved.status_code == 200, saved.text
+    reopened = client.get(f"/api/motif/campaigns/{campaign}").json()
+    assert {o["copy"]["message"] for o in reopened["manifest"]["outputs"]} == {
+        "One campaign for every product."
+    }
+    assert len(reopened["manifest"]["outputs"]) == count * 3
+    assert not list(workspace.storage.root.glob("Campaigns/**/Outputs"))
 
 
 def test_upload_and_draft_failures_are_safe_and_keep_draft(ui):
@@ -183,152 +154,82 @@ def test_upload_and_draft_failures_are_safe_and_keep_draft(ui):
 def test_actual_png_preview_is_ephemeral_bound_and_matches_saved_compositor(ui):
     client, workspace = ui
     data = sample_plan(client)
-    start(client, data)
-    wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    before = page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio"))
-    run = workspace.run_for("80d58cbe-5e57-5544-9b07-a4f018714dde")
-    old_plan = workspace.state.plan(run["id"]).model_dump_json()
-    revisions = workspace.revisions(run["id"])
+    cid = data["campaignId"]
+    before = authored_edit(client, cid)
     edit = {
         "ratio": "1:1",
-        "run_id": run["id"],
-        "revision_id": run["current_revision"],
+        "revision_id": data["version"],
         "market": "es-MX",
         "product_id": "product-1",
         "field_scopes": {"message": "all_products", "cta": "all_products"},
-        "values": before["brief"]["markets"]["es-MX"]["copy"] | {"message": "Para cada día."},
+        "values": data["brief"]["markets"]["es-MX"]["copy"] | {"message": "Para cada día."},
     }
-    response = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview", json=edit
-    )
-    assert response.status_code == 200, response.text
-    preview = response.json()
-    assert len(preview["images"]) == 1
-    assert not preview["blocked"]
-    rendered = {item["id"]: client.get(item["url"]).content for item in preview["images"]}
-    for content in rendered.values():
-        with Image.open(io.BytesIO(content)) as image:
-            image.load()
-            assert image.format == "PNG"
-    assert workspace.revisions(run["id"]) == revisions
-    assert workspace.state.plan(run["id"]).model_dump_json() == old_plan
-    assert workspace.state.attempts(run["id"]) == []
+    preview = client.post(f"/api/campaigns/{cid}/text/preview", json=edit)
+    assert preview.status_code == 200, preview.text
+    images = preview.json()["images"]
+    assert len(images) == 1 and not preview.json()["blocked"]
+    proposed = client.get(images[0]["url"]).content
+    assert authored_edit(client, cid) == before and workspace.runs(cid) == []
     assert (
         client.get(
-            preview["images"][0]["url"].replace(
-                "80d58cbe-5e57-5544-9b07-a4f018714dde", "014c1210-29a9-50d2-823a-7a936aecd62b"
-            )
+            images[0]["url"].replace(cid, "014c1210-29a9-50d2-823a-7a936aecd62b")
         ).status_code
         == 404
     )
-    saved = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/apply",
-        json=edit | {"preview_digest": preview["digest"]},
-    ).json()
-    assert saved["complete"]
-    for output in client.get(f"/api/motif/campaigns/{before['campaignId']}").json()["manifest"][
-        "outputs"
-    ]:
-        if output["id"] in rendered:
-            with (
-                Image.open(io.BytesIO(client.get(output["url"]).content)) as saved_image,
-                Image.open(io.BytesIO(rendered[output["id"]])) as draft_image,
-            ):
-                assert saved_image.size == draft_image.size
-                assert (
-                    saved_image.convert("RGBA").tobytes() == draft_image.convert("RGBA").tobytes()
-                )
-    assert client.get(preview["images"][0]["url"]).status_code == 404
-    assert workspace.state.attempts(run["id"]) == []
+    saved = client.post(f"/api/campaigns/{cid}/text/save", json=edit)
+    assert saved.status_code == 200, saved.text
+    version = saved.json()["composition_version"]
+    actual = client.get(f"/api/campaigns/{cid}/composition/{version}/download/product-1/es-MX/1x1")
+    assert actual.status_code == 200, actual.text
+    with (
+        Image.open(io.BytesIO(proposed)) as preview_image,
+        Image.open(io.BytesIO(actual.content)) as final,
+    ):
+        assert preview_image.convert("RGBA").tobytes() == final.convert("RGBA").tobytes()
+    assert (
+        client.get(images[0]["url"]).status_code == 200
+    )  # Issued immutable Studio preview finishes decoding.
+    assert not list(workspace.storage.root.glob("Campaigns/**/Outputs"))
 
 
-def test_brief_draft_does_not_replace_existing_images_and_previous_export_stays_available(ui):
+def test_campaign_autosave_updates_current_images_and_previous_download_remains_independent(ui):
+    import json
+    from zipfile import ZipFile
+
     client, workspace = ui
     data = sample_plan(client)
-    start(client, data)
-    wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    before = page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio"))
-    value = copy.deepcopy(before["brief"])
-    value["name"] = "Renamed campaign"
-    action = authored_edit(client, value["campaign_id"])
-    action["authored"]["brief"] = value
-    draft = client.post(
-        "/api/motif/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/authored", json=action
-    )
-    assert draft.status_code == 200, draft.text
-    assert (
-        workspace.run_for("80d58cbe-5e57-5544-9b07-a4f018714dde")["current_revision"]
-        == before["currentRevision"]
-    )
-    plan = client.post(
-        "/api/motif/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/plan",
-        json={"version": draft.json()["version"]},
-    )
-    assert plan.status_code == 200, plan.text
-    previous = client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/handoff")
-    page = page_data(client, previous)
-    assert page["manifest"]["revision_id"] == before["currentRevision"]
-    assert all(client.get(item["url"]).status_code == 200 for item in page["manifest"]["outputs"])
-    exported = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/export",
-        json={
-            "run_id": page["runId"],
-            "revision_id": page["currentRevision"],
-            "allow_partial": False,
-        },
-    )
-    assert exported.status_code == 200, exported.text
-    assert exported.json()["included"] == 12
-    package = exported.json()
-    package_root = Path(package["location"])
-    package_hashes = {
-        str(path.relative_to(package_root)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in package_root.rglob("*")
-        if path.is_file()
-    }
-    overview = client.get(package["url"])
-    assert overview.status_code == 200
-    assert len(workspace.runs("80d58cbe-5e57-5544-9b07-a4f018714dde")) == 2
-    current_plan = page_data(
-        client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/production")
-    )
-    start(client, current_plan)
-    complete = wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    assert complete["completed"] == 12 and complete["elapsed_seconds"] > 0
-    current = page_data(
-        client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio")
-    )
-    assert current["currentRevision"] != before["currentRevision"]
-    assert all(
-        client.get(item["url"]).status_code == 200 for item in current["manifest"]["outputs"]
-    )
-    for item in before["manifest"]["outputs"]:
-        response = client.get(item["url"])
-        assert response.status_code == 410
-        assert "earlier exported package" in response.text
-        assert "Open a retained version" not in response.text
-        assert (
-            'href="/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio">Open current images</a>'
-            in response.text
-        )
-    unknown = client.get("/campaigns/not-a-campaign/images/unknown/product/en-US/1x1")
-    assert unknown.status_code == 404
-    assert 'href="/">Back to workbench</a>' in unknown.text
-    assert client.get(package["url"]).content == overview.content
-    assert package_hashes == {
-        str(path.relative_to(package_root)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in package_root.rglob("*")
-        if path.is_file()
-    }
-    assert "English (United States)" in overview.text and "Instagram post" in overview.text
-    assert "<h3>product-1" not in overview.text
+    cid = data["campaignId"]
+    first = client.post(f"/api/campaigns/{cid}/delivery/zip", json={"version": data["version"]})
+    assert first.status_code == 200, first.text
+    original = first.content
+    original_hash = hashlib.sha256(original).hexdigest()
+    action = authored_edit(client, cid)
+    action["authored"]["brief"]["name"] = "Renamed campaign"
+    action["authored"]["brief"]["markets"]["en-US"]["copy"]["message"] = "Current campaign wording"
+    saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=action)
+    assert saved.status_code == 200, saved.text
+    current = client.get(f"/api/motif/campaigns/{cid}").json()
+    assert current["version"] != data["version"]
+    assert {
+        o["copy"]["message"] for o in current["manifest"]["outputs"] if o["market"] == "en-US"
+    } == {"Current campaign wording"}
+    later = client.post(f"/api/campaigns/{cid}/delivery/zip", json={"version": current["version"]})
+    assert later.status_code == 200, later.text
+    with ZipFile(io.BytesIO(original)) as a, ZipFile(io.BytesIO(later.content)) as b:
+        old = json.loads(a.read(next(n for n in a.namelist() if n.endswith("/manifest.json"))))
+        new = json.loads(b.read(next(n for n in b.namelist() if n.endswith("/manifest.json"))))
+        assert old["campaign_name"] != new["campaign_name"] == "Renamed campaign"
+        assert a.testzip() is None and b.testzip() is None
+    assert hashlib.sha256(original).hexdigest() == original_hash
+    assert not list(workspace.storage.root.rglob("*.zip"))
+    assert workspace.runs(cid) == []
 
 
 def test_catalog_lists_registered_cli_campaigns_without_special_fixture_identity(ui):
     client, workspace = ui
     sample_plan(client)
     assert len(workspace.catalog()) == 1
-    assert len(workspace.runs()) == 1
+    assert len(workspace.runs()) == 0
     seeded = seed_campaign(client.app.state.workspace, replay=True)
     entries = workspace.catalog()
     assert len(entries) == 2
@@ -368,46 +269,40 @@ def test_import_validates_before_returning_and_never_opens_imported_paths(ui):
 def test_new_edit_copy_is_retained_when_reopening_and_replanning_brief(ui):
     client, workspace = ui
     data = sample_plan(client)
-    campaign = data["campaignId"]
-    start(client, data)
-    wait_for_work(client, campaign)
-    first = page_data(client, client.get(f"/campaigns/{campaign}/studio"))
-    action = authored_edit(client, campaign)
+    cid = data["campaignId"]
+    action = authored_edit(client, cid)
     action["authored"]["brief"]["name"] = "A saved brief draft"
-    document = client.post(f"/api/motif/campaigns/{campaign}/authored", json=action)
-    assert document.status_code == 200, document.text
-    action["version"] = document.json()["version"]
+    saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=action)
+    assert saved.status_code == 200, saved.text
+    action["version"] = saved.json()["version"]
     edit = {
         "ratio": "1:1",
-        "run_id": first["runId"],
-        "revision_id": first["currentRevision"],
+        "revision_id": saved.json()["version"],
         "market": "es-MX",
         "product_id": "product-1",
-        "field_scopes": {"message": "all_products", "cta": "all_products"},
-        "values": first["brief"]["markets"]["es-MX"]["copy"] | {"message": "Conserva esta frase."},
+        "field_scopes": {"message": "all_products"},
+        "values": {"message": "Conserva esta frase."},
     }
-    preview = client.post(f"/api/campaigns/{campaign}/text/preview", json=edit).json()
-    saved = client.post(
-        f"/api/campaigns/{campaign}/text/apply",
-        json=edit | {"preview_digest": preview["digest"]},
+    result = client.post(f"/api/campaigns/{cid}/text/save", json=edit)
+    assert result.status_code == 200, result.text
+    assert client.post(f"/api/motif/campaigns/{cid}/authored", json=action).status_code == 409
+    current = authored_edit(client, cid)
+    assert current["authored"]["brief"]["name"] == "A saved brief draft"
+    assert (
+        current["authored"]["brief"]["markets"]["es-MX"]["copy"]["message"]
+        == "Conserva esta frase."
     )
-    assert saved.status_code == 200, saved.text
-    stale = client.post(f"/api/motif/campaigns/{campaign}/authored", json=action)
-    assert stale.status_code == 409
-    reopened = page_data(client, client.get(f"/campaigns/{campaign}/campaign"))
-    assert reopened["intake"]["name"] == "A saved brief draft"
-    assert reopened["intake"]["markets"]["es-MX"]["copy"]["message"] == "Conserva esta frase."
-    action = authored_edit(client, campaign)
-    assert action["base"]["revision_id"] == saved.json()["revision_id"]
-    action["authored"]["brief"]["name"] = "Name only edit"
-    document = client.post(f"/api/motif/campaigns/{campaign}/authored", json=action)
-    assert document.status_code == 200, document.text
+    current["authored"]["brief"]["name"] = "Name only edit"
+    renamed = client.post(f"/api/motif/campaigns/{cid}/authored", json=current)
+    assert renamed.status_code == 200
     planned = client.post(
-        f"/api/motif/campaigns/{campaign}/plan", json={"version": document.json()["version"]}
+        f"/api/motif/campaigns/{cid}/plan", json={"version": renamed.json()["version"]}
     )
     assert planned.status_code == 200, planned.text
-    current = workspace.state.plan(workspace.run_for(campaign)["id"])
-    assert current.brief.markets["es-MX"].text.message == "Conserva esta frase."
+    assert (
+        workspace.current_composition(cid)["plan"].brief.markets["es-MX"].text.message
+        == "Conserva esta frase."
+    )
 
 
 @pytest.mark.parametrize("change", ["name", "logo", "text_color", "rule"])
@@ -428,7 +323,7 @@ def test_local_brief_changes_adopt_verified_mocked_master_but_scene_change_does_
         "synthetic-test-credential",
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
     )
-    manifest = asyncio.run(runner.execute(run_id, provider))
+    asyncio.run(runner.execute(run_id, provider))
     workspace = Workspace(state)
     intake = Intake(state.storage)
     value = state.plan(run_id).brief.model_dump(mode="json")
@@ -455,14 +350,14 @@ def test_local_brief_changes_adopt_verified_mocked_master_but_scene_change_does_
         ]
     document = intake.save(
         value["campaign_id"],
-        BriefDraft(value=value, base_revision=manifest["revision_id"]),
+        BriefDraft(value=value, version=intake.read(value["campaign_id"])["version"]),
         workspace,
     )
     plan = intake.prepare(value["campaign_id"], document["version"], workspace)
     assert plan.generation_products == []
     new_run = workspace.run_for(value["campaign_id"])
-    assert new_run["allowance"] == 0 and state.attempts(new_run["id"]) == []
-    assert plan.brief.replay.sources
+    assert new_run["id"] == run_id and len(state.attempts(run_id)) == 1
+    assert plan.assets["masters/product-1"]
     next_value = intake.read(value["campaign_id"])["value"]
     next_value["creative_direction"] = "A changed scene that requires a new request."
     document = intake.save(
@@ -472,7 +367,7 @@ def test_local_brief_changes_adopt_verified_mocked_master_but_scene_change_does_
     )
     changed = intake.prepare(value["campaign_id"], document["version"], workspace)
     assert len(changed.generation_products) == 1
-    assert state.attempts(workspace.run_for(value["campaign_id"])["id"]) == []
+    assert len(state.attempts(run_id)) == 1  # No second paid request was dispatched.
 
 
 def test_concurrent_same_version_brief_saves_cannot_both_win(ui):
@@ -501,35 +396,28 @@ def test_concurrent_same_version_brief_saves_cannot_both_win(ui):
 def test_preview_expiry_and_source_integrity_never_change_saved_state(ui):
     client, workspace = ui
     data = sample_plan(client)
-    start(client, data)
-    wait_for_work(client, "80d58cbe-5e57-5544-9b07-a4f018714dde")
-    page = page_data(client, client.get("/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/studio"))
+    cid = data["campaignId"]
+    before = authored_edit(client, cid)
     edit = {
         "ratio": "1:1",
-        "run_id": page["runId"],
-        "revision_id": page["currentRevision"],
+        "revision_id": data["version"],
         "market": "en-US",
         "product_id": "product-1",
-        "field_scopes": {"message": "all_products", "cta": "all_products"},
-        "values": page["brief"]["markets"]["en-US"]["copy"] | {"message": "A local preview"},
+        "field_scopes": {"message": "all_products"},
+        "values": {"message": "A local preview"},
     }
-    response = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview", json=edit
-    )
-    assert response.status_code == 200
+    response = client.post(f"/api/campaigns/{cid}/text/preview", json=edit)
+    assert response.status_code == 200, response.text
     previews = client.app.state.previews
     previews.lifetime = 0
     assert client.get(response.json()["images"][0]["url"]).status_code == 404
     assert previews.entries == {}
-    asset = workspace.state.plan(page["runId"]).assets["products/product-1"]
+    asset = workspace.current_composition(cid)["plan"].assets["products/product-1"]
     workspace.storage.path(asset.reference).write_bytes(b"changed source")
-    rejected = client.post(
-        "/api/campaigns/80d58cbe-5e57-5544-9b07-a4f018714dde/text/preview", json=edit
-    )
-    assert rejected.status_code == 409
-    assert workspace.state.run(page["runId"])["current_revision"] == page["currentRevision"]
-    assert len(workspace.revisions(page["runId"])) == 1
-    assert workspace.state.attempts(page["runId"]) == []
+    rejected = client.post(f"/api/campaigns/{cid}/text/preview", json=edit)
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["blocked"] and rejected.json()["images"] == []
+    assert authored_edit(client, cid) == before and workspace.runs(cid) == []
 
 
 def test_oversized_pixel_header_is_rejected_before_decode(ui):

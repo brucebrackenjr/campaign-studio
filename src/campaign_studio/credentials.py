@@ -3,6 +3,7 @@
 import io
 import os
 import stat
+import time
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
@@ -88,6 +89,15 @@ class LocalCredentials:
         self.destination = Path(destination).absolute() if destination is not None else None
         self.managed_by_environment = managed_by_environment
         self.environment = os.environ if environment is None else environment
+        self.loaded_at = time.time() if managed_by_environment and self.current_key() else None
+        self.saved_at = None
+        if (
+            self.destination is not None
+            and not managed_by_environment
+            and not has_link(self.destination)
+        ):
+            with suppress(OSError):
+                self.saved_at = self.destination.stat().st_mtime
 
     def current_key(self):
         return self.environment.get(KEY, "")
@@ -95,6 +105,7 @@ class LocalCredentials:
     def status(self):
         return {
             "available": bool(self.current_key()),
+            "saved_at": self.saved_at,
             "managed_by_environment": self.managed_by_environment,
             "can_save": self.destination is not None and not self.managed_by_environment,
         }
@@ -129,8 +140,8 @@ class LocalCredentials:
                 "credential_file_invalid",
                 "The local .env file needs attention. Correct its syntax before saving a key.",
             )
-        encoded = value.replace("\\", "\\\\").replace("'", "\\'")
-        assignment = f"{KEY}='{encoded}'\n"
+        encoded = value.replace("\\", "\\\\").replace("'", "\\'") if value is not None else ""
+        assignment = f"{KEY}='{encoded}'\n" if value is not None else ""
         result, replaced = [], False
         for item in bindings:
             if item.key != KEY:
@@ -139,7 +150,7 @@ class LocalCredentials:
                 result.append(assignment)
                 replaced = True
             # Remove duplicate assignments so reopening cannot restore an old key.
-        if not replaced:
+        if not replaced and value is not None:
             if text and not text.endswith("\n"):
                 result.append("\n")
             result.append(assignment)
@@ -189,6 +200,10 @@ class LocalCredentials:
                 before = target.stat() if target.exists() else None
                 if before and (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
                     raise OSError("Unsafe credential file")
+                if value is None:
+                    target.unlink(missing_ok=True)
+                    self.environment.pop(KEY, None)
+                    return
                 temporary = target.with_name("key-" + uuid4().hex + ".tmp")
                 with temporary.open("xb") as output:
                     try:
@@ -262,7 +277,34 @@ class LocalCredentials:
                     raise OSError("Credential publication was rolled back") from None
                 # Activation belongs inside the same lock, after both fsyncs.
                 # Already constructed providers retain their original credential.
-                self.environment[KEY] = value
+                if value is None:
+                    self.environment.pop(KEY, None)
+                else:
+                    self.environment[KEY] = value
+
+    def remove(self):
+        if self.managed_by_environment:
+            raise CredentialError(
+                "credential_environment_managed",
+                "This key is managed outside Motif. Remove it from the launch environment "
+                "and restart the app.",
+                409,
+            )
+        if self.destination is None:
+            raise CredentialError(
+                "credential_setup_unavailable",
+                "Local key management is unavailable in this session.",
+            )
+        try:
+            self._persist(None)
+        except OSError, UnicodeError:
+            raise CredentialError(
+                "credential_remove_failed",
+                "The key could not be removed. Check file permissions and try again. "
+                "The running key is unchanged.",
+            ) from None
+        self.saved_at = self.loaded_at = None
+        return {"removed": True, **self.status()}
 
     def save(self, value):
         if (
@@ -292,4 +334,5 @@ class LocalCredentials:
                 "The key could not be saved locally. Check the key file's folder permissions "
                 "and free disk space, then try again. The running key is unchanged.",
             ) from None
+        self.saved_at = time.time()
         return {"saved": True, **self.status()}

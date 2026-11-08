@@ -2,6 +2,7 @@
 
 import asyncio
 from importlib.resources import files
+from uuid import uuid4
 
 from PIL import Image, ImageDraw
 
@@ -11,17 +12,24 @@ from campaign_studio.storage import Storage
 
 
 def write_sample(
-    storage: Storage, product_count: int = 2, one_market: bool = False
+    storage: Storage,
+    product_count: int = 2,
+    one_market: bool = False,
+    *,
+    campaign_id: str | None = None,
 ) -> tuple[str, Brief]:
     if product_count not in (2, 3):
         raise ValueError("Synthetic examples support two or three products.")
     from campaign_studio.state import State
 
     state = State(storage)
-    campaign_id = {
-        2: "80d58cbe-5e57-5544-9b07-a4f018714dde",
-        3: "10a02c18-9114-53ce-beb7-b41293746c84",
-    }[product_count]
+    campaign_id = (
+        campaign_id
+        or {
+            2: "80d58cbe-5e57-5544-9b07-a4f018714dde",
+            3: "10a02c18-9114-53ce-beb7-b41293746c84",
+        }[product_count]
+    )
     state.register_campaign(campaign_id, "Synthetic sample")
     project = storage.project(campaign_id)
     storage.require_capacity(product_count * 1920 * 1920 * 4 + 1_000_000)
@@ -105,44 +113,63 @@ def write_sample(
     return reference, brief
 
 
-def run_sample(storage: Storage, product_count: int = 2, one_market: bool = False) -> dict:
-    """Exercise real local services with synthetic inputs and no provider object."""
-    from campaign_studio.exporting import export_package
+def _exercise_delivery(storage, brief, *, evidence):
+    """Prepare sources, autosave a local correction, reopen, and download a ZIP."""
+    from campaign_studio.delivery import delivery_manifest, prepare_current_zip
     from campaign_studio.planning import compare_plans, make_plan
     from campaign_studio.runner import Runner
     from campaign_studio.state import State
+    from campaign_studio.workspace import TextEdit, Workspace
 
-    _, brief = write_sample(storage, product_count, one_market)
     state = State(storage)
     run_id = state.create(make_plan(brief, storage), allowance=0)
     state.confirm(run_id, state.plan(run_id).digest)
-    runner = Runner(state)
-    result = asyncio.run(runner.execute(run_id))
+    asyncio.run(Runner(state).execute(run_id))
+    workspace = Workspace(state)
+    current = workspace.current_composition(brief.campaign_id)
     corrected = 0
     if "es-MX" in brief.markets:
-        value = state.plan(run_id).brief.model_dump()
-        value["markets"]["es-MX"]["copy"]["message"] = "Para cada movimiento."
-        edited = Brief.model_validate(value)
-        preview = make_plan(edited, storage)
-        corrected = len(compare_plans(state.plan(run_id), preview).render_outputs)
-        result = runner.revise(run_id, edited, result["revision_id"], preview.digest)
-    index = export_package(
-        state, result["revision_id"], storage.project(brief.campaign_id).ref(f"Exports/{run_id}")
-    )
-    return {
-        "evidence": "synthetic-key-free-workflow",
+        workspace.save_composition(
+            brief.campaign_id,
+            TextEdit(
+                revision_id=current["version"],
+                product_id=brief.products[0].id,
+                market="es-MX",
+                ratio="1:1",
+                values={"message": "Para cada movimiento."},
+                field_scopes={"message": "all_products"},
+            ),
+        )
+        changed = workspace.current_composition(brief.campaign_id)
+        corrected = len(compare_plans(current["plan"], changed["plan"]).render_outputs)
+    # A fresh service reads the same saved instructions without rendering images.
+    current = Workspace(State(storage)).current_composition(brief.campaign_id)
+    manifest = delivery_manifest(current)
+    with prepare_current_zip(state, current) as download:
+        handoff_bytes = download.size
+    result = {
+        "evidence": evidence,
         "run_id": run_id,
-        "revision_id": result["revision_id"],
-        "complete": result["complete"],
-        "expected_images": len(result["outputs"]),
-        "completed_images": result["metrics"]["completed_images"],
+        "composition_version": current["version"],
+        "complete": manifest["complete"],
+        "expected_images": manifest["metrics"]["requested_images"],
+        "completed_images": manifest["metrics"]["completed_images"],
         "corrected_images": corrected,
         "provider_requests": len(state.attempts(run_id)),
-        "offline_index": index,
+        "handoff_zip_bytes": handoff_bytes,
     }
+    if brief.replay:
+        result["historical_requests"] = brief.replay.historical_requests
+    return result
 
 
-def write_replay(storage: Storage) -> Brief:
+def run_sample(storage: Storage, product_count: int = 2, one_market: bool = False) -> dict:
+    """Exercise real local services with synthetic inputs and no provider object."""
+    _, brief = write_sample(storage, product_count, one_market, campaign_id=str(uuid4()))
+    return _exercise_delivery(storage, brief, evidence="synthetic-key-free-workflow")
+
+
+def write_replay(storage: Storage, *, campaign_id: str | None = None) -> Brief:
     """Copy curated genuine saved sources; never import private execution records."""
     from campaign_studio.state import State
 
@@ -150,6 +177,9 @@ def write_replay(storage: Storage) -> Brief:
     package = files("campaign_studio").joinpath("resources/replay")
     brief = Brief.model_validate_json(package.joinpath("brief.json").read_bytes())
     value = brief.model_dump()
+    if campaign_id is not None:
+        value["campaign_id"] = campaign_id
+        brief = Brief.model_validate(value)
     holders = [
         value["brand"],
         *[p["source"] for p in value["products"] if p["source"]["role"] != "concept"],
@@ -182,36 +212,9 @@ def write_replay(storage: Storage) -> Brief:
 
 
 def run_replay(storage: Storage) -> dict:
-    """Recompose genuine saved sources, correct copy, reopen, and export without a key."""
-    from campaign_studio.exporting import export_package
-    from campaign_studio.planning import compare_plans, make_plan
-    from campaign_studio.runner import Runner
-    from campaign_studio.state import State
-
-    state = State(storage)
-    brief = write_replay(storage)
-    run_id = state.create(make_plan(brief, storage), allowance=0)
-    state.confirm(run_id, state.plan(run_id).digest)
-    runner = Runner(state)
-    first = asyncio.run(runner.execute(run_id))
-    value = state.plan(run_id).brief.model_dump()
-    value["markets"]["es-MX"]["copy"]["message"] = "Para cada movimiento."
-    edited = make_plan(Brief.model_validate(value), storage)
-    affected = len(compare_plans(state.plan(run_id), edited).render_outputs)
-    runner.revise(run_id, edited.brief, first["revision_id"], edited.digest)
-    result = Runner(State(storage)).recover_local(run_id)
-    index = export_package(
-        state, result["revision_id"], storage.project(brief.campaign_id).ref(f"Exports/{run_id}")
+    """Reuse genuine sources, autosave copy, reopen, and export without a key."""
+    return _exercise_delivery(
+        storage,
+        write_replay(storage, campaign_id=str(uuid4())),
+        evidence="genuine_saved_source_replay",
     )
-    return {
-        "evidence": result["evidence"],
-        "run_id": run_id,
-        "revision_id": result["revision_id"],
-        "complete": result["complete"],
-        "expected_images": len(result["outputs"]),
-        "completed_images": result["metrics"]["completed_images"],
-        "corrected_images": affected,
-        "historical_requests": result["replay"]["historical_requests"],
-        "provider_requests": len(state.attempts(run_id)),
-        "offline_index": index,
-    }

@@ -1,24 +1,25 @@
-"""Selected-revision metadata and registered ZIP artifacts; no production dispatch."""
+"""Review metadata, browser downloads, live previews, and earlier saved packages."""
 
 import hashlib
 import json
+import threading
+from datetime import UTC, datetime
+from io import BytesIO
 from typing import Literal
 from uuid import UUID, uuid4
-from zipfile import BadZipFile, ZipFile
 
 from pydantic import Field
 
 from campaign_studio.brief import Contract
 from campaign_studio.exporting import (
-    dated_payloads,
-    export_package,
-    export_zip,
-    folder_matches,
-    package_payloads,
+    ZipDownload,
+    package_plan,
+    prepare_zip_download,
+    report_document,
     require_export_rules,
-    zipped_payloads,
+    verify_image,
 )
-from campaign_studio.local_files import display_path
+from campaign_studio.planning import canonical_hash
 from campaign_studio.review import CreativeUpdate, RevisionTarget
 from campaign_studio.state import State, StateError
 
@@ -32,9 +33,137 @@ class PackageAction(Contract):
     allow_partial: bool = Field(default=False, strict=True)
 
 
+class DeliveryAction(Contract):
+    version: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    operation_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    allow_partial: bool = Field(default=False, strict=True)
+
+
 class Handoff:
     def __init__(self, state: State):
         self.state = state
+
+    def current_snapshot(self, campaign_id, version):
+        from campaign_studio.workspace import Workspace
+
+        return Workspace(self.state).current_composition(campaign_id, expected_version=version)
+
+    def _jobs(self):
+        return self.state.__dict__.setdefault("delivery_jobs", {})
+
+    def _job_guard(self):
+        return self.state.__dict__.setdefault("delivery_guard", threading.RLock())
+
+    def current_progress(self, campaign_id, operation_id):
+        job = self._jobs().get(operation_id)
+        if job is None or job.campaign_id != campaign_id or job.closed:
+            return {"stage": None, "status": "unavailable"}
+        return job.view()
+
+    def cancel_current_delivery(self, campaign_id, operation_id):
+        job = self._jobs().get(operation_id)
+        if job is not None and job.campaign_id == campaign_id:
+            job.cancel()
+        return {"status": "cancelled"}
+
+    def create_current_zip(self, campaign_id, action: DeliveryAction):
+        from campaign_studio.campaign_drafts import read as read_draft
+        from campaign_studio.cleanup import require_campaign_available
+        from campaign_studio.delivery_jobs import DeliveryJob
+
+        operation_id = action.operation_id or uuid4().hex
+        jobs = self._jobs()
+        with self._job_guard():
+            job = jobs.get(operation_id)
+            try:
+                require_campaign_available(self.state.storage, campaign_id)
+            except StateError:
+                if job is not None and job.campaign_id == campaign_id:
+                    job.cancel()
+                raise
+            if job is not None:
+                if job.campaign_id != campaign_id:
+                    raise StateError("This download belongs to another campaign.")
+                if job.active or job.status == "ready":
+                    raise StateError(
+                        "This download is already being prepared or sent.", code="busy"
+                    )
+                current = read_draft(self.state.storage, campaign_id)
+                if (
+                    not current
+                    or current["version"] != job.snapshot["version"]
+                    or action.version != job.snapshot["version"]
+                    or action.allow_partial != job.allow_partial
+                ):
+                    job.close()
+                    raise StateError(
+                        "This campaign changed after the download started. Start a new download "
+                        "to use the current saved settings.",
+                        code="composition_conflict",
+                    )
+            else:
+                for previous in list(jobs.values()):
+                    if previous.active or previous.status == "ready":
+                        raise StateError(
+                            "Another download is still being prepared or sent. Try again shortly.",
+                            code="busy",
+                        )
+                    previous.close()
+                snapshot = self.current_snapshot(campaign_id, action.version)
+                job = DeliveryJob(
+                    self.state,
+                    snapshot,
+                    operation_id,
+                    allow_partial=action.allow_partial,
+                    on_close=lambda finished: jobs.pop(finished.operation_id, None),
+                )
+                jobs[operation_id] = job
+        return job.run()
+
+    def create_current_preview(self, campaign_id, action: DeliveryAction):
+        from campaign_studio.delivery import delivery_manifest
+
+        snapshot = self.current_snapshot(campaign_id, action.version)
+        manifest = delivery_manifest(snapshot, allow_partial=action.allow_partial)
+        created = int(datetime.now(UTC).timestamp())
+        fingerprint = self.preview_fingerprint(manifest, created)
+        return {
+            "url": (
+                f"/reports/current/{campaign_id}/{action.version}/"
+                f"{int(action.allow_partial)}/{created}/{fingerprint}/index.html"
+            )
+        }
+
+    def current_preview_file(
+        self, campaign_id, version, allow_partial, created, fingerprint, reference
+    ):
+        from campaign_studio.delivery import current_image, delivery_manifest, document
+
+        snapshot = self.current_snapshot(campaign_id, version)
+        manifest = delivery_manifest(snapshot, allow_partial=allow_partial)
+        if self.preview_fingerprint(manifest, created) != fingerprint:
+            raise StateError(
+                "This campaign changed. Reopen the report from Handoff to see the current images.",
+                code="stale_report",
+            )
+        manifest["preview"] = True
+        if reference in {"index.html", "manifest.json"}:
+            return document(snapshot, manifest, reference)
+        for item in manifest["outputs"]:
+            if item["file"] == reference:
+                return current_image(self.state, snapshot, item["id"], preview=True)[0]
+        raise StateError("This file is not part of the report.", code="report_not_found")
+
+    def current_png(self, campaign_id, output_id, version):
+        from campaign_studio.delivery import current_image
+
+        # Detached-upload cleanup must not remove an input between this export's
+        # saved-version check and its capture of the actual source bytes.
+        with self._job_guard():
+            payload, filename = current_image(
+                self.state, self.current_snapshot(campaign_id, version), output_id
+            )
+        return ZipDownload(filename, BytesIO(payload), len(payload))
 
     def metadata(self, target: RevisionTarget) -> dict:
         return self.state.metadata_snapshot(target.revision_id, target=target)
@@ -47,148 +176,80 @@ class Handoff:
             target.revision_id, creative_id, update, target=target, include_snapshot=True
         )
 
-    @staticmethod
-    def package_summary(target, action, manifest):
-        return {
-            "revision_id": target.revision_id,
-            "snapshot_id": action.snapshot_id,
-            "complete": manifest["complete"],
-            "included": sum(bool(item["file"]) for item in manifest["outputs"]),
-            "omitted": sum(not item["file"] for item in manifest["outputs"]),
-        }
-
     def require_snapshot(self, target, action):
         if self.metadata(target)["snapshot_id"] != action.snapshot_id:
             raise StateError("This version changed in another tab. Reload it before exporting.")
 
-    def create_zip(self, target: RevisionTarget, action: PackageAction) -> dict:
+    def create_zip(self, target: RevisionTarget, action: PackageAction) -> ZipDownload:
         with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
             self.state.require_current_output(target)
-            require_export_rules(self.state, target.campaign_id, target.revision_id)
-            # Publication cannot race this lock. The selected output may predate
-            # an unstarted plan, while its metadata snapshot remains authoritative.
-            target = target.model_copy(update={"mode": "saved_version"})
-            self.state.require_images(target.revision_id)
-            self.metadata(target)
-            payloads = package_payloads(
+            download = prepare_zip_download(
                 self.state,
                 target.revision_id,
                 allow_partial=action.allow_partial,
                 expected_snapshot=action.snapshot_id,
             )
-            manifest = json.loads(payloads["manifest.json"])
-            result = {
-                **self.package_summary(target, action, manifest),
-                "filename": manifest["package_name"] + ".zip",
-            }
-            # A snapshot alone is insufficient: the report format can change.
-            # Compare the exact safe entries, including the newly rendered HTML.
-            for package in self.state.packages_for_snapshot(target, action.snapshot_id):
-                try:
-                    path = self.state.storage.path(package["reference"])
-                    if hashlib.sha256(path.read_bytes()).hexdigest() != package["sha256"]:
-                        continue
-                    with ZipFile(path) as archive:
-                        root = manifest["package_name"]
-                        created_at = json.loads(archive.read(f"{root}/manifest.json"))[
-                            "report_created_at"
-                        ]
-                        expected = dated_payloads(
-                            self.state, target.revision_id, payloads, created_at
-                        )
-                        expected = zipped_payloads(expected)
-                        intact = sorted(archive.namelist()) == sorted(expected) and all(
-                            archive.read(name) == data for name, data in expected.items()
-                        )
-                    if intact:
-                        self.require_snapshot(target, action)
-                        return {**result, "artifact_id": package["id"]}
-                except OSError, ValueError, TypeError, KeyError, BadZipFile:
-                    continue
-            for _ in range(100):
-                reference = self.state.storage.project(target.campaign_id).ref(
-                    f"Exports/archives/{uuid4().hex}.zip"
-                )
-                if not self.state.storage.path(reference).exists():
-                    break
-            else:
-                raise StateError("A new package identity could not be reserved. Try again.")
-            published = False
-            self.require_snapshot(target, action)
+            # Descriptions can change while PNGs are read. Discard an out-of-date
+            # package before returning an independent stream to the browser.
             try:
-                export_zip(
-                    self.state,
-                    target.revision_id,
-                    reference,
-                    payloads=dated_payloads(self.state, target.revision_id, payloads),
-                )
-                published = True
-                path = self.state.storage.path(reference)
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                artifact_id = self.state.register_package(
-                    target, reference, digest, action.snapshot_id
-                )
+                self.require_snapshot(target.model_copy(update={"mode": "saved_version"}), action)
             except BaseException:
-                if published:
-                    self.state.storage.path(reference).unlink(missing_ok=True)
+                download.close()
                 raise
-            return {**result, "artifact_id": artifact_id}
+            return download
 
-    def create_folder(self, target: RevisionTarget, action: PackageAction) -> dict:
+    def create_preview(self, target: RevisionTarget, action: PackageAction) -> dict:
         with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
             self.state.require_current_output(target)
-            require_export_rules(self.state, target.campaign_id, target.revision_id)
-            target = target.model_copy(update={"mode": "saved_version"})
-            self.state.require_images(target.revision_id)
-            self.metadata(target)
-            payloads = package_payloads(
+            _, manifest, images = package_plan(
                 self.state,
                 target.revision_id,
                 allow_partial=action.allow_partial,
                 expected_snapshot=action.snapshot_id,
             )
-            # This identifies the complete sanitized report, not just its pixels.
-            name = json.loads(payloads["manifest.json"])["package_name"]
-            base = self.state.storage.project(target.campaign_id).ref(f"Exports/{name}")
-            for suffix in range(100):
-                destination = base if suffix == 0 else f"{base}-{suffix}"
-                try:
-                    saved = json.loads(
-                        self.state.storage.path(f"{destination}/manifest.json").read_bytes()
-                    )
-                    expected = dated_payloads(
-                        self.state, target.revision_id, payloads, saved["report_created_at"]
-                    )
-                    intact = folder_matches(self.state, destination, expected)
-                except OSError, ValueError, TypeError, KeyError:
-                    intact = False
-                self.require_snapshot(target, action)
-                if intact:
-                    break
-                if not self.state.storage.path(destination).exists():
-                    export_package(self.state, target.revision_id, destination, payloads=payloads)
-                    break
-            else:
-                raise StateError("Existing package copies need attention before creating another.")
-            reference = f"{destination}/index.html"
-            digest = hashlib.sha256(
-                self.state.storage.path(f"{destination}/manifest.json").read_bytes()
-                + self.state.storage.path(reference).read_bytes()
-            ).hexdigest()
-            report_id = self.state.report_for_reference(reference, digest)
-            if report_id is None:
-                report_id = self.state.register_package(
-                    target, reference, digest, action.snapshot_id
-                )
-            return {
-                **self.package_summary(target, action, json.loads(payloads["manifest.json"])),
-                "location": display_path(self.state.storage.path(destination)),
-                "url": f"/reports/{report_id}/index.html",
-            }
+            # Verify all the PNGs once before offering a complete report. Each GET
+            # subsequently verifies only the file it will actually serve.
+            for _, reference, digest in images:
+                verify_image(self.state.storage, reference, digest)
+            created = int(datetime.now(UTC).timestamp())
+            fingerprint = self.preview_fingerprint(manifest, created)
+            self.require_snapshot(target.model_copy(update={"mode": "saved_version"}), action)
+            url = (
+                f"/reports/preview/{target.campaign_id}/{target.run_id}/{target.revision_id}/"
+                f"{int(action.allow_partial)}/{created}/{fingerprint}/index.html"
+            )
+            return {"url": url}
+
+    @staticmethod
+    def preview_fingerprint(manifest: dict, created: int) -> str:
+        manifest["report_created_at"] = datetime.fromtimestamp(created, UTC).isoformat()
+        return canonical_hash(manifest)
+
+    def preview_file(self, target, allow_partial, created, fingerprint, reference):
+        stale = StateError(
+            "This campaign changed. Reopen the report from Handoff to see the current images.",
+            code="stale_report",
+        )
+        with self.state.storage.exclusive_run(), self.state.storage.exclusive_draft():
+            if self.state.current_output(target.campaign_id) != (target.run_id, target.revision_id):
+                raise stale
+            revision, manifest, images = package_plan(
+                self.state, target.revision_id, allow_partial=allow_partial
+            )
+            if self.preview_fingerprint(manifest, created) != fingerprint:
+                raise stale
+            if reference in {"index.html", "manifest.json"}:
+                return report_document(self.state, revision, manifest, reference)
+            for name, path, digest in images:
+                if name == reference:
+                    with BytesIO() as image:
+                        verify_image(self.state.storage, path, digest, copy_to=image)
+                        return image.getvalue()
+            raise StateError("This file is not part of the report.", code="report_not_found")
 
     def report_file(self, report_id: str, reference: str) -> bytes:
         missing = StateError(
-            "This report is unavailable. Open Handoff to create a report.",
+            "This report is unavailable. Open Handoff to preview the current report.",
             code="report_not_found",
         )
         try:
@@ -218,7 +279,8 @@ class Handoff:
                 intact = False
             if not intact:
                 raise StateError(
-                    "This saved report is missing or changed. Create it again in Handoff."
+                    "This saved report is missing or changed. "
+                    "Open Handoff to preview the current report."
                 )
             if reference == "index.html":
                 return html
@@ -234,7 +296,8 @@ class Handoff:
                 intact = False
             if not intact:
                 raise StateError(
-                    "A report image is missing or changed. Create the report again in Handoff."
+                    "A saved report image is missing or changed. "
+                    "Open Handoff to preview the current report."
                 )
             return payload
 
@@ -254,7 +317,7 @@ class Handoff:
         if not intact:
             raise StateError(
                 "This ZIP package is missing or changed. "
-                "Create a new package from the saved version."
+                "Open Handoff to download the current images."
             )
         # Serve the very bytes verified above, without reopening a mutable path later.
         return payload

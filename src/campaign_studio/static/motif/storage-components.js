@@ -78,6 +78,9 @@ window.MotifStorage = (() => {
       case "image-color-profile": return modal("Use an sRGB copy.",
         note("This image needs a supported color profile.", `${d.filename} has a missing or unsupported color profile.`, "block") + `<p id="storage-description">Open the original in its source editor, convert it to sRGB, and export a new ${imageFormat} with the sRGB profile embedded. Then choose that copy.</p>${logoInput ? '<p class="small muted" style="margin-top:12px">Transparency is optional. Preserve the intended artwork background.</p>' : ""}` + preserved(d),
         button("Keep my work", "return-product") + button("Choose another image", "choose-image", "primary"), "return-product");
+      case "image-transparent": return modal("This image has transparent areas.",
+        '<p id="storage-description">Product images need a solid background with no transparent areas. Select a different PNG or JPEG.</p>',
+        button("Close", "return-product", "primary"), "return-product");
       case "image-empty": return modal("Choose visible logo artwork.",
         note("This logo has no visible artwork.", "Choose a visible PNG or JPEG. Transparency is optional.", "block") + preserved(d),
         button("Keep my work", "return-product") + button("Choose another image", "choose-image", "primary"), "return-product");

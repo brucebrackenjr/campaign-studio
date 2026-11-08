@@ -50,18 +50,48 @@ function currentPreparation() {
     (productionPreparation.status === "pending" || productionPreparation.basis === JSON.stringify(currentBriefValue()))
     ? productionPreparation : null;
 }
+function productionNeedsRun() {
+  const retainedSourceRecovery = !!model.local_recovery?.saved_result;
+  return (!model.run?.id || (model.run.state === "complete" && !retainedSourceRecovery)) &&
+    !!model.plan?.generation_products?.length;
+}
+async function boundedEstimateRequest(action, milliseconds = 30000) {
+  const controller = new AbortController();
+  let timer;
+  const expired = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("The estimate is taking longer than expected. Try again. No image generation has started."));
+    }, milliseconds);
+  });
+  try { return await Promise.race([action(controller.signal), expired]); }
+  finally { clearTimeout(timer); }
+}
 function ensureProductionPlan() {
   if (page !== "production" || modal || busy || !draft?.products.length || operation?.active ||
       currentPreparation()?.status === "pending" || getSaveState()?.problem) return;
   if (currentPreparation()?.status === "error") return;
-  if (!dirty && model.plan && !model.unplanned_draft) return;
+  // An imported campaign can already have a composition preview plan without
+  // a production run. Generation still needs its own confirmed run record.
+  if (!dirty && model.plan && !productionNeedsRun() && !model.unplanned_draft) return;
   prepareCurrentPlan();
+}
+function productionCredentialState() {
+  const code = operation?.notice_code || model?.notice?.code;
+  const authentication = ["rejected_key", "access_denied"].includes(code);
+  const last = (operation?.attempts || model?.run_attempts || []).at(-1);
+  const attemptedAt = Date.parse(last?.created_at || "");
+  const savedAt = typeof keySavedAt === "number" ? keySavedAt * 1000 : 0;
+  const keyUpdated = authentication && keyAvailable && Number.isFinite(attemptedAt) && savedAt > attemptedAt;
+  const keyReloaded = authentication && keyAvailable && Number.isFinite(attemptedAt) &&
+    typeof keyLoadedAt === "number" && keyLoadedAt * 1000 > attemptedAt;
+  return { credentialIssue: authentication && !keyUpdated && !keyReloaded ? code : !keyAvailable ? "missing_key" : null, keyUpdated, keyReloaded };
 }
 function productionContext() {
   const activity = operation?.run_id === model.run?.id ? operation : null;
   const active = !!activity?.active;
   const retry = activeRetry(), proposal = activeBlockedProposal(), preparation = currentPreparation();
-  const pending = !active && (dirty || model.unplanned_draft || !model.plan || !!proposal);
+  const pending = !active && (dirty || model.unplanned_draft || !model.plan || productionNeedsRun() || !!proposal);
   // Product management always reflects the current campaign. Only the action
   // panel uses a reviewed plan; existing accepted images remain separate.
   const value = currentBriefValue();
@@ -69,8 +99,8 @@ function productionContext() {
     ...model.plan, generation_products: retry.generation_products,
     cost_estimate: retry.cost_estimate,
   } : model.plan;
-  const results = !pending && model.output_run_id === model.run?.id &&
-    !["planned", "confirmed"].includes(model.run?.state);
+  const results = !pending && (!!model.composition_version || (!!model.run &&
+    model.output_run_id === model.run.id && !["planned", "confirmed"].includes(model.run.state)));
   const outputs = model.manifest?.outputs || [];
   const attempts = activity?.attempts || model.run_attempts || [];
   const findings = proposal?.findings || (pending ? [] : plan?.findings) || [];
@@ -88,8 +118,11 @@ function productionContext() {
     if (assetFailed) { image = null; sourceLabel = "Replace the unavailable photo"; }
     else if (!pending && (active || results) && attempt) {
       if (attempt.source_available) {
-        image = `/campaigns/${value.campaign_id}/sources/${product.id}/1x1`;
-        sourceLabel = "Saved generated image";
+        // A decoded response is counted immediately, but the current source URL
+        // is published after source preparation finishes. Do not invent a URL
+        // for the interval while another product's request is still running.
+        image = model.source_urls?.[product.id] || image;
+        sourceLabel = image ? "Saved generated image" : "Source image received";
       } else if (attempt.state === "dispatching" && active) sourceLabel = "Generating image…";
       else if (["unknown", "dispatching"].includes(attempt.state)) sourceLabel = "Result not confirmed";
       else if (attempt.response_recoverable) sourceLabel = "Result saved for recovery";
@@ -101,7 +134,9 @@ function productionContext() {
       description: concept ? product.source.description : product.description,
       mode: concept ? "concept" : "photo", image, sourceLabel,
       filename: product.source.path?.split("/").pop() || "", requested,
-      outputSummary: saved ? saved === expected ? `${saved} saved ${saved === 1 ? "image" : "images"}` : `${saved} of ${expected} saved` : "No saved images",
+      outputSummary: model.composition_version
+        ? saved ? `${saved} ${saved === 1 ? "preview" : "previews"}` : "No preview available"
+        : saved ? saved === expected ? `${saved} saved ${saved === 1 ? "image" : "images"}` : `${saved} of ${expected} saved` : "No saved images",
     };
   });
   const supplied = products.filter(product => product.mode === "photo" && product.image).length;
@@ -113,6 +148,8 @@ function productionContext() {
     requests ? `${requests} ${requests === 1 ? "image will" : "images will"} be generated` : "",
   ].filter(Boolean).join(" · ") : `${products.length} ${products.length === 1 ? "product" : "products"} selected`;
   return { value, products, markets, plan, pending, active, retry, proposal, preparation, results, sourceSummary,
+    ...(requests || active ? productionCredentialState() : { credentialIssue: null, keyUpdated: false, keyReloaded: false }),
+    resumeGeneration: !active && !!model.retry_plan, resumeAction: "resumeGeneration",
     blocked: findings.some(finding => finding.severity === "blocking"),
     total: products.length * markets.length * FMT.length,
     complete: results && !!model.manifest?.complete && !damagedFiles(),
@@ -139,7 +176,7 @@ async function reviewRetryPlan() {
 }
 async function startDisplayedPlan() {
   const context = productionContext();
-  if (context.pending || context.blocked || context.active || currentPreparation()?.status === "pending")
+  if (!model.run?.id || !model.plan || context.pending || context.blocked || context.active || currentPreparation()?.status === "pending")
     throw new Error("The current plan is not ready. Check the updated estimate before generating images.");
   if (Object.keys(displayedPlan()?.generation_requests || {}).length && !keyAvailable) {
     await openKeySetup();
@@ -349,6 +386,8 @@ function productionRecoveryModal() {
 function showProductionIssue(code, message, capacity = null) {
   if (code === "storage_capacity")
     return showCapacity({ capacity }, "Completing this image operation");
+  if (["rejected_key", "access_denied"].includes(code) &&
+      (productionCredentialState().keyUpdated || productionCredentialState().keyReloaded)) return false;
   if (["missing_key", "rejected_key", "access_denied"].includes(code)) {
     openKeySetup(code !== "missing_key", code === "access_denied" ? message : null).catch(error => toast(error.message));
     return true;

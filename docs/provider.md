@@ -1,6 +1,6 @@
 # Image generation, cost, and recovery
 
-The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, revisions, costs, or the local workflow.
+The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. In Motif 0.3.0, confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
 
 ## Request contract
 
@@ -20,9 +20,9 @@ Before generation, the plan uses the selected settings and estimated token usage
 
 The runner records dispatch intent before calling the provider. Automatic SDK retries are disabled because the application owns attempt accounting. A timeout can leave the remote outcome uncertain; it does not prove that generation stopped or that no charge occurred.
 
-The adapter saves returned material privately before decoding the image. If a valid image cannot be written locally, or later composition fails, local recovery can reuse that material without buying another generation. A response containing an unusable image retains its receipt and usage, but is not offered as reconstructable imagery. Failed and uncertain attempts remain recorded and consume allowance. A further paid attempt requires a deliberate reviewed action.
+The adapter saves returned material privately before decoding the image. If a returned source cannot be decoded or written locally, recovery can use the saved response without buying another generation. A later export failure is separate: the producer retries Download ZIP using the already saved source and editing instructions. Export does not contact the provider, and an unsuccessful export does not replace or erase those saved instructions. A response containing an unusable image retains its receipt and usage, but is not offered as reconstructable imagery. Failed and uncertain attempts remain recorded and consume allowance. A further paid attempt requires a deliberate reviewed action.
 
-Missing, expired, revoked, or rejected credentials produce a useful next step. They do not remove saved campaigns or prevent compatible local correction and export, subject to ordinary source-integrity and prohibited-wording gates. A local server cannot know a key is accepted until the relevant provider operation checks it; it does not make background paid requests just to test credentials.
+Missing, expired, revoked, or rejected credentials produce a useful next step. They do not remove saved campaigns or prevent compatible local correction and export, subject to ordinary source-integrity and prohibited-wording gates. After a replacement key is saved, **Resume generation** opens a short confirmation of the products, new request count, and estimate. Confirmation starts the retry; saving the key alone does not. Production keeps its current progress and action together, with prompts and request details available in a collapsed section. A local server cannot know a key is accepted until the relevant provider operation checks it; it does not make background paid requests just to test credentials.
 
 Mock-transport tests cover request serialization, duplicate starts, failure accounting, deadline cleanup, stop behavior, interrupted attempts, and saved-response recovery. Those tests establish application behavior, while the separately recorded live run establishes actual provider integration. Neither replaces inspection of the resulting images.
 

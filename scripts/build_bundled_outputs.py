@@ -10,16 +10,19 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
+from zipfile import ZipFile
 
 import PIL
 
 from campaign_studio import __version__
 from campaign_studio.brief import Brief
 from campaign_studio.bundled_outputs import PIXEL_RULES, prepared_font_hashes
+from campaign_studio.delivery import prepare_current_zip
 from campaign_studio.planning import canonical_hash, make_plan
 from campaign_studio.runner import Runner
 from campaign_studio.state import State
 from campaign_studio.storage import Storage
+from campaign_studio.workspace import Workspace
 
 
 def build_prepared_outputs(resources, entry, storage):
@@ -46,41 +49,54 @@ def build_prepared_outputs(resources, entry, storage):
         raise ValueError("Prepared examples must use complete supplied sources and valid copy.")
     run_id = state.create(plan, 0)
     state.confirm(run_id, state.plan(run_id).digest)
-    manifest = asyncio.run(Runner(state).execute(run_id))
-    if not manifest["complete"] or state.attempts(run_id):
-        raise ValueError("The example must finish without provider requests.")
-    plan = state.plan(run_id)
-    prefix = storage.path(state.revision(manifest["revision_id"])["manifest_ref"]).parent
+    source_result = asyncio.run(Runner(state).execute(run_id))
+    if not source_result["complete"] or state.attempts(run_id):
+        raise ValueError("The example must prepare its sources without provider requests.")
+    snapshot = Workspace(state).current_composition(plan.brief.campaign_id)
+    plan = snapshot["plan"]
     records = []
+    payloads = {}
+    with prepare_current_zip(state, snapshot) as download, ZipFile(download.stream) as archive:
+        manifest_name = next(name for name in archive.namelist() if name.endswith("/manifest.json"))
+        manifest = json.loads(archive.read(manifest_name))
+        prefix = manifest["package_name"]
+        by_id = {item["id"]: item for item in manifest["outputs"]}
+        for output in plan.outputs:
+            item = by_id[output.id]
+            relative = (
+                f"{entry['slug']}/outputs/{output.product_id}/"
+                f"{output.ratio.replace(':', 'x')}/{output.market}.png"
+            )
+            payload = archive.read(f"{prefix}/{item['file']}")
+            checks = [
+                finding
+                for finding in manifest["findings"]
+                if finding["item"] == output.id and finding["rule"] in PIXEL_RULES
+            ]
+            if hashlib.sha256(payload).hexdigest() != item["sha256"] or any(
+                finding["severity"] != "pass" for finding in checks
+            ):
+                raise ValueError("An example output failed its recorded integrity checks.")
+            payloads[relative] = payload
+            records.append(
+                {
+                    "output": output.model_dump(mode="json"),
+                    "file": relative,
+                    "bytes": len(payload),
+                    "sha256": item["sha256"],
+                    "pixel_sha256": item["pixel_sha256"],
+                    "findings": checks,
+                }
+            )
+    # Resource fixtures change only after the complete temporary delivery passes.
+    # No finished output is written into the build workspace's campaign directory.
     output_root = resources / entry["slug"] / "outputs"
     if output_root.exists():
-        shutil.rmtree(output_root)  # This fixed resource folder contains only derived PNGs.
-    for item, output in zip(manifest["outputs"], plan.outputs, strict=True):
-        relative = (
-            f"{entry['slug']}/outputs/{output.product_id}/"
-            f"{output.ratio.replace(':', 'x')}/{output.market}.png"
-        )
-        payload = (prefix / item["file"]).read_bytes()
+        shutil.rmtree(output_root)
+    for relative, payload in payloads.items():
         target = resources / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
-        checks = [
-            f for f in manifest["findings"] if f["item"] == output.id and f["rule"] in PIXEL_RULES
-        ]
-        if hashlib.sha256(payload).hexdigest() != item["sha256"] or any(
-            f["severity"] != "pass" for f in checks
-        ):
-            raise ValueError("An example output failed its recorded integrity checks.")
-        records.append(
-            {
-                "output": output.model_dump(mode="json"),
-                "file": relative,
-                "bytes": len(payload),
-                "sha256": item["sha256"],
-                "pixel_sha256": item["pixel_sha256"],
-                "findings": checks,
-            }
-        )
     descriptor = {
         "version": 1,
         "brief_sha256": canonical_hash(original),

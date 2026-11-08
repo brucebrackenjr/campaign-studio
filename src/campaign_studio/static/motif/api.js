@@ -20,9 +20,28 @@ const FMT = [
 ];
 function decodedImage(url) {
   if (!url) return Promise.reject(new Error("Image unavailable"));
+  const cache = typeof studioPreviewCache === "function" ? studioPreviewCache() : null;
+  if (cache?.images.has(url)) return cache.images.get(url);
   const image = new Image();
   image.src = url;
-  return image.decode().then(() => image);
+  const decoding = image.decode().then(() => {
+    if (cache) {
+      cache.readyImages.add(image.src);
+      while (cache.readyImages.size > 8) cache.readyImages.delete(cache.readyImages.values().next().value);
+    }
+    return image;
+  }).catch(error => {
+    if (cache?.images.get(url) === decoding) {
+      cache.images.delete(url);
+      cache.requests.clear();
+    }
+    throw error;
+  });
+  if (cache) {
+    cache.images.set(url, decoding);
+    while (cache.images.size > 8) cache.images.delete(cache.images.keys().next().value);
+  }
+  return decoding;
 }
 let productLimit = Number(document.body.dataset.cap);
 let setupNotice = null;
@@ -45,9 +64,11 @@ let dirty = false,
   lastFocus = null,
   operation = null,
   keyAvailable = false,
+  keySavedAt = null,
+  keyLoadedAt = null,
   busy = false;
 
-async function api(path, body, options = {}) {
+async function apiResponse(path, body, options = {}) {
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers:
@@ -60,8 +81,8 @@ async function api(path, body, options = {}) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     ...options,
   });
-  const data = await response.json();
   if (!response.ok) {
+    const data = await response.json().catch(() => ({ message: "The server could not complete this request. Try again." }));
     const fields = [...new Set((data.field_errors || []).map(
       (f) => `${f.label}: ${f.message}`,
     ))];
@@ -80,7 +101,39 @@ async function api(path, body, options = {}) {
     error.project_state = data.project_state;
     throw error;
   }
-  return data;
+  return response;
+}
+
+async function api(path, body, options = {}) {
+  // Only read-only, exact preview requests can be reused during this target visit.
+  // Writes and target/version changes always reach the server's existing guards.
+  const cache = /\/(?:text|framing|logo)\/preview$/.test(path) && body &&
+    typeof studioPreviewCache === "function" ? studioPreviewCache() : null;
+  const key = cache && JSON.stringify([path, body]);
+  const cached = cache?.requests.get(key);
+  if (cached && Date.now() - cached.created < 60000 && !options.signal?.aborted) {
+    // Preview files have a shorter server lifetime than the page. Validate any
+    // evicted layer before reuse, and regenerate once if that file has expired.
+    const urls = new Set();
+    const collect = value => {
+      if (!value || typeof value !== "object") return;
+      for (const [key, item] of Object.entries(value)) {
+        if ((key === "url" || key.endsWith("_url")) && typeof item === "string") urls.add(item);
+        else if (typeof item === "object") collect(item);
+      }
+    };
+    collect(cached.result.images);
+    try {
+      await Promise.all([...urls].map(decodedImage));
+      if (!options.signal?.aborted) return copy(cached.result);
+    } catch { cache.requests.delete(key); }
+  }
+  const result = await (await apiResponse(path, body, options)).json();
+  if (cache && !options.signal?.aborted && cache === studioPreviewCache()) {
+    cache.requests.set(key, { result: copy(result), created: Date.now() });
+    while (cache.requests.size > 4) cache.requests.delete(cache.requests.keys().next().value);
+  }
+  return result;
 }
 
 function assetURL(reference, productId = null) {
@@ -148,7 +201,7 @@ function viewModel() {
     products: value.products.map((p) => {
       const product = productDetails(p);
       if (["review", "handoff"].includes(page) && model?.manifest)
-        product.image = `/campaigns/${value.campaign_id}/runs/${model.output_run_id}/revisions/${model.manifest.revision_id}/sources/${p.id}`;
+        product.image = model.source_urls?.[p.id] || `/campaigns/${value.campaign_id}/runs/${model.output_run_id}/revisions/${model.manifest.revision_id}/sources/${p.id}`;
       return product;
     }),
     copy: {},
@@ -224,6 +277,14 @@ async function refreshCatalog() {
   pendingCleanup = result.pending_cleanup || [];
   productLimit = result.product_limit;
   keyAvailable = result.key_available;
+  keySavedAt = result.key_saved_at || null;
+  keyLoadedAt = result.key_loaded_at || null;
+}
+function campaignNeedsImage() {
+  return (model?.value?.products || draft?.products || []).some(product => model?.editable_products
+    ? !model.editable_products[product.id]
+    : !model?.source_urls?.[product.id] && !model?.concept_previews?.[product.id] &&
+      (product.source?.role === "concept" || !product.source?.path));
 }
 async function openCampaign(id, target = null) {
   closeModal();
@@ -248,7 +309,7 @@ async function openCampaign(id, target = null) {
     if (status.run_id === runId) operation = status;
   }
   const savedPage = model.project?.authored.ui_context?.page;
-  page = target || (["campaign", "production", "review", "handoff"].includes(savedPage)
+  page = target || (campaignNeedsImage() ? "production" : ["campaign", "production", "review", "handoff"].includes(savedPage)
     ? savedPage : model.manifest ? "review" : "campaign");
   if (page === "library") page = model.manifest ? "review" : "campaign";
   if (page === "review" && model.project?.authored.ui_context?.page !== "review") {
@@ -395,7 +456,8 @@ function creative(product = 0, language = lang, format = 0, extra = "") {
   const output = outputFor(product, language, format);
   if (!output?.url) {
     const withheld = model?.rule_withheld_outputs?.includes(output?.id);
-    return `<div class="missing-tile"><strong>${withheld ? "Image withheld by current rules." : "Image not available"}</strong><p class="small">${esc(withheld ? "Correct the prohibited wording above to update this image." : operation?.notice_code === "source_unavailable" ? "Replace the unavailable source in Production before rebuilding this image." : output?.omission || "Create campaign images before reviewing this format.")}</p></div>`;
+    const layout = layoutFindingsFor(output);
+    return `<div class="missing-tile"><strong>${layout.length ? "Layout needs attention" : withheld ? "Image withheld by current rules." : "Image not available"}</strong><p class="small">${esc(layout.length ? layout.map(finding => finding.evidence).join(" ") : withheld ? "Correct the prohibited wording above to update this image." : operation?.notice_code === "source_unavailable" ? "Replace the unavailable source in Production before rebuilding this image." : output?.omission || "Create campaign images before reviewing this format.")}</p></div>`;
   }
   const description =
     C.descriptions[`${C.products[product].id}-${language}-${format}`];

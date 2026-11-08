@@ -53,7 +53,7 @@ class FontProblem(ImageProblem):
         super().__init__(
             "The bundled composition font is missing or unreadable. "
             "Reinstall Motif – Campaign Studio to restore it, then try again. "
-            "Existing saved images remain available."
+            "Your campaign settings and source images are unchanged."
         )
 
 

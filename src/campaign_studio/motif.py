@@ -15,12 +15,11 @@ from PIL import Image
 from pydantic import Field, ValidationError
 
 from campaign_studio.authored import AuthoredProjects, AuthoredSave
-from campaign_studio.brand_updates import BrandUpdate, BrandUpdates
+from campaign_studio.brand_updates import BrandUpdate
 from campaign_studio.brief import Brief, CampaignID, Contract
 from campaign_studio.brief_preview import BriefPreview
 from campaign_studio.cleanup import Cleanup, require_campaign_available
 from campaign_studio.costing import estimate_requests
-from campaign_studio.exporting import logo_export_issue, wording_export_issue
 from campaign_studio.imaging import FontProblem, require_font
 from campaign_studio.intake import BriefDraft, Intake
 from campaign_studio.planning import canonical_hash
@@ -30,7 +29,7 @@ from campaign_studio.state import StateError
 from campaign_studio.storage import StorageError
 from campaign_studio.text_limits import LIMITS, browser_contract
 from campaign_studio.validation import field_issue
-from campaign_studio.workspace import ActionError, image_url, provider_notice
+from campaign_studio.workspace import ActionError, provider_notice
 
 
 @lru_cache(maxsize=512)
@@ -56,20 +55,12 @@ def display_output_intact(storage, prefix, output):
 
 
 def workbench_outputs(workspace, campaign_id):
-    """Summarize the current outputs opening this card will actually display."""
-    current = workspace.state.current_output(campaign_id)
-    if current is None:
+    try:
+        data = campaign_data(workspace, campaign_id)
+        manifest = data["manifest"]
+        return manifest, [o for o in (manifest or {}).get("outputs", []) if o.get("url")], 0
+    except ValueError, OSError:
         return None, [], 0
-    selected = workspace.state.revision(current[1])
-    manifest = workspace.manifest(workspace.state.run(selected["run_id"]), selected["id"])
-    prefix = selected["manifest_ref"].rsplit("/", 1)[0]
-    available = [
-        item
-        for item in manifest["outputs"]
-        if display_output_intact(workspace.storage, prefix, item)
-    ]
-    damaged = sum(bool(item["file"]) for item in manifest["outputs"]) - len(available)
-    return manifest, available, damaged
 
 
 class NewCampaign(Contract):
@@ -130,7 +121,7 @@ def workbench_card(ws, entry):
     source = first_product.get("source") if first_product else None
     source = source if isinstance(source, dict) else {}
     attempts = ws.state.attempts(run["id"]) if run else []
-    manifest, outputs, damaged = workbench_outputs(ws, entry["id"]) if run else (None, [], 0)
+    manifest, outputs, damaged = workbench_outputs(ws, entry["id"])
     if manifest:
         available = next(
             (
@@ -141,7 +132,7 @@ def workbench_card(ws, entry):
             None,
         )
         if available:
-            thumbnail = image_url(entry["id"], manifest["revision_id"], available)
+            thumbnail = available["url"]
     if thumbnail is None and first_product:
         reference = source.get("path", "")
         if isinstance(reference, str) and "/Assets/Products/" in reference:
@@ -188,20 +179,26 @@ def workbench_card(ws, entry):
         "products": len(products),
         "markets": len(markets),
         "updated": ws.state.saved_activity(entry["id"], document.get("saved_at")),
-        "revision": (ws.state.revision_number(manifest["revision_id"]) if manifest else 0),
+        "revision": 0,
     }
 
 
-def attempt_details(workspace, attempts):
+def attempt_details(workspace, attempts, *, verify_bytes=True):
     """Expose saved receipt facts and numeric usage, never private response content."""
     result = []
     for attempt in attempts:
         value = {key: attempt[key] for key in ("product_id", "state", "created_at", "error_kind")}
-        value["source_available"] = workspace.state.source_is_intact(attempt)
-        try:
-            value["response_retained"] = workspace.storage.path(attempt["response_ref"]).is_file()
-        except OSError, StorageError:
-            value["response_retained"] = False
+        if verify_bytes:
+            value["source_available"] = workspace.state.source_is_intact(attempt)
+            try:
+                value["response_retained"] = workspace.storage.path(
+                    attempt["response_ref"]
+                ).is_file()
+            except OSError, StorageError:
+                value["response_retained"] = False
+        else:
+            value["source_available"] = bool(attempt["source_sha256"])
+            value["response_retained"] = attempt["state"] in {"received", "decoded"}
         # Retained bytes are not reconstructable imagery after a known decode failure.
         value["response_recoverable"] = (
             value["response_retained"]
@@ -244,7 +241,7 @@ def local_readiness(workspace, key_available):
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise StorageError("Database integrity failed")
         workspace.storage.write(reference, b"Campaign Studio local readiness\n")
-        workspace.storage.path(reference).unlink()
+        workspace.storage.unlink(workspace.storage.path(reference))
         rows.append(
             {
                 "id": "storage",
@@ -266,9 +263,9 @@ def local_readiness(workspace, key_available):
         )
     finally:
         with suppress(OSError, StorageError):
-            workspace.storage.path(reference).unlink(missing_ok=True)
+            workspace.storage.unlink(workspace.storage.path(reference), missing_ok=True)
     try:
-        inventory = workspace.storage.summary()
+        inventory = workspace.storage.refresh_edit_capacity()
     except OSError, StorageError:
         inventory = None
         rows.append(
@@ -308,203 +305,260 @@ def _unplanned_draft(document, run, output=None):
     )
 
 
-def campaign_data(workspace, campaign_id):
+def _retained_size(workspace, reference):
+    with Image.open(workspace.storage.path(reference)) as image:
+        return list(image.size)
+
+
+def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
+    from campaign_studio.compositions import imagery_key
+    from campaign_studio.review import initial_metadata, public_metadata
+    from campaign_studio.validation import validation_issues
+
     document, run = document_for(workspace, campaign_id)
-    value = copy.deepcopy(document["value"])
+    project = AuthoredProjects(workspace).read(campaign_id)
+    value = copy.deepcopy(project["authored"]["brief"])
+    version = document["version"]
     result = {
         "value": value,
-        "version": document["version"],
+        "version": version,
+        "composition_version": version,
         "attachment_hints": document.get("attachment_hints", {}),
-        "base_revision": workspace.state.effective_revision(run["id"]) if run else None,
+        "base_revision": version,
+        "project": project,
         "run": None,
         "plan": None,
         "manifest": None,
         "concept_previews": {},
+        "product_images": {},
+        "source_sizes": {},
+        "source_urls": {},
         "campaign_metrics": workspace.state.campaign_metrics(campaign_id),
+        "output_run_id": run["id"] if run else None,
+        "output_brief": value,
+        "plan_brief": value,
+        "can_edit": False,
+        "can_describe": True,
+        "editable_products": {},
+        "logo_editable_products": {},
+        "attempts": [],
+        "run_attempts": [],
+        "notice": None,
+        "retry_plan": None,
+        "composition_issues": [],
+        "unplanned_draft": False,
+        "wording_issue": None,
+        "logo_issue": None,
+        "image_cleanup": Cleanup(workspace.state).status(campaign_id),
+        "local_recovery": {"output_ids": [], "saved_result": False},
+        "file_integrity": {"damaged_outputs": [], "verified": True},
     }
-    result["project"] = AuthoredProjects(workspace).read(campaign_id)
-    result["product_images"] = {}
-    for product in result["project"]["authored"]["brief"].get("products", []):
-        if isinstance(product, dict) and isinstance(product.get("id"), str):
-            photo = workspace.retained_product_source(campaign_id, product["id"])
-            if photo:
-                result["product_images"][product["id"]] = {
-                    "source": photo,
-                    "url": f"/campaigns/{campaign_id}/sources/{product['id']}/1x1?retained=true",
-                }
-    result["image_cleanup"] = Cleanup(workspace.state).status(campaign_id)
+    for product in value.get("products", []) if isinstance(value.get("products"), list) else []:
+        if not isinstance(product, dict) or not isinstance(product.get("id"), str):
+            continue
+        retained = workspace.retained_product_source(campaign_id, product["id"])
+        if retained:
+            result["product_images"][product["id"]] = {
+                "source": retained,
+                "url": f"/campaigns/{campaign_id}/sources/{product['id']}/1x1?retained=true",
+            }
     if run:
-        plan = workspace.state.plan(run["id"])
-        for product in plan.brief.products:
-            if product.source.role == "concept" and workspace.source_preview_reference(
-                campaign_id, product.id
-            ):
-                result["concept_previews"][product.id] = (
-                    f"/campaigns/{campaign_id}/sources/{product.id}/1x1"
-                )
-        notice = provider_notice(workspace.state.attempts(run["id"]))
-        result["notice"] = {"message": notice.message, "code": notice.code} if notice else None
-        result["plan_brief"] = plan.brief.model_dump(mode="json")
-        result["unplanned_draft"] = _unplanned_draft(
-            document, run, workspace.state.current_output(campaign_id)
-        )
         result["run"] = {
             key: run[key] for key in ("id", "state", "allowance", "current_revision", "created_at")
         }
-        result["plan"] = {
-            "digest": plan.digest,
-            "outputs": len(plan.outputs),
-            "generation_products": plan.generation_products,
-            "generation_requests": {k: v.model_dump() for k, v in plan.generation_requests.items()},
-            "findings": [f.model_dump() for f in plan.findings],
-            "transmitted_data": plan.transmitted_data,
-            "cost_status": plan.cost_status,
-            "cost_estimate": plan.cost_estimate,
-        }
-        attempts = workspace.state.attempts(run["id"])
-        result["run_attempts"] = attempt_details(workspace, attempts)
-        pending = workspace.state.pending_generation(run["id"], plan)
-        result["retry_plan"] = None
+        result["run_attempts"] = attempt_details(workspace, workspace.state.attempts(run["id"]))
+        result["attempts"] = result["run_attempts"]
+        notice = provider_notice(workspace.state.attempts(run["id"]))
+        result["notice"] = {"code": notice.code, "message": notice.message} if notice else None
+    try:
+        current = workspace.preview_composition(campaign_id, version)
+    except ValidationError as error:
+        result["composition_issues"] = validation_issues(error)
+        return result
+    plan, sources = current["plan"], current["sources"]
+    result["composition_issues"] = current["composition_issues"]
+    result["unplanned_draft"] = bool(result["composition_issues"])
+    expected_images = len(value["products"]) * len(plan.brief.markets) * 3
+    result["plan"] = {
+        "digest": plan.digest,
+        "outputs": expected_images,
+        "generation_products": plan.generation_products,
+        "generation_requests": {k: v.model_dump() for k, v in plan.generation_requests.items()},
+        "findings": [f.model_dump() for f in plan.findings],
+        "transmitted_data": plan.transmitted_data,
+        "cost_status": plan.cost_status,
+        "cost_estimate": plan.cost_estimate,
+        "changed_source_products": [
+            {"id": product.id, "name": product.name}
+            for product in plan.brief.products
+            if product.id in plan.generation_products
+            and (record := document.get("source_assets", {}).get(product.id))
+            and record.get("imagery_key") != imagery_key(plan.brief, product)
+        ],
+    }
+    # Readiness belongs to the current products, not the most recent historical
+    # request. Removing a missing product can make every remaining source ready;
+    # adding a concept after a completed run requires a new reviewed request.
+    needs_generation = bool(plan.generation_products)
+    if not needs_generation:
+        result["notice"] = None
+    admitted = bool(
+        run
+        and run["state"] != "complete"
+        and document.get("planned_run") == run["id"]
+        and document.get("planned_authored_hash") == canonical_hash(value)
+    )
+    result["unplanned_draft"] = result["unplanned_draft"] or (needs_generation and not admitted)
+    if needs_generation and admitted and not result["unplanned_draft"]:
+        production = workspace.state.plan(run["id"], current=False)
+        result["plan"].update(
+            digest=production.digest,
+            generation_products=production.generation_products,
+            generation_requests={
+                k: v.model_dump() for k, v in production.generation_requests.items()
+            },
+            cost_estimate=production.cost_estimate,
+        )
+        result["unplanned_draft"] = document.get("planned_authored_hash") != canonical_hash(value)
+        pending = [pid for pid in production.generation_products if pid not in sources]
         if (
             run["state"] in {"partial", "paused", "stopped"}
             and pending
             and not result["unplanned_draft"]
         ):
-            requests = {key: plan.generation_requests[key] for key in pending}
+            requests = {pid: production.generation_requests[pid] for pid in pending}
             result["retry_plan"] = {
                 "run_id": run["id"],
-                "digest": plan.digest,
+                "digest": production.digest,
                 "generation_products": pending,
-                "previous_attempts": len(attempts),
-                "allowance": max(run["allowance"], len(attempts) + len(pending)),
+                "previous_attempts": len(result["run_attempts"]),
+                "allowance": max(run["allowance"], len(result["run_attempts"]) + len(pending)),
                 "cost_estimate": estimate_requests(requests),
             }
-        current_output = workspace.state.current_output(campaign_id)
-        output_run = workspace.state.run(current_output[0]) if current_output else None
-        manifest = workspace.manifest(output_run, current_output[1]) if current_output else None
-        if manifest:
-            record = workspace.state.revision(current_output[1])
-            output_plan = workspace.state.revision_plan(record)
-            output_brief = output_plan.brief.model_dump(mode="json")
-            result["source_sizes"] = {}
-            attempts = workspace.state.attempts(output_run["id"])
-            for product in output_plan.brief.products:
-                asset = (
-                    output_plan.assets.get(f"products/{product.id}")
-                    if product.source.role == "finished_scene"
-                    else output_plan.assets.get(f"masters/{product.id}")
-                )
-                if asset:
-                    result["source_sizes"][product.id] = [asset.width, asset.height]
-                else:
-                    attempt = next(
-                        (
-                            a
-                            for a in attempts
-                            if a["product_id"] == product.id
-                            and a["state"] == "decoded"
-                            and workspace.state.source_is_intact(a)
-                        ),
-                        None,
-                    )
-                    if attempt:
-                        with Image.open(workspace.storage.path(attempt["source_ref"])) as image:
-                            result["source_sizes"][product.id] = list(image.size)
-            result["output_brief"] = output_brief
-            result["output_run_id"] = output_run["id"]
-            result["revision_number"] = workspace.state.revision_number(current_output[1])
-            result["metadata"] = workspace.state.metadata_snapshot(current_output[1])
-            result["attempts"] = attempt_details(
-                workspace, workspace.state.attempts(output_run["id"])
-            )
-            result["output_plan"] = {
-                "generation_requests": {
-                    k: v.model_dump() for k, v in output_plan.generation_requests.items()
-                },
-                "transmitted_data": output_plan.transmitted_data,
-                "allowance": output_run["allowance"],
-            }
-            prefix = record["manifest_ref"].rsplit("/", 1)[0]
-            damaged = []
-            for item in manifest["outputs"]:
-                item["url"] = image_url(campaign_id, manifest["revision_id"], item)
-                if item["file"]:
-                    try:
-                        payload = workspace.storage.path(f"{prefix}/{item['file']}").read_bytes()
-                        intact = hashlib.sha256(payload).hexdigest() == item["sha256"]
-                    except OSError:
-                        intact = False
-                    if not intact:
-                        damaged.append(item["id"])
-                        item["url"] = None
-                        item["omission"] = "Saved image missing or changed. Use local recovery."
-            manifest["metrics"]["completed_images"] = sum(
-                bool(item["url"]) for item in manifest["outputs"]
-            )
-            # A missing saved file is damage, not an intentional production omission.
-            # Keep the immutable completeness contract and expose integrity separately.
-            result["file_integrity"] = {"damaged_outputs": damaged}
-            result["can_describe"] = run["state"] != "running"
-            authored_products = {
-                p.get("id")
-                for p in result["project"]["authored"]["brief"].get("products", [])
-                if isinstance(p, dict)
-            }
-            result["editable_products"] = {
-                p.id: p.id in authored_products
-                and workspace.state.product_inputs_ready(output_run["id"], output_plan, p.id)
-                for p in output_plan.brief.products
-            }
-            result["can_edit"] = result["can_describe"] and any(
-                result["editable_products"].values()
-            )
-            result["logo_editable_products"] = {
-                p.id: result["can_describe"]
-                and p.id in authored_products
-                and workspace.state.product_inputs_ready(
-                    output_run["id"], output_plan, p.id, include_logo=False
-                )
-                for p in output_plan.brief.products
-            }
-            result["manifest"] = manifest
-            # Only omissions under the displayed decision count as rule withholding.
-            # Unrelated blocking findings and a newer unstarted plan are not evidence.
-            missing_ids = {item["id"] for item in manifest["outputs"] if not item.get("url")}
-            result["rule_withheld_outputs"] = [
-                output.id
-                for output in output_plan.outputs
-                if output.id in missing_ids
-                and any(
-                    finding.context and finding.context.phrase and blocks_output(finding, output)
-                    for finding in output_plan.findings
-                )
-            ]
-        available = {
-            item["id"]
-            for item in (result.get("manifest") or {}).get("outputs", [])
-            if result.get("output_run_id") == run["id"] and item.get("url")
+    result["output_plan"] = {
+        "generation_requests": {k: v.model_dump() for k, v in plan.generation_requests.items()},
+        "transmitted_data": plan.transmitted_data,
+        "allowance": run["allowance"] if run else 0,
+    }
+    matches = [
+        f for f in plan.findings if f.context and f.context.phrase and f.severity == "blocking"
+    ]
+    result["wording_issue"] = (
+        {
+            "code": "prohibited_phrase",
+            "message": (
+                "Correct the prohibited wording, or edit or remove its rule, before exporting."
+            ),
+            "matches": [finding.model_dump(mode="json") for finding in matches],
+            "pending_rules": False,
+            "pending_rule_targets": [],
         }
-        missing = [
-            o
-            for o in plan.outputs
-            if o.id not in available and not any(blocks_output(f, o) for f in plan.findings)
-        ]
-        received = {
-            a["product_id"]
-            for a in result["run_attempts"]
-            if a["source_available"] or a["response_recoverable"]
+        if matches
+        else None
+    )
+    logo_findings = [
+        f for f in plan.findings if f.rule == "logo_presence" and f.severity == "blocking"
+    ]
+    result["logo_issue"] = (
+        {
+            "code": "logo_presence",
+            "message": "Attach a logo in Brand, or turn off the logo requirement.",
         }
-        ready = {
-            p.id
-            for p in plan.brief.products
-            if workspace.state.product_inputs_ready(run["id"], plan, p.id)
+        if logo_findings
+        else None
+    )
+    outputs = []
+    descriptions = {}
+    for output in plan.outputs:
+        blocked = any(blocks_output(f, output) for f in plan.findings)
+        available = output.product_id in sources and not any(
+            blocks_output(f, output) and not (f.context and f.context.phrase) for f in plan.findings
+        )
+        url = (
+            f"/api/campaigns/{campaign_id}/composition/{version}/images/{output.id}"
+            if available
+            else None
+        )
+        product = next(p for p in plan.brief.products if p.id == output.product_id)
+        item = {
+            "id": output.id,
+            "product_id": output.product_id,
+            "market": output.market,
+            "ratio": output.ratio,
+            "width": output.width,
+            "height": output.height,
+            "copy": output.text.model_dump(),
+            "file": output.id + ".png" if available else None,
+            "eligible_for_export": output.product_id in sources and not blocked,
+            "url": url,
+            "thumbnail_url": url,
+            "sha256": None,
+            "source_role": product.source.role,
+            "synthetic": product.source.provenance.synthetic,
+            "omission": None
+            if available
+            else "Resolve the listed findings."
+            if blocked
+            else "Prepare the source image in Production.",
         }
-        result["local_recovery"] = {
-            "output_ids": [o.id for o in missing if o.product_id in ready | received],
-            "saved_result": any(o.product_id in received for o in missing),
-        }
-    result["wording_issue"] = wording_export_issue(workspace.state, campaign_id)
-    result["logo_issue"] = logo_export_issue(workspace.state, campaign_id)
+        outputs.append(item)
+        descriptions[output.id] = public_metadata(
+            current["metadata"].get(output.id, initial_metadata(item))
+        )
+    metadata = {"schema_version": 1, "revision_id": version, "creatives": descriptions}
+    result["metadata"] = {**metadata, "snapshot_id": canonical_hash(metadata)}
+    result["manifest"] = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "run_id": run["id"] if run else None,
+        "revision_id": version,
+        "composition_version": version,
+        "preview_only": True,
+        "complete": not result["composition_issues"]
+        and all(o["eligible_for_export"] for o in outputs),
+        "outputs": outputs,
+        "findings": [f.model_dump() for f in plan.findings],
+        "metrics": {
+            **result["campaign_metrics"],
+            "completed_images": sum(bool(o["url"]) for o in outputs),
+            "expected_images": expected_images,
+        },
+    }
+    recoverable = {
+        a["product_id"]
+        for a in result["run_attempts"]
+        if a["response_recoverable"] and not a["source_available"]
+    }
+    result["local_recovery"] = {
+        "output_ids": [o.id for o in plan.outputs if o.product_id in recoverable],
+        "saved_result": bool(recoverable),
+    }
+    result["editable_products"] = {
+        p["id"]: p["id"] in sources
+        for p in value["products"]
+        if isinstance(p, dict) and isinstance(p.get("id"), str)
+    }
+    result["logo_editable_products"] = result["editable_products"].copy()
+    result["can_edit"] = any(result["editable_products"].values())
+    result["source_sizes"] = {pid: [asset.width, asset.height] for pid, asset in sources.items()}
+    result["source_urls"] = {
+        pid: f"/api/campaigns/{campaign_id}/composition/{version}/sources/{pid}" for pid in sources
+    }
+    result["rule_withheld_outputs"] = [
+        o.id
+        for o in plan.outputs
+        if any(f.context and f.context.phrase and blocks_output(f, o) for f in plan.findings)
+    ]
+    for product in plan.brief.products:
+        if product.id in sources:
+            url = f"/campaigns/{campaign_id}/sources/{product.id}/1x1"
+            if product.source.role == "concept":
+                result["concept_previews"][product.id] = url
+            else:
+                result["product_images"][product.id] = {
+                    "source": product.source.model_dump(mode="json"),
+                    "url": url,
+                }
     return result
 
 
@@ -587,10 +641,16 @@ def routes(templates, settings):
             ):
                 # A deletion can commit after the catalog identities were read.
                 # Skip that retired entry; keep genuine per-campaign damage visible.
+                message = (
+                    "This campaign’s saved files could not be read. "
+                    "Restore its files, or delete the campaign from the Workbench."
+                )
                 try:
                     require_campaign_available(ws.storage, entry["id"])
-                except StateError:
-                    continue
+                except StateError as error:
+                    if error.code != "workspace_upgrade":
+                        continue
+                    message = str(error)
                 entries.append(
                     {
                         **entry,
@@ -599,8 +659,7 @@ def routes(templates, settings):
                         "markets": 0,
                         "updated": None,
                         "thumbnail": None,
-                        "recovery_message": "This campaign’s saved files could not be read. "
-                        "Restore its files, or delete the campaign from the Workbench.",
+                        "recovery_message": message,
                     }
                 )
         from campaign_studio.bundled import setup_notice
@@ -611,11 +670,15 @@ def routes(templates, settings):
             "pending_cleanup": Cleanup(ws.state).pending(),
             "product_limit": settings.product_limit,
             "key_available": request.app.state.key_available(),
+            "key_saved_at": request.app.state.credentials.status().get("saved_at"),
+            "key_loaded_at": request.app.state.credentials.loaded_at,
         }
 
     @router.get("/api/motif/campaigns/{campaign_id}")
-    async def campaign(request: Request, campaign_id: CampaignID):
-        return await asyncio.to_thread(campaign_data, workspace(request), campaign_id)
+    async def campaign(request: Request, campaign_id: CampaignID, after_edit: bool = False):
+        return await asyncio.to_thread(
+            campaign_data, workspace(request), campaign_id, verify_saved_files=not after_edit
+        )
 
     @router.get(
         "/campaigns/{campaign_id}/runs/{run_id}/revisions/{revision_id}/sources/{product_id}"
@@ -705,32 +768,18 @@ def routes(templates, settings):
 
     @router.post("/api/motif/campaigns/{campaign_id}/authored")
     async def save_authored(request: Request, campaign_id: CampaignID, action: AuthoredSave):
-        return await asyncio.to_thread(
-            AuthoredProjects(workspace(request)).save, campaign_id, action
-        )
+        ws = workspace(request)
+        acknowledgement = await asyncio.to_thread(AuthoredProjects(ws).save, campaign_id, action)
+        result = await asyncio.to_thread(campaign_data, ws, campaign_id, verify_saved_files=False)
+        return {**result, **acknowledgement, "campaign": result}
 
     @router.post("/api/motif/campaigns/{campaign_id}/brand/apply")
     async def apply_brand(request: Request, campaign_id: CampaignID, action: BrandUpdate):
-        idle(request)
-        ws = workspace(request)
-
-        def apply():
-            # A retired editor preview may still be finishing. Match the existing
-            # delivery boundary's lock order before entering local publication.
-            with request.app.state.previews.lock:
-                brief, plan, impact = BrandUpdates(ws).prepare(campaign_id, action)
-                request.app.state.runner.revise(
-                    action.run_id,
-                    brief,
-                    action.revision_id,
-                    plan.digest,
-                    brand_edit=action,
-                )
-                result = campaign_data(ws, campaign_id)
-                result["brand_update_impact"] = impact
-                return result
-
-        return await asyncio.to_thread(apply)
+        raise ActionError(
+            "autosave",
+            "Brand changes save automatically. Refresh this page to use the current editor.",
+            410,
+        )
 
     @router.post("/api/motif/campaigns/{campaign_id}/plan")
     async def plan(request: Request, campaign_id: CampaignID):
