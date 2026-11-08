@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from copy import deepcopy
+from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
@@ -460,6 +461,7 @@ def test_thirtieth_image_export_retries_failed_fifteenth_without_redoing_verifie
 
     monkeypatch.setattr(delivery, "render_png", controlled)
     before = files(state.storage)
+    retained_names = None
     for _ in range(3):
         with pytest.raises(StateError) as error:
             handoff.create_current_zip(campaign_id, action)
@@ -470,8 +472,20 @@ def test_thirtieth_image_export_retries_failed_fifteenth_without_redoing_verifie
         assert progress["status"] == "failed"
         assert all(counts[o.id] == 1 for o in snapshot["plan"].outputs[:14])
         assert len(state.delivery_jobs) == 1
-        assert len(state.delivery_jobs[action.operation_id].ready) == 29
-        assert list(temporary.iterdir()) == []
+        job = state.delivery_jobs[action.operation_id]
+        assert len(job.ready) == 29
+        retained = [*job.ready.values(), *job.sources.values()]
+        assert all(not stream.closed for stream in retained)
+        # Windows TemporaryFile entries remain visible while their handles are
+        # open; POSIX unlinks them immediately. Only the retry job's retained
+        # streams may exist, and repeated retries must not add temporary files.
+        expected_names = {
+            Path(stream.name).resolve() for stream in retained if isinstance(stream.name, str)
+        }
+        assert {path.resolve() for path in temporary.iterdir()} == expected_names
+        if retained_names is None:
+            retained_names = expected_names
+        assert expected_names == retained_names
         assert files(state.storage) == before
     job = state.delivery_jobs[action.operation_id]
     retained = list(job.ready.values()) + list(job.sources.values())
