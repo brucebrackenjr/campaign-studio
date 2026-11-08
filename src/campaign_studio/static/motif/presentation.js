@@ -134,6 +134,8 @@ function dialog(title, body, foot = "", wide = false, eyebrow = null) {
 
 function modalView() {
   switch (modal) {
+    case "campaign-copy-confirm":
+      return campaignCopyView();
     case "draft-wording":
       return draftWordingView();
     case "new":
@@ -273,12 +275,15 @@ function progressView(context = productionContext()) {
   const retained = recoverable && model.local_recovery.saved_result;
   const noticeText = operation?.notice || model.notice?.message;
   const credentials = !active ? MotifProducerRepair.credentialPanel(context) : "";
+  if (!active && !credentials && !unknown && !retained && completed === expected && expected > 0 && wordingExportBlocked())
+    return productionView(context, `<p>${completed} of ${expected} product images available.</p>`, wordingNotice());
   let content;
   if (credentials) content = credentials;
   else if (active) content = `<h2>Preparing source images…</h2><p>${esc(operation?.stage || "Generating the next product image.")}</p>${operation?.stoppable ? btn("Stop unsent work", "stop", "pr-button pr-wide") : ""}`;
   else if (unknown) content = `<h2>The image request could not be confirmed.</h2><p>The request may have completed and may be charged. Nothing will be resent automatically.</p>${recoverable ? btn("Look for saved result", "recover", "pr-button pr-primary pr-wide") : context.resumeGeneration ? btn("Review a new attempt", context.resumeAction, "pr-button pr-primary pr-wide") : ""}`;
   else if (retained) content = `<h2>A provider result is already saved.</h2><p>Recover the source image without another AI request.</p>${btn("Recover saved source images · 0 calls", "recover", "pr-button pr-primary pr-wide")}`;
   else if (context.resumeGeneration) content = `<h2>${stopped ? "Production stopped." : "Generation paused."}</h2>${noticeText ? `<p>${esc(noticeText)}</p>` : ""}${btn("Resume generation", context.resumeAction, "pr-button pr-primary pr-wide")}`;
+  else if (completed === expected && expected > 0) content = `<h2>Your source images are available.</h2><p>Correct the highlighted wording or text layout in Studio before downloading.</p>${btn("Open Studio →", "nav:review", "pr-button pr-primary pr-wide")}`;
   else content = `<h2>${stopped ? "Production stopped." : rulesOnlyResult() ? "Images are withheld by current rules." : noticeText ? "Generation paused." : "Add the remaining images."}</h2><p>${noticeText ? esc(noticeText) : "Use the product cards to select a photo or choose a new image to generate."}</p>`;
   const elapsed = Number.isFinite(operation?.elapsed_seconds) ? Math.max(0, Math.floor(operation.elapsed_seconds)) : 0;
   const count = `<div class="pr-source-progress" ${active ? 'aria-busy="true"' : ''}><div class="pr-operation-count">${completed} <small>/ ${expected} source images</small></div><div class="pr-operation-progress${active ? ' is-active' : ''}"><i style="width:${expected ? Math.min(100, (completed / expected) * 100) : 0}%"></i></div>${active ? `<p class="pr-generation-elapsed"><span class="pr-working-indicator" aria-hidden="true"></span><span>${elapsed}s elapsed</span></p>` : ''}</div>`;
@@ -308,7 +313,9 @@ function layoutRepairTarget(output) {
     title: `${C.products[product].name} · ${LANG[language]} · ${FMT[format].name}` };
 }
 function layoutNotice() {
-  const affected = (model?.manifest?.outputs || []).filter(output => layoutFindingsFor(output).length);
+  if (page === "review" && reviewTab === "product") return "";
+  const phraseOutputs = new Set((model?.wording_issue?.matches || []).map(finding => finding.item));
+  const affected = (model?.manifest?.outputs || []).filter(output => layoutFindingsFor(output).length && !phraseOutputs.has(output.id));
   if (!affected.length) return "";
   return `<section class="notice block layout-notice" role="status"><div><strong>Adjust these layouts before exporting.</strong><p>${affected.every(output => model.editable_products?.[output.product_id]) ? "The source images are available. Move or resize the affected text in Studio." : "Restore unavailable source images in Production, then adjust the affected text in Studio."}</p>${affected.map(output => {
     const target = layoutRepairTarget(output);
@@ -340,7 +347,7 @@ function partialExportOmissions() {
 function review() {
   if (!C.products.length)
     return emptyPage("The work will live here.", "Add your first product and review a production plan.", "nav:production", "Add products in Production");
-  const notices = `${unavailableSource() ? sourceRecoveryNotice() : damagedFiles() ? notice("Saved image files need local recovery.", "Missing or changed files cannot be exported. Local recovery first verifies the saved sources before rebuilding outputs.", "block", "nav:production", "Open recovery") : ""}${wordingNotice()}${layoutNotice()}`;
+  const notices = `${unavailableSource() ? sourceRecoveryNotice() : damagedFiles() ? notice("Saved image files need local recovery.", "Missing or changed files cannot be exported. Local recovery first verifies the saved sources before rebuilding outputs.", "block", "nav:production", "Open recovery") : ""}${wordingNotice()}<div data-layout-slot>${layoutNotice()}</div>`;
   if (reviewTab === "activity")
     return `${head("Production record", "Saved requests, elapsed time, and estimates.", btn("← All products", "reviewTab:products"))}${activityView()}`;
   return notices + studioView();
@@ -357,6 +364,32 @@ function allEntries() {
     ),
   );
   return a;
+}
+// Show the server's current output findings even when a preview is available.
+// A preview is useful for correction; it does not mean the image can be exported.
+function outputCorrectionMessages(output) {
+  if (!output) return [];
+  const messages = [];
+  const findings = (model.manifest?.findings || []).filter(finding =>
+    finding.severity === "blocking" && (finding.item === output.id ||
+      finding.context?.product_id === output.product_id &&
+      finding.context?.market === output.market && finding.context?.ratio === output.ratio));
+  for (const finding of findings) {
+    const phrase = finding.context?.phrase;
+    if (phrase?.matches?.length) {
+      for (const match of phrase.matches) {
+        const field = { message: "headline", cta: "call to action" }[match.field] || "text";
+        messages.push(`Change “${phrase.configured_phrase}” in the ${field} before exporting.`);
+      }
+    } else if (finding.rule === "text_fit") {
+      messages.push(finding.evidence || "Adjust the text layout in Studio before exporting.");
+    }
+  }
+  return [...new Set(messages)];
+}
+function outputCorrectionNotice(output) {
+  const messages = outputCorrectionMessages(output);
+  return messages.length ? `<div class="overview-issue" role="note"><strong>Changes needed</strong>${messages.map(message => `<p>${esc(message)}</p>`).join("")}</div>` : "";
 }
 function overviewView(exporting = false) {
   let entries = allEntries().filter(
@@ -393,6 +426,7 @@ function overviewView(exporting = false) {
       }<div class="info">
 <h3>${esc(C.products[e.p].name)}</h3>
 <p class="small muted">${LANG[e.l]} · ${FMT[e.f].name} ${FMT[e.f].ratio}</p>
+${exporting ? outputCorrectionNotice(output) : ""}
 <div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : layout ? btn(layout.label, layout.action, "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${exportBlocked() ? "disabled" : ""}` : "")}</div>
 </div>
 </article>`;
@@ -457,13 +491,14 @@ function handoff() {
 <h2>No composition is ready to export yet.</h2>
 <p>Finish any incomplete campaign fields and provide source imagery for your products. Production can generate missing source images.</p>${btn("Open Production", "nav:production")}</div>`;
   const layoutBlocked = currentLayoutFindings().length > 0,
+    changesNeeded = layoutBlocked || currentWordingView().phase === "blocked",
     partial = model.manifest && !model.manifest.complete,
     empty = (model.manifest?.metrics.completed_images ?? 0) === 0,
     damaged = damagedFiles(),
     missing = otherUnavailableOutputs().length;
   return `${head("Ready for the next pair of eyes.", `${C.name} · Current images`, btn("← Studio", "nav:review", "small quiet"), "04 / HANDOFF", "wf-stage-header")}<section class="export-hero">
 <div>
-<span class="eyebrow">${layoutBlocked ? "LAYOUT NEEDS ATTENTION" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
+<span class="eyebrow">${changesNeeded ? "CHANGES NEEDED" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
 <h2>${layoutBlocked ? "Review the affected layouts." : empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>
 <p class="small muted" style="margin-top:8px">${C.markets.length} ${C.markets.length === 1 ? "market" : "markets"} · 3 formats · offline review included</p>
 </div>
@@ -490,7 +525,7 @@ function handoff() {
 </section>
 </div>
 <div class="section-title">
-<h2>The campaign, at a glance</h2>${badge(layoutBlocked ? "Layout needs attention" : damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Partial handoff" : "All formats included", layoutBlocked || damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
+<h2>The campaign, at a glance</h2>${badge(changesNeeded ? "Changes needed" : damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Images missing" : "All formats included", changesNeeded || damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
 }
 function editorParts(body, foot) {
   return `${body}<footer class="modal-foot">${foot}</footer>`;

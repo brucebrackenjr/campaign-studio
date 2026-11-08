@@ -14,7 +14,7 @@ function harness() {
     AbortController, structuredClone, TextEncoder, crypto:require('node:crypto').webcrypto,
     setTimeout(fn) { const id=next++; timers.set(id,fn); return id; }, clearTimeout(id) { timers.delete(id); },
     getSaveState:()=>saveState,subscribeSaveState(fn){saveListeners.add(fn);fn(saveState);return()=>saveListeners.delete(fn);},
-    operation:null, copy:structuredClone, page:'campaign', tab:'brand', lang:'en', productLimit:5,
+    operation:null, modal:null, copy:structuredClone, page:'campaign', tab:'brand', lang:'en', productLimit:5,
     currentProduct:0,currentFormat:0, LANG:{en:'English (United States)',es:'Spanish (Mexico)'}, MARKET:{en:'en-US',es:'es-MX'},FMT:[{ratio:'1:1'}],
     C:{products:[{id:'a'}]}, projectBuffers:{form_drafts:{},feedback:{}},
     model:{version:'v1',manifest:{revision_id:'r1'},concept_previews:{},attachment_hints:{}},
@@ -830,4 +830,118 @@ test('a new product photo is visible before the first headline is written',()=>{
   assert.match(h.run("MotifBriefFlow.previewStage(briefHost.vm.preview)"), /<img src="\/asset"/);
   h.run("changeBriefField(briefHost,'message','New headline',{commit:true})");
   assert.equal(h.run("briefHost.vm.preview.phase"),"pending");
+});
+
+test('Campaign copy confirmation replaces only its field and language',async()=>{
+ for(const [language,field] of [['en','message'],['en','cta'],['es','message'],['es','cta']]) {
+  const h=harness();h.c.lang=language;h.c.tab='copy';
+  h.c.draft.products.push({...structuredClone(h.c.draft.products[0]),id:'b'});
+  for(const product of h.c.draft.products)product.copy_overrides={'en-US':{message:'Own headline',cta:'Own CTA'},'es-MX':{message:'Propio',cta:'Propia'}};
+  const original=structuredClone(h.c.draft), market=h.c.MARKET[language], value=original.markets[market].copy[field]||'';
+  h.run('refreshBriefFlow()');assert.deepEqual(h.c.draft,original);
+  h.c.field=field;h.c.originalValue=value;
+  h.run('changeBriefField(briefHost,field,"New shared wording")');
+  assert.deepEqual(h.c.draft,original,'typing cannot overwrite customized wording before confirmation');
+  h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+  const review=h.run('confirmCampaignCopyChanges()');
+  assert.equal(h.c.modal,'campaign-copy-confirm');
+  h.run('finishCampaignCopy(true)');await review;
+  const expected=structuredClone(original);expected.markets[market].copy[field]='New shared wording';for(const product of expected.products)delete product.copy_overrides[market][field];
+  assert.deepEqual(h.c.draft,expected);
+ }
+});
+
+test('Cancel and safe autosave capture preserve custom copy and unrelated pending form changes',async()=>{
+ const h=harness();h.c.tab='copy';
+ h.c.draft.products[0].copy_overrides={'en-US':{message:'Own headline',cta:'Own CTA'}};
+ h.c.projectBuffers.form_drafts.fields={'brief/copy/en':{'copy-headline':'English','copy-cta':'Original CTA'},'brief/brand/es':{'text-color':'#12'}};
+ const original=structuredClone(h.c.draft),before=structuredClone(h.c.projectBuffers.form_drafts);
+ h.run('changeBriefField(briefHost,"message","New headline");changeBriefField(briefHost,"cta","New CTA");changeBriefField(briefHost,"audience","New audience")');
+ h.c.captured={brief:structuredClone(h.c.draft),form_drafts:structuredClone(h.c.projectBuffers.form_drafts)};
+ h.run('safeCampaignCopyCapture(captured)');
+ assert.deepEqual(h.c.captured.form_drafts.fields['brief/copy/en']['copy-headline'],before.fields['brief/copy/en']['copy-headline']);
+ assert.equal(h.c.captured.brief.audience,'New audience');
+ h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+ const review=h.run('confirmCampaignCopyChanges()');h.run('finishCampaignCopy(false)');await Promise.resolve();
+ assert.equal(h.run('campaignCopyDecision.change.field'),'cta');h.run('finishCampaignCopy(true)');await review;
+ assert.equal(h.c.draft.markets['en-US'].copy.message,original.markets['en-US'].copy.message);
+ assert.equal(h.c.draft.products[0].copy_overrides['en-US'].message,'Own headline');
+ assert.equal(h.c.draft.markets['en-US'].copy.cta,'New CTA');
+ assert.equal(h.c.draft.products[0].copy_overrides['en-US'].cta,undefined);
+ assert.equal(h.c.draft.audience,'New audience');
+ assert.equal(h.c.projectBuffers.form_drafts.fields['brief/brand/es']['text-color'],'#12');
+});
+
+test('an override identical to shared wording does not require a replacement confirmation',()=>{
+ const h=harness();h.c.draft.products[0].copy_overrides={'en-US':{message:'English',cta:'Keep CTA'}};
+ h.run('changeBriefField(briefHost,"message","New shared headline")');
+ assert.equal(h.run('pendingCampaignCopy().length'),0);
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'New shared headline');
+ assert.equal(h.c.draft.products[0].copy_overrides['en-US'].message,undefined);
+ assert.equal(h.c.draft.products[0].copy_overrides['en-US'].cta,'Keep CTA');
+});
+
+test('the pending navigation busy guard still allows the exact replacement dialog to be answered',async()=>{
+ const source=readFileSync('src/campaign_studio/static/motif/actions.js','utf8');
+ const dispatch=source.slice(source.indexOf('async function dispatchAction('),source.indexOf('document.addEventListener("click", event => {',source.indexOf('async function dispatchAction(')));
+ for(const action of ['confirmCampaignCopy','cancelCampaignCopy','close']) {
+  const answers=[],context=vm.createContext({localDialog:false,draft:null,modal:'campaign-copy-confirm',busy:true,finishCampaignCopy:choice=>answers.push(choice)});
+  vm.runInContext(dispatch,context);await context.dispatchAction({action});
+  assert.deepEqual(answers,[action==='confirmCampaignCopy']);assert.equal(context.busy,true,'the waiting navigation retains its own guard');
+ }
+});
+
+test('matching the proposed wording does not ask to overwrite unchanged custom text',async()=>{
+ const h=harness();h.c.tab='copy';h.c.draft.products[0].copy_overrides={'en-US':{message:'Matches new'}};
+ h.c.openModal=()=>assert.fail('no differing custom wording remains');h.c.closeModal=()=>assert.fail('no dialog was opened');
+ h.run('changeBriefField(briefHost,"message","Matches new")');await h.run('confirmCampaignCopyChanges()');
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'Matches new');assert.equal(h.run('pendingCampaignCopy().length'),0);
+});
+
+
+test('editing then reverting Campaign wording preserves custom wording without a confirmation',async()=>{
+ for(const field of ['message','cta']) {
+  const h=harness();h.c.tab='copy';h.c.field=field;
+  h.c.draft.products[0].copy_overrides={'en-US':{message:'Own headline',cta:'Own CTA'}};
+  const original=structuredClone(h.c.draft);h.c.originalValue=original.markets['en-US'].copy[field]||'';
+  h.c.openModal=()=>{throw Error('Reverted wording should not need a decision')};
+  h.run('changeBriefField(briefHost,field,"Temporary");changeBriefField(briefHost,field,originalValue)');
+  await h.run('confirmCampaignCopyChanges()');
+  assert.deepEqual(h.c.draft,original);assert.equal(h.run('pendingCampaignCopy().length'),0);
+ }
+});
+
+
+test('a confirmed Campaign replacement waits for its own save receipt before retrying an expired preview',async()=>{
+ const h=harness(),view=previewView(h);
+ h.c.tab='copy';h.c.draft.products[0].copy_overrides={'en-US':{message:'Private headline'}};
+ h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+ h.run('changeBriefField(briefHost,"message","Campaign replacement")');
+ let review=h.run('confirmCampaignCopyChanges()');h.run('finishCampaignCopy(false)');await review;
+ h.run('changeBriefField(briefHost,"message","Campaign replacement")');
+ review=h.run('confirmCampaignCopyChanges()');h.run('finishCampaignCopy(true)');await review;
+ h.publishSaveState({phase:'saving'});h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);
+ const flight=h.run('briefHost.flight');
+ h.pending[0].reject(Object.assign(Error('The brief changed'),{status:409,code:'stale_brief'}));
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.notEqual(h.run('briefHost.vm.preview.phase'),'failed','own-save race must not show Preview unavailable');
+ h.run("model.version='v2';refreshBriefFlow()");h.publishSaveState({phase:'saved'});
+ await h.waitForRequests(2);assert.equal(h.pending[1].body.version,'v2');
+ assert.equal(h.pending[1].body.brief.markets['en-US'].copy.message,'Campaign replacement');
+ assert.equal(h.pending[1].body.brief.products[0].copy_overrides['en-US'].message,undefined);
+ await respondPreview(h,h.pending[1]);await flight;
+ assert.equal(h.run('briefHost.vm.preview.phase'),'ready');assert.doesNotMatch(view.stage(),/Preview unavailable/);
+});
+
+test('an expired preview waits for a pending save failure without adopting an external version',async()=>{
+ for(const phase of ['conflict','error']) {
+  const h=harness();previewView(h);h.publishSaveState({phase:'saving'});
+  h.run('flushBriefPreview(briefHost)');await h.waitForRequests(1);const flight=h.run('briefHost.flight');
+  h.pending[0].reject(Object.assign(Error('The brief changed'),{status:409,code:'stale_brief'}));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.pending.length,1);
+  h.publishSaveState({phase,problem:{phase,message:'Save could not be accepted'}});await flight;
+  assert.equal(h.run('model.version'),'v1');assert.equal(h.pending.length,1);
+  assert.equal(h.run('briefHost.vm.preview.phase'),'failed');
+ }
 });

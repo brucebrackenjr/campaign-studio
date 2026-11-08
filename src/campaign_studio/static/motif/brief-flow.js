@@ -113,7 +113,7 @@
   function copyView(v) {
     const cc = v.copy[v.language],
       rules = v.rules[v.language] || [];
-    return `<div class="bf-layout"><section class="bf-panel bf-copy-panel"><div class="bf-copy-title"><h2>Find the words.</h2>${marketSelect(v)}</div><div class="bf-copy-fields">${field("Headline", "message", cc.message, { area: true })}${field("Call to action · optional", "cta", cc.cta || "")}${!v.overrideNotice ? '<p class="bf-hint">Exact supplied wording, with no automatic translation. Products inherit each field until you change it for that product.</p>' : ""}${v.overrideNotice ? `<p class="bf-override">${esc(v.overrideNotice)} <button type="button" class="bf-link" data-bf-action="open-studio">Open in Studio ↗</button></p>` : ""}</div><div class="bf-rule"></div>${scope.MotifWording.rules({language: v.language === "es-MX" ? "Spanish (Mexico)" : "English (United States)", words: rules.map(r => r.phrase)})}</section>${preview(v)}</div>`;
+    return `<div class="bf-layout"><section class="bf-panel bf-copy-panel"><div class="bf-copy-title"><h2>Find the words.</h2>${marketSelect(v)}</div><div class="bf-copy-fields">${field("Headline", "message", cc.message, { area: true })}${field("Call to action · optional", "cta", cc.cta || "")}<p class="bf-hint">Updates every product for this language.</p></div><div class="bf-rule"></div>${scope.MotifWording.rules({language: v.language === "es-MX" ? "Spanish (Mexico)" : "English (United States)", words: rules.map(r => r.phrase)})}</section>${preview(v)}</div>`;
   }
   function renderBrief(v) {
     const next = {

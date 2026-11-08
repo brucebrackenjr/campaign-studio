@@ -72,7 +72,10 @@ function mergeStudioAcknowledgement(previous, acknowledgement) {
   }
   if (previous.manifest) {
     const slots = new Map((acknowledgement.composition_slots || []).map(slot => [slot.id, slot]));
-    next.manifest = { ...previous.manifest, revision_id: version,
+    const findings = acknowledgement.composition_findings
+      ? [...(previous.manifest.findings || []).filter(f => !f.context?.phrase && f.rule !== "text_fit"), ...acknowledgement.composition_findings]
+      : previous.manifest.findings;
+    next.manifest = { ...previous.manifest, revision_id: version, findings,
       outputs: previous.manifest.outputs.map(output => ({ ...output, ...(slots.get(output.id) || {}),
         url: freshURL(output.url), thumbnail_url: freshURL(output.thumbnail_url), download_url: freshURL(output.download_url) })) };
   }
@@ -189,6 +192,8 @@ function beginStudioSave() {
         textEditor.run = data.output_run_id; textEditor.revision = data.composition_version || data.version;
         textEditor.brand = copy((data.output_brief || data.value).brand);
         textEditor.initial = copy(submitted.values);
+        for (const field of ["message", "cta"])
+          if (submitted.all[field]) textEditor.all[field] = false;
         textEditor.sequence++; textEditor.preview = null; textEditor.recovery = null;
         if (!textEditor.input?.active()) { clearTimeout(textEditor.timer); textEditor.timer = setTimeout(previewText, 0); }
       } else if (submitted.kind === "framing") {
@@ -210,6 +215,7 @@ function beginStudioSave() {
         editor.paint();
       }
       refreshStudioTargets();
+      paintWordingAvailability();
     },
   });
 }

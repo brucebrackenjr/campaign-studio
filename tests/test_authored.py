@@ -374,7 +374,7 @@ def test_studio_wording_preserves_incomplete_campaign_fields_without_using_old_v
     )
     assert reopened["authored"]["brief"]["audience"] == "Unfinished audience edit"
     assert reopened["authored"]["brief"]["brand"]["text_color"] == "#12"
-    assert reopened["authored"]["form_drafts"] == authored["form_drafts"]
+    assert reopened["authored"]["form_drafts"] == unfinished_copy("Current image wording")
     with pytest.raises(ActionError) as error:
         Intake(ws.storage).prepare(cid, version, ws)
     assert error.value.code == "brief_fields"
@@ -428,7 +428,7 @@ def test_current_valid_authored_brief_plans_once_with_stable_pending_target_iden
     ws.save_composition(cid, body)
     reopened = action(client, cid)["authored"]
     assert reopened["brief"]["markets"]["en-US"]["copy"]["message"] == body.values["message"]
-    assert reopened["form_drafts"] == request["authored"]["form_drafts"]
+    assert reopened["form_drafts"] == unfinished_copy(body.values["message"])
 
 
 @pytest.mark.parametrize("with_supplied_scene", [False, True])
@@ -910,7 +910,9 @@ def test_wording_autosave_preserves_other_fields_and_explicit_scope(tmp_path, pr
         "Intentional other headline" if product_scope else "Changed wording"
     )
     assert other.text.cta == "Intentional other CTA"
-    assert projects.read(cid)["authored"]["form_drafts"] == current["authored"]["form_drafts"]
+    assert projects.read(cid)["authored"]["form_drafts"] == (
+        current["authored"]["form_drafts"] if product_scope else unfinished_copy("Changed wording")
+    )
 
 
 @pytest.mark.parametrize("incomplete_campaign", [False, True])
@@ -1279,3 +1281,77 @@ def test_empty_attachment_fields_remain_editable(project, field, empty):
     result = client.post(f"/api/motif/campaigns/{cid}/authored", json=request)
     assert result.status_code == 200, result.text
     assert client.get(f"/api/motif/campaigns/{cid}").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "market,field", [("en-US", "message"), ("en-US", "cta"), ("es-MX", "message"), ("es-MX", "cta")]
+)
+def test_shared_studio_action_reconciles_stale_campaign_control_and_preserves_other_copy(
+    tmp_path, market, field
+):
+    ws = Workspace(State(Storage(tmp_path / "runtime")))
+    cid = seed_campaign(ws)
+    projects = AuthoredProjects(ws)
+    current = projects.read(cid)
+    brief = current["authored"]["brief"]
+    brief["markets"]["es-MX"] = copy.deepcopy(brief["markets"]["en-US"])
+    for product in brief["products"]:
+        product["copy_overrides"] = {
+            "en-US": {"message": "Prior corrected headline", "cta": "Own CTA"},
+            "es-MX": {"message": "Titular propio", "cta": "CTA propio"},
+        }
+    current["authored"]["form_drafts"] = {
+        "fields": {
+            "brief/copy/en": {"copy-headline": "Stale DDD", "copy-cta": "Old CTA"},
+            "brief/brand/en": {"copy-headline": "Even older", "text-color": "#12"},
+            "brief/copy/es": {"copy-headline": "Viejo", "copy-cta": "Anterior"},
+        }
+    }
+    projects.save(cid, AuthoredSave(**{k: current[k] for k in ("version", "base", "authored")}))
+    before = copy.deepcopy(projects.read(cid)["authored"])
+    version = ws.save_composition(
+        cid,
+        TextEdit(
+            revision_id=projects.read(cid)["version"],
+            product_id="product-1",
+            market=market,
+            ratio="1:1",
+            values={field: "One explicit shared edit"},
+            field_scopes={field: "all_products"},
+        ),
+    )
+    reopened = AuthoredProjects(Workspace(State(ws.storage))).read(cid)
+    expected = before
+    expected["brief"]["markets"][market]["copy"][field] = "One explicit shared edit"
+    for product in expected["brief"]["products"]:
+        del product["copy_overrides"][market][field]
+    control = "copy-headline" if field == "message" else "copy-cta"
+    for name, values in expected["form_drafts"]["fields"].items():
+        if name.endswith("/" + market[:2]) and control in values:
+            values[control] = "One explicit shared edit"
+    # An untouched format gains explicit defaults when first edited; compare
+    # meaningful framing values through the same public schema.
+    from campaign_studio.brief import Framing
+
+    expected["brief"]["products"][0].setdefault("framing", {}).setdefault(market, {})["1:1"] = (
+        Framing().model_dump(mode="json")
+    )
+    assert reopened["authored"]["brief"] == expected["brief"]
+    assert reopened["authored"]["form_drafts"] == expected["form_drafts"]
+    # The next ordinary Studio edit is individual, even at another format.
+    ws.save_composition(
+        cid,
+        TextEdit(
+            revision_id=version,
+            product_id="product-1",
+            market=market,
+            ratio="9:16",
+            values={field: "Later individual edit"},
+            field_scopes={field: "product"},
+        ),
+    )
+    final = projects.read(cid)["authored"]
+    assert final["brief"]["products"][0]["copy_overrides"][market][field] == "Later individual edit"
+    assert field not in final["brief"]["products"][1]["copy_overrides"][market]
+    assert final["brief"]["markets"][market]["copy"][field] == "One explicit shared edit"
+    assert final["form_drafts"] == expected["form_drafts"]

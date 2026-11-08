@@ -20,8 +20,8 @@
 .mf-word-field{display:grid;gap:7px;margin-bottom:18px}
 .mf-word-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mf-word-label>label:first-child{font-size:12px;font-weight:650}
-.mf-all-products{display:inline-flex;align-items:center;gap:6px;font-size:11px;white-space:nowrap;min-height:28px;cursor:pointer;color:#43513e}
-.mf-all-products input{accent-color:#ce3825;width:15px;height:15px;margin:0;cursor:pointer}
+.mf-word-action{display:flex;justify-content:flex-end}
+.mf-word-action .btn{font-size:11px;padding:6px 9px;min-height:30px}
 .mf-word-field input:not([type=checkbox]),.mf-word-field textarea{border:1px solid #c6cdbf;border-radius:4px;background:#fff;color:#283126;padding:10px 11px;font:14px/1.5 Noto,sans-serif;width:100%;min-height:0;resize:vertical}
 .mf-word-field input:not([type=checkbox]){height:43px}
 .mf-word-field textarea{height:auto;max-height:170px}

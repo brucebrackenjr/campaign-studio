@@ -311,7 +311,7 @@ test('withholding cannot conceal active, unknown, stopped, source, or integrity 
     if (kind === 'provider') h.context.model.notice = {code:'rejected_key',message:'Rejected key'};
     assert.equal(h.run('rulesOnlyResult()'), false, kind);
     const html = h.run('progressView()');
-    assert.match(html, /prohibited-word list/, kind);
+    assert.match(html, /Edit headline in Studio/, kind);
     if (kind === 'active' || kind === 'source') assert.equal(h.run('canRecoverCurrentOutputs()'), false, kind);
     if (kind === 'unknown') assert.match(html, /The image request could not be confirmed/);
     if (kind === 'provider') assert.match(html, /OpenAI did not accept this key.*Update API key/s);

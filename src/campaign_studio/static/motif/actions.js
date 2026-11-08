@@ -213,6 +213,7 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
   if (modal === "brand-navigation" && typeof brandUpdating !== "undefined" && brandUpdating) return;
   if (studioWorkspace && ["text", "frame", "logo", "inspect"].includes(modal)) return cancelStudioTool();
   if (modal === "remove-product" && retain) return cancelProductRemoval();
+  if (modal === "campaign-copy-confirm" && campaignCopyDecision) return finishCampaignCopy(false);
   const closingKind = modal;
   if (modal === "draft-wording" && draftWording?.saving) return;
   if (modal === "product" && modalProduct?.adding) return;
@@ -933,6 +934,12 @@ window.addEventListener("beforeunload", (event) => {
 async function dispatchAction(data) {
   if (localDialog) return;
   if (draft) captureProject();
+  // A navigation action can be awaiting this confirmation. Its busy guard
+  // must not prevent the producer from answering that exact dialog.
+  if (modal === "campaign-copy-confirm" && ["confirmCampaignCopy", "cancelCampaignCopy", "close"].includes(data.action)) {
+    finishCampaignCopy(data.action === "confirmCampaignCopy");
+    return;
+  }
   if (busy) {
     // Inventory is a read-only request. Cancel it without taking ownership of
     // the earlier action's busy flag; its own finally releases that guard.
@@ -1075,6 +1082,12 @@ async function dispatchAction(data) {
         break;
       case "cancelEdits":
         closeModal({ cancel: true });
+        break;
+      case "cancelCampaignCopy":
+        finishCampaignCopy(false);
+        break;
+      case "confirmCampaignCopy":
+        finishCampaignCopy(true);
         break;
       case "applyDraftWording":
         await applyDraftWording();

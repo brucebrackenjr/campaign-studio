@@ -392,7 +392,7 @@ function captureProject() {
   const formKey = projectFormKey();
   if (formKey && modal !== "inspect") captureProjectFields(formKey, imageEditorRoot());
   if (forms.fields && !Object.keys(forms.fields).length) delete forms.fields;
-  return {
+  const captured = {
     brief: copy(draft),
     ...copy(projectBuffers),
     ui_context: {
@@ -403,6 +403,7 @@ function captureProject() {
       ruleIndex,
     },
   };
+  return typeof safeCampaignCopyCapture === "function" ? safeCampaignCopyCapture(captured) : captured;
 }
 function isImageEditor(kind = modal) {
   return ["text", "frame", "logo"].includes(kind);
@@ -600,6 +601,7 @@ function reconcileAppliedForms(previous, current) {
 }
 async function saveProject() {
   if (!projectQueue) return false;
+  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges()) return false;
   const owner = projectOwner;
   const saved = await projectQueue.saveCurrent();
   if (saved && owner === projectOwner) dirty = false;

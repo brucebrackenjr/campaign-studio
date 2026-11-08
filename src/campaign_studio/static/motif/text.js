@@ -12,7 +12,7 @@ function beginText() {
     savedPlacements: copy(model.output_brief.products?.find(item => item.id === product.id)?.framing?.[MARKET[lang]]?.[format.ratio]?.text_placements || {}),
     initial: { message: valueFor(currentProduct, lang, "headline"), cta: valueFor(currentProduct, lang, "cta") },
     values: { message: valueFor(currentProduct, lang, "headline"), cta: valueFor(currentProduct, lang, "cta") },
-    all: { message: false, cta: false },
+    all: { message: false, cta: false }, applyingAll: null,
     geometry: null, geometrySequence: -1, layers: null, preview: null, sequence: 0, timer: null,
     pending: false, queued: false, saving: false, recovery: null, attempt: null, gestureBlock: null,
     anchor: null, anchorBlocked: false, message: MotifEditorControls.copy.previewing,
@@ -77,7 +77,8 @@ function paintText() {
     [MotifEditorControls.copy.previewing, "Preparing preview…", "The preview will refresh after your changes finish saving."].includes(editor.message);
   $("#text-status").textContent = inlineConflict || routinePreview ? "" : stale ? MotifSave.conflictMessage : editor.message;
   if (inlineConflict) studioSave.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 }));
-  $("#text-status").classList.toggle("is-error", !!editor.recovery || !!editor.preview?.result.blocked || editor.anchorBlocked);
+  $("#text-status").classList.toggle("is-error", !!$("#text-status").textContent.trim() &&
+    (!!editor.recovery || !!editor.preview?.result.blocked || editor.anchorBlocked));
   const apply = $('[data-action="applyText"]');
   apply.textContent = editor.saving ? "Applying…" : "Apply text";
   apply.disabled = !!textLengthIssue(editor) || editor.saving || editor.pending || !!editor.recovery || editor.anchorBlocked || !editor.preview?.displayed || editor.preview.result.blocked || !editor.preview.result.impact.render_outputs.length;
@@ -93,8 +94,36 @@ function paintText() {
   MotifEditorControls.paintScopes($(".mf-combined-wording"), wordingIntent(editor), C.products.find(p => p.id === editor.product).name);
   for (const field of $$("[data-mf-field]", $(".mf-combined-wording"))) field.hidden = field.dataset.mfField !== editor.selected;
   textStyle(editor);
-  for (const el of $$('button.close,[data-action="close"],[data-action="resetText"],[data-mf-font],[data-mf-color],[data-mf-color-default],[data-mf-value],[data-mf-all]')) el.disabled = editor.saving;
+  for (const el of $$('button.close,[data-action="close"],[data-action="resetText"],[data-mf-font],[data-mf-color],[data-mf-color-default],[data-mf-value],[data-mf-apply-all]')) el.disabled = editor.saving || !!editor.applyingAll;
+  paintTextWordingErrors(editor);
   positionTextSelection();
+}
+function paintTextWordingErrors(editor) {
+  const local = editor.preview && editor.geometrySequence === editor.sequence
+    ? MotifWording.fromIssue({ matches: editor.preview.result.findings || [] }).cases : currentWordingView().cases;
+  for (const field of ["message", "cta"]) {
+    const input = $(`#mf-word-${field}`);
+    if (!input) continue;
+    const item = local.find(item => item.target.productId === editor.product && item.target.market === MARKET[editor.language] && item.target.field === field && item.value === editor.values[field]);
+    const id = `mw-${field}-error`;
+    let note = $(`#${id}`);
+    if (item) {
+      if (!note) { input.insertAdjacentHTML("afterend", MotifWording.fieldMessage(item.terms).replace('id="mw-field-error"', `id="${id}"`)); note = $(`#${id}`); }
+      note.textContent = `Remove ${item.terms.map(term => `“${term}”`).join(", ")} or edit the prohibited words.`;
+      input.setAttribute("data-wording-invalid", "");
+      input.setAttribute("aria-invalid", "true");
+      const descriptions = new Set((input.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      descriptions.add(id); input.setAttribute("aria-describedby", [...descriptions].join(" "));
+    } else {
+      note?.remove();
+      const owned = input.hasAttribute("data-wording-invalid");
+      input.removeAttribute("data-wording-invalid");
+      const descriptions = (input.getAttribute("aria-describedby") || "").split(/\s+/).filter(value => value && value !== id);
+      if (descriptions.length) input.setAttribute("aria-describedby", descriptions.join(" "));
+      else input.removeAttribute("aria-describedby");
+      if (owned && !input.hasAttribute("data-length-invalid")) input.removeAttribute("aria-invalid");
+    }
+  }
 }
 function positionTextSelection() {
   const editor = textEditor, block = textBlock(editor);
@@ -311,6 +340,9 @@ async function performTextPreview() {
         if (!current()) return;
       }
     }
+    editor.geometry = result.geometry;
+    editor.geometrySequence = sequence;
+    positionTextSelection();
     // Selection belongs to the producer, including an optional block just cleared.
     const image = result.images[0];
     if (image) {
@@ -333,7 +365,7 @@ async function performTextPreview() {
     editor.geometrySequence = sequence;
     editor.gestureBlock = image && !editor.anchorBlocked ? editor.selected : null;
     editor.preview = { body, result, displayed: !!image && !result.blocked };
-    editor.message = result.blocked ? wordingBlockDetails(result.findings, `${editor.product}/${MARKET[editor.language]}/${FMT[editor.format].ratio.replace(":", "x")}`) || MotifEditorControls.copy.noFit
+    editor.message = result.blocked ? wordingBlockDetails(result.findings.filter(finding => !finding.context?.phrase), `${editor.product}/${MARKET[editor.language]}/${FMT[editor.format].ratio.replace(":", "x")}`)
       : editor.anchorBlocked ? MotifEditorControls.copy.noFit
       : "";
     if (!image && !result.blocked) { editor.message = "Preview unavailable."; editor.recovery = "retry"; }
@@ -453,7 +485,6 @@ async function finishText(editor, latest) {
     editor.recovery = null;
     editor.saving = false;
     editor.message = "";
-    for (const input of $$('[data-mf-all]')) input.checked = false;
     $("#text-image").src = output.url;
     paintText();
   }); } finally {
@@ -534,7 +565,6 @@ async function recoverText() {
         if (editor.anchor?.id === field) { editor.anchor = null; editor.anchorBlocked = false; }
       }
     }
-    for (const input of $$('[data-mf-all]')) input.checked = editor.all[input.dataset.mfAll];
   }
   editor.attempt = null;
   editor.recovery = null;
@@ -558,8 +588,8 @@ document.addEventListener("change", event => {
 
 function recordCombinedText(event) {
   const editor = textEditor;
-  if (modal !== "text" || !editor || editor.saving || !event.target.matches("[data-mf-value],[data-mf-all]")) return;
-  Object.assign(editor, MotifEditorControls.readFields($(".mf-combined-wording")));
+  if (modal !== "text" || !editor || editor.saving || !event.target.matches("[data-mf-value]")) return;
+  editor.values = MotifEditorControls.readFields($(".mf-combined-wording")).values;
   if (event.target.dataset.mfValue) {
     editor.selected = event.target.dataset.mfValue;
     event.target.closest(".mf-word-field").querySelector(".mw-field-message")?.remove();
@@ -568,6 +598,25 @@ function recordCombinedText(event) {
   scheduleTextPreview();
 }
 document.addEventListener("input", recordCombinedText);
-document.addEventListener("change", event => {
-  if (event.target.matches("[data-mf-all]")) recordCombinedText(event);
+async function applyTextToAllProducts(field) {
+  const editor = textEditor;
+  if (!editor || !textCurrent(editor) || editor.saving || editor.applyingAll || !["message", "cta"].includes(field)) return;
+  if (!MotifTextLimits.guardFields([`mf-word-${field}`])) return;
+  editor.applyingAll = field;
+  editor.all[field] = true;
+  paintText();
+  try { await flushStudioSave(); }
+  finally {
+    if (textCurrent(editor)) {
+      editor.all[field] = false;
+      editor.applyingAll = null;
+      paintText();
+    }
+  }
+}
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-mf-apply-all]");
+  if (!button || button.disabled || modal !== "text") return;
+  event.preventDefault();
+  applyTextToAllProducts(button.dataset.mfApplyAll).catch(error => toast(error.message));
 });

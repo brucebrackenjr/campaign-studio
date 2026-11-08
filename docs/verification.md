@@ -1,6 +1,6 @@
 # Verification
 
-Motif 0.3.0 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
+Motif 0.3.1 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
 
 ## Repeatable local checks
 
@@ -21,6 +21,18 @@ uv run --locked campaign-studio sample-run --replay --data-dir ./motif-check-dat
 The check commands use separate ordinary campaign records and require no provider key. The synthetic two-product case composes 12 outputs and corrects six. The three-product, one-market case produces nine. Saved-source replay composes 12, corrects six, reopens storage, and exports with zero new attempts. A missing or changed replay master is refused locally instead of triggering a purchase.
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
+
+## Version 0.3.1 correction checks
+
+This update covers prohibited-word corrections across Campaign, Production, Studio, and Handoff, along with Studio format switching. Tests check the current wording after a save, the correction target, and the distinction between a visible preview and an image that is allowed to download.
+
+The browser checks use a three-product Winter campaign with both markets. They introduce prohibited wording in shared copy and in individual product wording, follow the correction to its source, and check whether notices and field errors disappear without a page refresh. A separate case combines prohibited wording with text extending outside the image. The preview must remain visible for correction, while download stays blocked until both problems are resolved. The checks also cover the Production sidebar, affected Handoff cards, and returning from an editor correction.
+
+The wording checks follow a complete round trip: change Campaign text, edit a product in Studio, use **Apply to all products**, return to Campaign, and reload. The corresponding Campaign field must show the new shared wording. A later ordinary Studio edit must affect only that product, across its three formats. A subsequent Campaign change must ask before replacing custom wording. Cancelling must preserve the previous Campaign field and every individual wording; confirming must update only the selected field and language. Separate cases cover the CTA, immediate clicks before autosave finishes, repeated clicks, pending changes during navigation, and preserved fonts, colors, positions, and other languages.
+
+Format-switching checks cover the main canvas and all three thumbnails during edits and navigation. The displayed image stays in place until its replacement has loaded. A format-specific edit must leave the other format thumbnails unchanged. Local browser results include screenshots, timing measurements, and inspection of downloaded PNGs and the offline report; they are not inferred from successful requests alone.
+
+These browser checks run on macOS with Playwright. WebKit automation is separate from testing the native Safari application. The v0.3.0 platform checks below describe that earlier release, rather than a new Windows test of this correction.
 
 ## Version 0.3.0 check coverage
 

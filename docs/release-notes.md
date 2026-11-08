@@ -1,3 +1,15 @@
+# Motif v0.3.1 – Clearer corrections and smoother format switching
+
+- **Keep shared wording consistent.** Editing a Campaign headline or call to action updates every product in that language, with confirmation before replacing customized wording. Studio's **Apply to all products** button does the same and updates the matching Campaign field. It is a one-time action; later ordinary Studio edits remain specific to the selected product.
+- **Find and correct prohibited wording.** Production, Studio, and Handoff identify the affected product and text. The correction opens the relevant field, and warnings update after the change saves. Handoff marks the affected image cards while leaving unrelated cards unmarked.
+- **Keep editing when text runs outside an image.** Studio keeps the photograph, logo, and text visible so the producer can move or resize the text. The layout warning explains what needs adjusting, and download remains blocked until the problem is corrected.
+- **Keep warnings readable.** Production warnings fit the sidebar, and Studio uses a compact notice above the editor. Available source photos remain distinct from wording or layout problems.
+- **Keep the image visible when changing formats.** After an edit, Studio holds the displayed image until the selected format is ready, while leaving the format thumbnails in place.
+
+Autosave, deliberate source-image generation, and creating finished images at download continue to work as in v0.3.0.
+
+---
+
 # Motif v0.3.0 – Autosave and simpler delivery
 
 Campaign and Studio now save changes as you work, and Motif creates the finished campaign images when you download them.

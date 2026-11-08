@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const campaign = '5fcc7583-3966-4ce3-98b3-e5ef39567c69';
 function finding(product, market='en-US', field='message') {
   return {rule:'rule',context:{product_id:product,product_name:product,market,
-    phrase:{configured_phrase:'Make',matches:[{field,value:'Make a move',origin:'market_shared',path:['markets',market,'copy',field]}]}}};
+    phrase:{configured_phrase:'Make',matches:[{field,value:'Make a move',origin:'product_override',path:['markets',market,'copy',field]}]}}};
 }
 function harness() {
   const pending=[],nodes=new Map(),focused=[],renders=[];
@@ -28,6 +28,7 @@ function harness() {
   context.window.MotifWording=undefined;
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/wording.js','utf8'),context);
   context.MotifWording=context.window.MotifWording;
+  vm.runInContext(readFileSync('src/campaign_studio/static/motif/brief-host.js','utf8'),context);
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/wording-host.js','utf8'),context);
   const run=code=>vm.runInContext(code,context);
   return {context,run,pending,focused,get,renders};
@@ -90,7 +91,7 @@ test('resolved notice restores keyboard focus to the page heading only if its ol
 });
 
 test('draft correction writes only its actual override or inherited field through the project queue',async()=>{
-  for (const [origin,market,field] of [['product_override','en-US','message'],['product_override','es-MX','cta'],['market_shared','es-MX','message'],['market_shared','en-US','cta']]) {
+  for (const [origin,market,field] of [['product_override','en-US','message'],['product_override','es-MX','cta']]) {
     const h=harness(),saves=[];
     h.context.blockedProposal=null;h.context.model.manifest=null;h.context.page='production';
     h.context.draft={campaign_id:campaign,markets:{'en-US':{copy:{message:'Make a move',cta:'Make a move'}},'es-MX':{copy:{message:'Make a move',cta:'Make a move'}}},products:[{id:'p1',copy_overrides:{}},{id:'p2',copy_overrides:{'en-US':{message:'Other headline',cta:'Other CTA'},'es-MX':{message:'Otro',cta:'Otra'}}}]};
@@ -110,8 +111,10 @@ test('draft correction writes only its actual override or inherited field throug
     const expected=structuredClone(before);
     const target=origin==='product_override'?expected.products[0].copy_overrides[market]:expected.markets[market].copy;
     target[field]='Corrected exact words';
+    if(origin==='market_shared') for(const product of expected.products) delete product.copy_overrides?.[market]?.[field];
     assert.deepEqual(h.context.draft,expected);assert.deepEqual(saves,[expected]);
-    assert.equal(JSON.stringify(h.context.projectBuffers),buffers);
+    if(origin==='market_shared' && market==='en-US' && field==='message') assert.equal(h.context.projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline'],'Corrected exact words');
+    else assert.equal(JSON.stringify(h.context.projectBuffers),buffers);
     assert.equal(h.context.page,'production');assert.equal(h.context.lang,'es');assert.equal(h.context.modal,null);
   }
 });
@@ -164,4 +167,37 @@ test('deduplicated phrase evidence keeps exact editable copy and every matching 
   // A subset can arrive in a different order; a later full value fills its reference.
   h.context.model.wording_issue.matches=[repeated,first];
   assert.equal(h.run('currentWordingView().cases[0].value'),'Make a move');
+});
+
+test('one correction click follows the next unresolved product after flushing the current edit',async()=>{
+ const h=harness();h.context.model.wording_issue={matches:[finding('p1'),finding('p2')]};
+ h.context.studioWorkspace={};
+ h.context.resolveStudioChanges=async()=>{h.context.model.wording_issue={matches:[finding('p2')]};return true;};
+ h.context.leaveStudioWorkspace=async()=>true;
+ await h.run('openWordingCase(currentWordingView().cases[0], "edit:p1")');
+ assert.equal(h.context.currentProduct,1);
+ assert.equal(h.context.textEditor.selected,'message');
+});
+
+
+test('correction on the visible product focuses its field without rebuilding the canvas',async()=>{
+ const h=harness();h.context.model.wording_issue={matches:[finding('p1')]};
+ h.context.studioWorkspace={product:'p1',mode:'text'};h.context.currentProduct=0;h.context.lang='en';h.context.textEditor={};
+ h.context.resolveStudioChanges=async()=>true;
+ h.context.leaveStudioWorkspace=async()=>{throw Error('must keep the current canvas')};
+ await h.run('openWordingCase(currentWordingView().cases[0], "edit:p1")');
+ assert.equal(h.context.textEditor.selected,'message');assert.equal(h.renders.length,0);
+ assert.deepEqual(h.get('#mf-word-message').selection,[0,4]);
+});
+
+ test('inherited prohibited copy opens its Campaign source instead of creating product overrides',async()=>{
+ for(const field of ['message','cta']) for(const market of ['en-US','es-MX']) {
+  const h=harness(),row=finding('p1',market,field);row.context.phrase.matches[0].origin='market_shared';
+  h.context.model.wording_issue={matches:[row]};
+  await h.run('openWordingCase(currentWordingView().cases[0],"edit:shared")');
+  assert.equal(h.context.page,'campaign');assert.equal(h.context.tab,'copy');
+  assert.equal(h.context.lang,market==='en-US'?'en':'es');assert.equal(h.context.modal,null);
+  assert.equal(h.focused.at(-1),`[data-bf-field="${field}"]`);
+  assert.deepEqual(h.get(`[data-bf-field="${field}"]`).selection,[0,4]);
+ }
 });

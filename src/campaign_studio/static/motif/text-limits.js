@@ -87,11 +87,12 @@
     if (over) input.parentElement.style.setProperty("--mf-limit-width", `${note.getBoundingClientRect().width}px`);
     const wasInvalid = ownedInvalid.has(input);
     if (over) {
-      if (!wasInvalid) ownedInvalid.set(input, input.getAttribute("aria-invalid"));
+      if (!wasInvalid) ownedInvalid.set(input, { value: input.getAttribute("aria-invalid"), wording: input.getAttribute("data-wording-invalid") !== null });
       input.setAttribute("aria-invalid", "true");
       input.setCustomValidity(purposeIssue(purpose, input.value));
     } else if (wasInvalid) {
-      const previous = ownedInvalid.get(input);
+      const prior = ownedInvalid.get(input);
+      const previous = prior.wording && input.getAttribute("data-wording-invalid") === null ? null : prior.value;
       if (previous === null) input.removeAttribute("aria-invalid");
       else input.setAttribute("aria-invalid", previous);
       input.setCustomValidity("");

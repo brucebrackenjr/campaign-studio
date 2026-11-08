@@ -16,7 +16,7 @@ function harness() {
         innerHTML: "",
         decode: async () => {},
         classList: { toggle() {} },
-        setAttribute() {}, removeAttribute() {},
+        setAttribute() {}, removeAttribute() {}, getAttribute() { return null; }, hasAttribute() { return false; }, remove() {},
         querySelectorAll: () => [],
         querySelector: (selector) => get(selector),
       });
@@ -51,7 +51,7 @@ function harness() {
     operation: null,
     campaignMetricDisplay: () => ({ attempts: "Unknown", spend: "Unknown" }),
     
-    page: "review",
+    page: "review", reviewTab: "products",
     draft: null,
     activeRetry: () => null,
     activeBlockedProposal: () => null,

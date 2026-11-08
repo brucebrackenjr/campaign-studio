@@ -32,10 +32,12 @@
     const c=cases[index];if(!c)return '';
     const terms=c.terms.map(t=>`“${esc(t)}”`).join(', ');
     const field=c.field==='Call to action'?'call to action':'headline';
-    const destination=!hasImages?'Campaign':'Studio';
+    const destination=!hasImages||c.target.origin==='market_shared'?'Campaign':'Studio';
     const subject=c.terms.length===1?`${terms} is`:`${terms} are`;
     const title=`Update the ${field}${surface==='handoff'?' before exporting':''}`;
     const body=`${subject} on this campaign’s prohibited-word list. Change ${c.terms.length===1?'it':'them'} in the ${esc(c.language)} ${field} for ${esc(c.product)}.`;
+    if(surface==='production')return `<section class="mw-notice mw-production" aria-label="Wording to correct"><div class="mw-case"><h3>${title}</h3><p>Remove ${terms} from the ${esc(c.language)} ${field} for ${esc(c.product)}.</p></div><div class="mw-actions">${button(`Edit ${field} in ${destination}`,'edit:'+c.id,true)}<button type="button" class="mw-link" data-mw="rules:${esc(c.id)}">Edit prohibited words</button></div>${cases.length>1?`<p>${cases.length} wording changes needed.</p>`:''}</section>`;
+    if(surface==='studio-editor')return `<section class="mw-notice mw-compact" aria-label="Wording to correct"><p><strong>${cases.length} ${cases.length===1?'wording change':'wording changes'} needed.</strong> ${terms} · ${esc(c.product)} · ${esc(c.language)}</p>${button(`Edit ${destination==='Campaign'?'campaign ':''}${field}`,'edit:'+c.id,false)}</section>`;
     const actions=`${button(`Edit ${field} in ${destination}`,'edit:'+c.id,true)}<button type="button" class="mw-link" data-mw="rules:${esc(c.id)}">Edit prohibited words</button>`;
     return `<section class="mw-notice" aria-labelledby="mw-title"><div class="mw-case"><h3 id="mw-title">${title}</h3><p>${body}</p></div>${actions?`<div class="mw-actions">${actions}</div>`:''}${cases.length>1?`<div class="mw-paging"><span aria-live="polite">${index+1} of ${cases.length} wording changes</span><div>${button('←','previous',false,`aria-label="Previous wording change" ${index===0?'disabled':''}`)}${button('→','next',false,`aria-label="Next wording change" ${index===cases.length-1?'disabled':''}`)}</div></div>`:''}</section>`;
   }

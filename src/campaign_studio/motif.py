@@ -472,7 +472,10 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
     for output in plan.outputs:
         blocked = any(blocks_output(f, output) for f in plan.findings)
         available = output.product_id in sources and not any(
-            blocks_output(f, output) and not (f.context and f.context.phrase) for f in plan.findings
+            blocks_output(f, output)
+            and not (f.context and f.context.phrase)
+            and f.rule != "text_fit"
+            for f in plan.findings
         )
         url = (
             f"/api/campaigns/{campaign_id}/composition/{version}/images/{output.id}"

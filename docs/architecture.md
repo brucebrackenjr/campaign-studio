@@ -1,28 +1,40 @@
 # How Motif works
 
-This document describes Motif 0.3.0. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
+This document describes Motif 0.3.1. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
 
 There are two different kinds of image creation. **OpenAI can create a missing product photograph after the producer confirms a paid request. Pillow combines an existing photograph with text and a logo to make the finished ads locally.** Editing a headline, moving a logo, and downloading a campaign do not ask OpenAI for another photograph.
 
 ```mermaid
 flowchart TD
-    Browser["Browser: enter campaign details and edit images"]
-    App["Python application on your computer"]
-    Settings[("SQLite: current campaign details and image editing instructions")]
-    Files["Campaign folders: imported brief, photographs, and logos"]
-    Preview["Display the photograph, text, and logo together"]
-    OpenAI["OpenAI: create a missing photograph"]
-    PNG["Pillow: create the finished PNGs when you download"]
-    ZIP["Check the files and send the ZIP to your browser"]
-    Browser -->|"Autosave your changes"| App
-    App <-->|"Read and update settings"| Settings
-    App <-->|"Read and save files"| Files
-    App --> Preview
-    App -->|"Only after you confirm generation"| OpenAI
-    OpenAI -->|"Return the image response"| App
-    App -->|"Download ZIP"| PNG
-    PNG --> ZIP
+    subgraph Computer["Your computer – files and printed campaign copy stay local"]
+        Browser["Browser<br/>Campaign forms and Studio controls"]
+        App["Motif – Python and FastAPI<br/>Checks requests and coordinates the work"]
+        DB[("SQLite database<br/>Editing instructions, file ownership, request records")]
+        Files["Campaign folders<br/>Imported brief, photos, logos, generated images"]
+        Pillow["Pillow image processing<br/>Editing previews and finished PNGs"]
+    end
+    OpenAI["Optional OpenAI API – internet<br/>Generates a missing concept image"]
+    Pad[" "]
+    Browser <-->|"Send edits; receive saved settings, previews, and downloads"| App
+    App <-->|"Read and save"| DB
+    App <-->|"Read and save"| Files
+    App <-->|"Draw previews and PNGs"| Pillow
+    App <-.->|"Confirm, send description, receive image"| OpenAI
+    OpenAI ~~~ Pad
+    linkStyle 0,1,2,3,4 stroke:#526253,stroke-width:1.5px
+    classDef local fill:#fffefa,stroke:#263b30,color:#242a25
+    classDef app fill:#263b30,stroke:#263b30,color:#fffefa
+    classDef store fill:#e6ebdc,stroke:#263b30,color:#242a25
+    classDef external fill:#fffefa,stroke:#ce3825,stroke-width:2px,stroke-dasharray:6 4,color:#242a25
+    class Browser local
+    class App app
+    class DB,Files,Pillow store
+    class OpenAI external
+    style Computer fill:#f4f2ec,stroke:#cbd2c2,color:#242a25
+    style Pad fill:none,stroke:none,color:transparent
 ```
+
+The shaded boundary contains the local application. The dashed connection is the optional paid API request. Pillow creates temporary previews while editing and finished files on download; Motif checks and packages those files before returning them to the browser.
 
 ## Follow one edit from the browser to the download
 
@@ -89,7 +101,9 @@ Motif builds a preview from the current settings, original photograph, and logo.
 
 Preview and download use the same Pillow composition code and packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. Selection boxes and editing handles are not included in downloaded images.
 
-The shared headline and default color come from the campaign settings. A producer can deliberately override wording for a product or color for a particular text block. Later shared changes preserve those explicit choices. Wording applies across that product’s three formats in the selected market. Position, size, font, color, crop, and logo placement can differ by product, market, and format.
+The shared headline and default color come from the campaign settings. Typing in Studio changes the selected product's wording across its three formats in the selected language. The **Apply to all products** button copies that field's wording to every product in the language and updates the matching Campaign field. Editing the Campaign headline or call to action also replaces that field's wording for all products, including earlier individual wording changes. Neither action changes the other text field or any visual styling. Shared color changes preserve deliberately customized colors. Position, size, font, color, crop, and logo placement can differ by product, language, and format.
+
+Campaign text editing asks for confirmation before replacing custom wording. Until the producer confirms, the existing individual wording stays saved. Cancelling restores the previous Campaign field. The Studio button already states that it applies the wording to all products, so it performs that one-time action directly.
 
 Internally, `Workspace.current_composition()` turns the saved campaign into a temporary `Plan` object in memory. Five products, two markets, and three formats become 30 sets of image instructions. This is a calculation used for previewing and downloading, not another independently saved copy of the campaign.
 
