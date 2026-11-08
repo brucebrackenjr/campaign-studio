@@ -54,7 +54,7 @@ The assessment separates minimum pipeline requirements from three optional bonus
 | Documentation | Setup, inputs/outputs, decisions, assumptions, and limitations are explained here and in the linked references. | Minimum README and the requested comprehensive submission documentation. |
 | Brand checks | Check supplied logo presence and approved text colors, with layout and rendering validation. | Optional bonus. |
 | Legal content checks | Match configured prohibited phrases in printed headlines and CTAs and require correction or a deliberate rule change before export. | Optional bonus. |
-| Logging and reporting | Retain attempt facts, output coverage, scoped estimates, provenance, and accessible descriptions; snapshot relevant facts in exported reports. | Optional bonus. |
+| Logging and reporting | Record which image requests were sent, whether they succeeded, and their estimated cost. The exported report lists the delivered images, identifies supplied or AI-generated photographs, and includes any descriptions the producer supplied. | Optional bonus. |
 
 Additional controls serve concrete production needs:
 
@@ -217,7 +217,7 @@ If a key is missing, use **Add your OpenAI API key**. On macOS and Linux, the ma
 
 Alternatively, configure `OPENAI_API_KEY` in the process environment before starting. On macOS and Linux you can also configure the installation’s private `.env`. An explicitly supplied environment value wins, including an empty value. In that case, update the launch environment and restart; the dialog explains that the environment manages the key. Manual edits to `.env` also require a restart. The launcher reads that one file, without parent-directory discovery.
 
-To remove a saved key, stop Motif first. On macOS or Linux, remove the `OPENAI_API_KEY` entry from `Motif/.env`; on Windows, delete `Workspace/private/openai-key.dpapi`. Remove any separately configured `OPENAI_API_KEY` environment value as well, then restart.
+If you prefer to remove the key manually, stop Motif first. On macOS or Linux, remove the `OPENAI_API_KEY` entry from `Motif/.env`; on Windows, delete `Workspace/private/openai-key.dpapi`. Remove any separately configured `OPENAI_API_KEY` environment value as well, then restart. The **Remove API key** button described above handles this without restarting.
 
 No API key ships with the application. Keep credentials out of briefs, screenshots, exports, and source control. [`.env.example`](.env.example) documents the configuration names an evaluator may need. Missing or rejected credentials do not prevent working with intact saved imagery; ordinary validation and export rules still apply.
 
@@ -340,37 +340,37 @@ If a local image render fails during ZIP creation, Motif continues creating the 
 
 ## Architecture and data flow
 
-Motif is one local Python process serving a browser interface. The browser handles interaction; Python remains authoritative for validation, pixels, state transitions, and export.
+Motif runs on the producer’s computer. The producer works in a browser, and a Python application running on that same computer saves changes, checks inputs, and makes images. OpenAI is contacted only when the producer asks Motif to generate a missing product photograph and confirms the request.
 
 ```mermaid
 flowchart TD
-    Campaign[Campaign forms] -->|Autosave| Current
-    Studio[Studio text, logo, crop, and style controls] -->|Autosave| Current
-    subgraph Database[SQLite]
-        Current[One current editable campaign]
-        Requests[Confirmed source requests and attempt facts]
-    end
-    Current --> Planning[Check source readiness]
-    Planning -->|Explicit generation confirmation| Provider[Image provider]
-    Provider --> Sources[Saved source photographs]
-    Provider --> Requests
-    Upload[Owned photos and logos] --> Sources
-    Current --> Preview[Temporary visual previews]
-    Sources --> Preview
-    Current -->|Download| Capture[Capture consistent settings and source bytes]
-    Sources --> Capture
-    Capture --> Render[Pillow creates finished PNGs]
-    Render --> Check[Check images and prepare ZIP]
-    Check --> Browser[Browser download]
+    Browser["Browser: enter campaign details and edit images"]
+    App["Python application on your computer"]
+    Settings[("SQLite database: campaign details and image editing instructions")]
+    Files["Campaign folders: imported brief, photographs, and logos"]
+    Preview["Show the photograph, text, and logo in the preview"]
+    OpenAI["OpenAI: generate a missing photograph"]
+    PNG["Pillow: combine the photograph, text, and logo into finished PNGs"]
+    ZIP["Check the files and send the ZIP to your browser"]
+    Browser -->|"Send edits to save automatically"| App
+    App <-->|"Save and read the current settings"| Settings
+    App <-->|"Save and read image files"| Files
+    App --> Preview
+    App -->|"Only after you confirm generation"| OpenAI
+    OpenAI -->|"Return the image response"| App
+    App -->|"When you choose Download ZIP"| PNG
+    PNG --> ZIP
 ```
 
-One current campaign document contains both Campaign fields and Studio editing instructions. The same saved values drive previews, source planning, and exports. There is no separate accepted image version to update after saving a form.
+**Editing saves instructions, while the original pictures stay separate.** For example, moving a lantern’s logo in Studio saves its new position in SQLite. It does not permanently paint the logo into the photograph. Motif can reopen the photograph and logo in that saved arrangement, and you can move them again. Campaign details, such as the shared headline and default text color, are saved in the same campaign record. A deliberately customized image keeps its individual choices.
 
-Paid generation has a different responsibility. Its confirmed request must remain fixed while the provider is working, so the application retains that request and its outcome separately. Those records explain actual external requests and charges; they are not a history of logo movements or text edits.
+**The database and folders have different jobs.** SQLite stores the campaign’s current details and editing instructions. The campaign folder stores the imported brief, uploaded photographs and logos, and photographs returned by OpenAI. SQLite also records which files belong to the campaign and what happened to each image-generation request. That lets Motif reopen the right files, delete the selected campaign safely, and recognize a request that was already sent. Ordinary edits replace the current settings rather than building a history of every adjustment.
 
-An export captures the current settings and verified source bytes before rendering. It uses that snapshot throughout the download, even if another tab saves a change while the files are being prepared.
+**OpenAI creates a missing photograph; Pillow makes the finished ads.** A generated photograph can be reused for Square, Story, and Landscape images in both markets. Pillow, an image-processing library running locally in Python, crops the photograph and adds the supplied words and logo. Moving text or changing a color does not require another paid request.
 
-The server binds to loopback and checks allowed hosts, request origin, a per-process mutation token, file ownership, and expected versions. Motif assumes a trusted local computer and does not authenticate individual operating-system accounts. Campaigns and supplied assets remain on the machine except for text deliberately sent in a confirmed concept-generation request.
+**Download ZIP creates the finished files.** Motif first finishes saving pending edits. It then takes temporary copies of the settings and photographs needed for that download, so changes made in another window cannot alter some images halfway through. Pillow creates each PNG, Motif checks it, and the completed images go into a ZIP with an offline report and a list of the included files. If an image fails, Motif retries that image while keeping the successful ones temporarily. Those temporary files are removed when the download finishes, is canceled, or expires.
+
+**The browser is an interface to a local application.** Motif listens at `127.0.0.1`, an address for this computer rather than a public website. Before saving, the server checks that the request came from Motif’s browser page, refers to that campaign’s files, and was based on the latest saved settings. An older tab cannot silently overwrite a newer save. The application has no separate user accounts. Supplied photographs, logos, and ad text stay local; a confirmed OpenAI request sends the product description, audience, and scene direction.
 
 The canonical campaign pages are `/campaigns/<uuid>/campaign`, `/production`, `/studio`, and `/handoff`, all beneath the same campaign prefix. A malformed, unknown, or deleted identity receives the Motif **Campaign not found** page. A registered draft can open before its first run. Old page aliases are not supported. The v0.2.0 workspace layout is upgraded in place; older incompatible 0.1.x layouts require their original application.
 
@@ -380,17 +380,17 @@ Alternative entries are explanatory architectural comparisons. Only the selected
 
 | Choice | Reason | Alternative and trade-off |
 | --- | --- | --- |
-| Python 3.14 | Keeps validation, image work, file handling, and the provider integration in one language. | A TypeScript backend could unify browser/server language, but would require a different image stack. Python means maintaining the browser/server command boundary explicitly. |
-| FastAPI, Uvicorn, and Pydantic | Typed input contracts and explicit local HTTP operations, with generated JSON Schema. | A CLI alone would simplify presentation but make visual editing harder. A larger service framework is unnecessary for one local producer. |
-| Jinja2 and plain JavaScript | A served page shell and direct controls without a frontend build or dependency tree. | A frontend framework could help a larger interface, but adds tooling. Plain JavaScript still requires careful ownership of async state, focus, and stale responses; it is not automatically simple. |
-| Pillow and fontTools | Deterministic local crop, font coverage, text metrics, overlays, and PNG output. | Rendering text inside a generated image would make exact copy changes unreliable. Browser-only drawing would need a second authority for final pixels. |
-| SQLite plus files | Short transactions keep the current editing document, file ownership, and request records consistent; source images remain ordinary files. | Cloud object storage and a shared database suit multi-user hosting, but add services and operating concerns outside this local workflow. There is no S3 or simulated S3 layer. |
-| One serial runner | Clear allowance accounting and bounded local resource use without a task queue. | Parallel generation could improve throughput but would complicate Stop, cumulative allowance, and partial failure. Serial execution trades speed for a smaller execution model. |
-| Official OpenAI SDK with one small adapter | Keeps provider transport separate from planning and rendering without building a general provider framework. | Another provider would need its own parameter, error, cost, and image-quality verification. Provider interchangeability is not claimed. |
-| `uv.lock` and a hashed requirements export | Reproducible development and a conventional evaluator installation from the same dependency set. | Two independent dependency lists would be easier to drift. The export must remain synchronized with the lock. |
-| Offline HTML and PNG delivery | The recipient can inspect the actual images without installing the application or sharing a key. | A hosted team-review system could coordinate approvals, but would require accounts, access control, and synchronization absent from this prototype. |
+| Python 3.14 | Handles image processing, input checks, files, and OpenAI requests in one application. | A TypeScript server could use the same language as the browser, but would need different image-processing tools. Python suits the image work; browser interaction still uses JavaScript. |
+| FastAPI, Uvicorn, and Pydantic | Uvicorn runs the local web server. FastAPI receives browser requests. Pydantic checks that submitted values have the expected structure and types. | A command-line-only tool would have fewer interface parts, but producers need to see and adjust their compositions. |
+| Jinja2 and plain JavaScript | Jinja2 serves the page shell and startup settings. JavaScript fetches the saved campaign and handles controls, dragging, and preview updates. | Developers can run the interface without compiling and bundling a separate frontend. A larger editor would benefit more from React components and TypeScript checks; this interface requires explicit handling of requests that finish out of order. |
+| Pillow and fontTools | Pillow crops photographs, draws the supplied text and logo, and creates PNGs. fontTools checks whether the packaged fonts can display the supplied characters. | A generated image cannot reliably preserve exact advertising wording through revisions. Local composition gives Motif control of that wording, while the producer judges its placement and readability. |
+| SQLite plus image files | SQLite saves current settings and records which files and image requests belong to each campaign. Photographs and logos remain ordinary files. | A JSON-file-only application could work, but would need its own coordination for interrupted or simultaneous saves. A shared hosted application would call for a shared database and file storage. |
+| One image-generation request at a time | Motif can track each request and stop the ones it has not sent yet. | Sending several requests at once could finish sooner, but would make stopping, request limits, and partial failures more complicated. |
+| Official OpenAI SDK with a small integration module | The SDK sends requests to OpenAI. A separate module translates Motif’s request settings and handles the returned image and errors. | Adding another provider would require adapting its settings, errors, costs, and returned images, then testing that integration. |
+| `uv.lock` and a matching requirements file | Both installation methods use the same recorded dependency versions. The requirements file also includes hashes to check downloaded packages. | The generated requirements file must be updated whenever the lock file changes. |
+| Offline HTML report and PNGs | A recipient can inspect and use the delivered images without installing Motif or receiving an API key. | Online comments and approvals would need a hosted service with accounts and access controls. |
 
-The stack is small; the interactive workflow is still substantial. Save conflicts, paid-request uncertainty, consistent export snapshots, and safe deletion are real responsibilities. Their guards are kept explicit rather than replaced with a claim that the whole application is trivially portable or production-ready. [Architecture notes](docs/architecture.md) explain these choices and their boundaries.
+The [architecture explanation](docs/architecture.md) follows a logo move from the browser to SQLite and then into a downloaded PNG. It also explains conflicting browser saves, failed downloads, and the changes a shared hosted version would need.
 
 ## Where prompts and pixels come from
 
@@ -412,7 +412,7 @@ Temporary previews and exported PNGs use the same compositor, fonts, and geometr
 
 ## Persistence, identity, and cleanup
 
-Motif keeps current campaign work rather than an image-edit history. Campaign and Studio autosave replace one current document, with a version token to detect another tab's newer save. A lost acknowledgement can be reconciled without creating another edit record.
+Motif keeps the current campaign settings. An autosave replaces those settings rather than adding a history entry for every logo move. Each save also changes a version marker inside the database. When another browser window tries to save using an older marker, Motif refuses that save and asks the producer to refresh. The campaign ID and folder name stay the same.
 
 Campaign identity is a canonical hyphenated UUID, separate from its editable display name. SQLite records that identity and its permanent folder. Duplicate names are allowed. Renaming a campaign leaves its identity, folder, and URL unchanged.
 
@@ -426,9 +426,9 @@ New attachments keep a readable label, such as `leaflight-lantern-<identifier>.p
 
 Folders appear only as needed. Current editing creates no `Outputs/`, `Exports/`, or archive folders. A supported older workspace may retain previously exported packages or files you added yourself.
 
-One SQLite database in `Workspace/private/state.sqlite3` serves the application workspace. Its current campaign document contains the brief fields, per-image editing instructions, accessible descriptions, source references, and save version. Separate records track confirmed source requests, actual provider attempts, usage, and file ownership. Ownership identifies which campaign may use or delete a file; it is not a multiple-user permission system.
+One SQLite database in `Workspace/private/state.sqlite3` stores the saved work for all campaigns. Each campaign has a current record containing its form values, image editing instructions, descriptions, and references to its photographs and logo. Other tables record image-generation requests and which files belong to each campaign. Motif uses those relationships to open the right files and avoid deleting another campaign’s work. There are no separate user accounts.
 
-The current instructions determine what appears in Campaign, Studio, and Handoff. A temporary preview is a display of those instructions. Export captures them, verifies its sources, creates final PNGs, checks those files, and packages them for download. No edit needs to copy the other images or create another campaign folder.
+Campaign, Studio, and Handoff read the current saved settings. Previews display the photographs, words, and logo using those settings. Download ZIP makes the finished PNGs from them. Editing one image does not copy the other images or create another campaign folder.
 
 A **delivery manifest** accompanies the downloaded images. It identifies each PNG's product, market, format, dimensions, checksum, and printed copy. It helps the recipient inspect or verify the package without Motif. It is created for that download, not maintained as a redundant working JSON file.
 
