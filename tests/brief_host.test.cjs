@@ -1010,3 +1010,68 @@ test('Campaign phrase checks match literal, whole-word, case-sensitive, NFC, and
   ['guaranteed2',{phrase:'guaranteed',match:'whole_word'},false],
  ])assert.equal(h.run(`MotifWording.matchingTerms(${JSON.stringify(value)},[${JSON.stringify(rule)}]).length>0`),match,JSON.stringify([value,rule]));
 });
+
+test('restored invalid Campaign copy becomes a guarded shared edit when its rule is removed or changed',async()=>{
+ for(const language of ['en','es'])for(const field of ['message','cta'])for(const replace of [false,true]) {
+  const h=harness(),market=h.c.MARKET[language],control=field==='message'?'copy-headline':'copy-cta';
+  h.c.lang=language;h.c.tab='copy';
+  const previous=[{phrase:'guaranteed',match:'whole_word'}];
+  h.c.draft.markets[market].phrase_rules=structuredClone(previous);
+  h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom headline',cta:'Custom CTA'},'es-MX':{message:'Propio',cta:'Propia'}};
+  h.c.projectBuffers.form_drafts.fields={[`brief/copy/${language}`]:{[control]:'Guaranteed new wording'},'brief/brand/es':{'text-color':'#12'}};
+  const before=structuredClone(h.c.draft);
+  h.run('refreshBriefFlow()');assert.equal(h.run('pendingCampaignCopy().length'),0);
+  assert.equal(h.run(`currentBriefValue().markets['${market}'].copy.${field}`),before.markets[market].copy[field]);
+  // A fresh browser has the persisted raw buffer but no in-memory change entry.
+  h.c.draft.markets[market].phrase_rules=replace?[]:[{phrase:'unrelated'}];h.c.previous=previous;
+  h.run('requeueAllowedCampaignCopy(previous)');
+  assert.equal(h.run('pendingCampaignCopy().length'),1);
+  h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+  const review=h.run('confirmCampaignCopyChanges()');assert.equal(h.c.modal,'campaign-copy-confirm');
+  assert.equal(h.c.draft.markets[market].copy[field],before.markets[market].copy[field]);
+  h.run(`finishCampaignCopy(${replace})`);await review;
+  const expected=replace?'Guaranteed new wording':before.markets[market].copy[field];
+  assert.equal(h.c.draft.markets[market].copy[field],expected);
+  assert.equal(h.run(`currentBriefValue().markets['${market}'].copy.${field}`),expected);
+  assert.equal(h.run(`briefHost.vm.copy['${market}'].${field}`),expected??'');
+  assert.equal(h.c.draft.products[0].copy_overrides[market][field],replace?undefined:before.products[0].copy_overrides[market][field]);
+  assert.equal(h.c.draft.products[0].copy_overrides[market][field==='message'?'cta':'message'],before.products[0].copy_overrides[market][field==='message'?'cta':'message']);
+  const other=language==='en'?'es-MX':'en-US';assert.deepEqual(h.c.draft.markets[other],before.markets[other]);
+  assert.equal(h.c.projectBuffers.form_drafts.fields['brief/brand/es']['text-color'],'#12');
+ }
+});
+
+test('rule edits leave still-invalid and unrelated restored copy buffers unapplied',async()=>{
+ const h=harness();h.c.tab='copy';
+ h.c.projectBuffers.form_drafts.fields={'brief/copy/en':{'copy-headline':'guaranteed forever','copy-cta':'unrelated stale buffer'}};
+ h.c.draft.markets['en-US'].phrase_rules=[{phrase:'forever'}];
+ h.run("requeueAllowedCampaignCopy([{phrase:'guaranteed'},{phrase:'forever'}]);refreshBriefFlow()");
+ assert.equal(h.run('pendingCampaignCopy().length'),0);
+ assert.equal(h.run("currentBriefValue().markets['en-US'].copy.message"),'English');
+ assert.equal(h.run("currentBriefValue().markets['en-US'].copy.cta"),null);
+ assert.equal(h.run("briefHost.vm.copy['en-US'].message"),'guaranteed forever');
+ assert.equal(h.run('briefHost.vm.copyErrors.message.length'),1);
+ await h.run('confirmCampaignCopyChanges()');
+ assert.equal(h.c.projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline'],'guaranteed forever');
+});
+
+test('capturing an edited rule queues a newly valid restored copy proposal before autosave',async()=>{
+ const h=harness();h.c.tab='copy';h.c.modal='rule';h.c.ruleIndex=0;
+ h.c.draft.markets['en-US'].phrase_rules=[{phrase:'guaranteed'}];
+ h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom'}};
+ h.c.projectBuffers.form_drafts.fields={'brief/copy/en':{'copy-headline':'guaranteed'}};
+ h.c.$=selector=>selector==='#mw-rule-phrase'?{value:'unrelated'}:null;
+ h.c.captureProjectFields=()=>{};h.c.projectFormKey=()=>null;
+ const project=readFileSync('src/campaign_studio/static/motif/project.js','utf8');
+ h.run(project.slice(project.indexOf('function captureProject()'),project.indexOf('function isImageEditor')));
+ const capture=h.run('captureProject()');
+ assert.equal(h.run('pendingCampaignCopy().length'),1);
+ assert.equal(capture.brief.markets['en-US'].copy.message,'English');
+ assert.equal(capture.form_drafts.fields['brief/copy/en']['copy-headline'],'English');
+ assert.equal(await h.run('confirmCampaignCopyChanges()'),false,'the rule dialog must close before asking about custom wording');
+ h.c.modal=null;h.c.$=()=>null;h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+ const review=h.run('confirmCampaignCopyChanges()');assert.equal(h.c.modal,'campaign-copy-confirm');
+ h.run('finishCampaignCopy(true)');await review;
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'guaranteed');
+ assert.equal(h.c.draft.products[0].copy_overrides['en-US'].message,undefined);
+});

@@ -383,7 +383,11 @@ function captureProject() {
   if (typeof captureProductInputs === "function") captureProductInputs();
   if (modal === "rule" && ruleIndex >= 0 && $("#mw-rule-phrase")) {
     const rule = draft.markets[MARKET[lang]]?.phrase_rules?.[ruleIndex];
-    if (rule) rule.phrase = $("#mw-rule-phrase").value;
+    if (rule && rule.phrase !== $("#mw-rule-phrase").value) {
+      const previousRules = copy(draft.markets[MARKET[lang]].phrase_rules);
+      rule.phrase = $("#mw-rule-phrase").value;
+      if (typeof requeueAllowedCampaignCopy === "function") requeueAllowedCampaignCopy(previousRules);
+    }
   }
   if (modal === "rename" && $("#rename-name")) draft.name = $("#rename-name").value;
   if (page === "campaign") {

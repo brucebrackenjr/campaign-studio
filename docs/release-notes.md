@@ -6,7 +6,7 @@
 - **Keep source preparation focused.** Production handles existing and generated product photos. Wording and logo choices do not block image preparation or access to Studio. Studio and Handoff handle finished-ad corrections.
 - **Keep the image visible when changing formats.** After an edit, Studio holds the displayed image until the selected format is ready, while leaving the format thumbnails in place.
 
-- **Catch prohibited Campaign copy immediately.** Headline and call-to-action fields identify prohibited words while keeping the typed text available for correction. Invalid new wording is not applied across products.
+- **Catch prohibited Campaign copy immediately.** Headline and call-to-action fields identify prohibited words while keeping the typed text available for correction. Invalid new wording is not applied across products. If a rule changes to allow that wording, the normal confirmation still protects customized product text.
 - **Make branding optional.** Campaigns can be edited and exported without a logo, including imported briefs that previously required one. Handoff keeps a reminder when the images have no logo. Studio supports first attachment and replacement directly in the editor.
 - **Simplify page headings.** The four main pages keep their titles without repeating the numbered navigation labels.
 

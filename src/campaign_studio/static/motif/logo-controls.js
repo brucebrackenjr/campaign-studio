@@ -139,7 +139,10 @@
       if(q('[data-lg-asset-preview]').dataset.asset!==assetUrl){q('[data-lg-asset-preview]').dataset.asset=assetUrl;q('[data-lg-asset-preview]').innerHTML=assetUrl?`<img src="${esc(assetUrl)}" alt="${esc(a?.filename||'Campaign logo')}">`:'<span>No logo attached</span>';}
       q('[data-lg-profile]').textContent=`${a?.type||'Original artwork'} · proportions kept`;
       q('[data-lg-filename]').textContent=a?.filename||(this.loading&&this.o.logoUrl?'Campaign logo':'Add your campaign logo');q('[data-lg-filename]').title=a?.filename||'';
-      q('[data-lg="replace"]').textContent=a||(this.loading&&this.o.logoUrl)?'Replace logo':'Attach logo';
+      for(const control of this.root.querySelectorAll('[data-lg="replace"]')) {
+        control.textContent=a||(this.loading&&this.o.logoUrl)?'Replace logo':'Attach logo';
+        control.disabled=this.loading||this.busy||this.reviewing||this.reviewRequired||this.uploading;
+      }
       q('.mf-logo-modal').setAttribute('aria-busy',String(this.busy||this.reviewing));q('[data-lg-status]').textContent=this.reviewing?'Reviewing the latest image…':this.reviewRequired?this.reviewMessage:this.o.embedded&&['Placement updated.','Move cancelled. Earlier edits are still here.','Default placement restored.','Checking the selected image…','New campaign artwork selected.','Updating the current available images locally…','Applying this logo locally…'].includes(this.message)?'':this.message;
       q('[data-lg-preview-label]').textContent=this.reviewRequired?'LOCAL DRAFT PREVIEW':'LIVE LOGO PREVIEW';
       q('[data-lg-dirty]').textContent=this.busy?'Saving…':!a?'No logo attached':this.pendingAsset?'New campaign artwork':this.dirty()?'Placement changed':'Saved placement';
@@ -147,7 +150,7 @@
       q('[data-lg="save"]').textContent=this.busy?'Applying…':this.saveFailed?'Try again':this.pendingAsset?'Review campaign change':'Apply logo';
       q('[data-lg="save"]').disabled=this.busy||this.reviewing||this.reviewRequired||this.uploading||!a||!this.dirty()||!this.valid||this.valid.blocked;
       q('[data-lg="reset"]').disabled=this.loading||this.busy||this.reviewing||!a||JSON.stringify(this.p)===JSON.stringify(this.default);
-      q('[data-lg="replace"]').disabled=this.loading||this.busy||this.reviewing;for(const el of this.root.querySelectorAll('[data-lg="cancel"],[data-lg="dismiss"]'))el.disabled=this.busy||this.reviewing;
+      for(const el of this.root.querySelectorAll('[data-lg="cancel"],[data-lg="dismiss"]'))el.disabled=this.busy||this.reviewing;
       q('.mf-logo-gesture').hidden=!this.gesture;if(this.gesture)q('.mf-logo-gesture').textContent='Arranging logo';
       q('[data-lg-context]').textContent=`${this.target.marketLabel} · ${this.target.ratio}`;
     }
@@ -169,7 +172,7 @@
     }
     reset() {if(!this.asset||this.busy||this.reviewing)return;this.p=constrain(clone(this.default),this.target,this.asset);this.message='Default placement restored.';this.changed();this.validate();this.o.onChange?.(true);}
     pick() {
-      if(this.loading||this.busy||this.reviewing||this.uploading)return;
+      if(this.loading||this.busy||this.reviewing||this.reviewRequired||this.uploading)return;
       this.fileInput?.remove();
       const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg';input.hidden=true;
       this.fileInput=input;this.root.append(input);

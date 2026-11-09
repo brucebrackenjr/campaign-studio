@@ -1226,6 +1226,7 @@ async function dispatchAction(data) {
           break;
         }
         const rules = (draft.markets[MARKET[lang]].phrase_rules ||= []);
+        const previousRules = copy(rules);
         const value = {
           ...rules[ruleIndex],
           id: rules[ruleIndex]?.id || `rule-${crypto.randomUUID().replaceAll("-", "")}`,
@@ -1237,20 +1238,24 @@ async function dispatchAction(data) {
         else rules[ruleIndex] = value;
         clearProjectTarget("rule");
         closeModal({ retain: false });
+        requeueAllowedCampaignCopy(previousRules);
         markDirty();
         await saveProject();
         render();
         break;
       }
-      case "deleteRule":
+      case "deleteRule": {
+        const previousRules = copy(draft.markets[MARKET[lang]].phrase_rules || []);
         if (ruleIndex >= 0)
           draft.markets[MARKET[lang]].phrase_rules.splice(ruleIndex, 1);
         clearProjectTarget("rule");
         closeModal({ retain: false });
+        requeueAllowedCampaignCopy(previousRules);
         markDirty();
         await saveProject();
         render();
         break;
+      }
       case "recheck":
         await saveProject();
         useData(await api(`/api/motif/campaigns/${C.id}`));

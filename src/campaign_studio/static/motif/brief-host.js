@@ -30,9 +30,12 @@ function currentBriefValue() {
   for (const [key, property] of [["copy-origin", "label"], ["copy-rights", "rights"]])
     if (key in fields) value.copy_provenance[property] = fields[key];
   const wording = value.markets[MARKET[lang]]?.copy;
-  if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]])
-    if (key in fields && !MotifWording.matchingTerms(fields[key], value.markets[MARKET[lang]].phrase_rules).length)
+  if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]]) {
+    const change = campaignCopyChanges.get(`${draft.campaign_id}/${MARKET[lang]}/${property}`);
+    if (key in fields && change?.owner === draft && change.value === fields[key] &&
+        !MotifWording.matchingTerms(fields[key], value.markets[MARKET[lang]].phrase_rules).length)
       wording[property] = property === "cta" ? fields[key] || null : fields[key];
+  }
   return value;
 }
 function rememberBriefField(id, value) {
@@ -398,6 +401,23 @@ const campaignCopyChanges = new Map();
 let campaignCopyTimer = null, campaignCopyDecision = null, campaignCopyReview = null;
 function pendingCampaignCopy() {
   return [...campaignCopyChanges.values()].filter(change => change.owner === draft && !MotifWording.matchingTerms(change.value, draft.markets[change.market].phrase_rules).length);
+}
+function requeueAllowedCampaignCopy(previousRules) {
+  const market = MARKET[lang], fields = briefFields();
+  for (const field of ["message", "cta"]) {
+    const control = BRIEF_FIELD[field], value = fields[control], original = draft.markets[market].copy[field];
+    if (!(control in fields) || String(value ?? "") === String(original ?? "") ||
+        !MotifWording.matchingTerms(value, previousRules).length ||
+        MotifWording.matchingTerms(value, draft.markets[market].phrase_rules).length) continue;
+    const key = `${draft.campaign_id}/${market}/${field}`;
+    const previousFields = copy(projectBuffers.form_drafts.fields || {});
+    // The rule change makes an unfinished proposal eligible, not already applied.
+    // Cancel restores applied wording while retaining the producer's rule edit.
+    for (const [name, values] of Object.entries(previousFields))
+      if (name.startsWith("brief/") && name.endsWith(`/${lang}`) && control in values) values[control] = original ?? "";
+    campaignCopyChanges.set(key, { key, owner: draft, market, field, original,
+      displayed: original, previousFields, value });
+  }
 }
 function changeCampaignWording(field, value) {
   const market = MARKET[lang], key = `${draft.campaign_id}/${market}/${field}`;
