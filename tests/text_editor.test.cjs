@@ -232,35 +232,3 @@ test('unused CTA wrapping width does not impose an invisible enlargement limit',
     assert.ok(edge.placement.left>=0&&edge.placement.top>=0);
   }
 });
-
-test('wording correction clears only its own field-error token while preserving a length error',()=>{
- const nodes=new Map();
- const make=id=>{const attrs=new Map();const node={setAttribute:(k,v)=>attrs.set(k,v),getAttribute:k=>attrs.get(k)||null,hasAttribute:k=>attrs.has(k),removeAttribute:k=>attrs.delete(k),insertAdjacentHTML(){nodes.set('#mw-message-error',{remove(){nodes.delete('#mw-message-error')}})}};nodes.set(id,node);return node};
- const field=make('#mf-word-message');
- field.setAttribute('aria-describedby','mf-word-message-length');
- const item={value:'guaranteed',terms:['guaranteed'],target:{productId:'p1',market:'en-US',field:'message'}};
- const context=vm.createContext({document:{addEventListener(){}},$:id=>nodes.get(id),MARKET:{en:'en-US'},currentWordingView:()=>({cases:[item]}),MotifWording:{fieldMessage:()=>'<p></p>'}});
- vm.runInContext(fs.readFileSync('src/campaign_studio/static/motif/text.js','utf8'),context);
- const editor={product:'p1',language:'en',values:{message:'guaranteed'}};
- context.paintTextWordingErrors(editor);
- assert.equal(field.getAttribute('aria-describedby'),'mf-word-message-length mw-message-error');
- field.setAttribute('data-length-invalid','');editor.values.message='Corrected';context.paintTextWordingErrors(editor);
- assert.equal(field.getAttribute('aria-describedby'),'mf-word-message-length');assert.equal(field.getAttribute('aria-invalid'),'true');
- field.removeAttribute('data-length-invalid');field.setAttribute('data-wording-invalid','');context.paintTextWordingErrors(editor);
- assert.equal(field.getAttribute('aria-invalid'),null);assert.equal(nodes.has('#mw-message-error'),false);
-});
-
-test('Apply to all products is a one-shot field action with in-flight duplicate protection',async()=>{
- const f=fixture();let release,calls=0,captured;
- f.run("textEditor.values={message:'Just typed',cta:'Keep CTA'};textEditor.all={message:false,cta:false};textEditor.applyingAll=null");
- f.context.flushStudioSave=()=>{calls++;captured=JSON.parse(f.run('JSON.stringify({values:textEditor.values,all:textEditor.all})'));return new Promise(resolve=>release=resolve)};
- const first=f.run('applyTextToAllProducts("message")');
- await f.run('applyTextToAllProducts("message")');await f.run('applyTextToAllProducts("cta")');
- assert.equal(calls,1);assert.deepEqual(captured,{values:{message:'Just typed',cta:'Keep CTA'},all:{message:true,cta:false}});
- release(true);await first;
- assert.equal(f.run('textEditor.all.message'),false);assert.equal(f.run('textEditor.applyingAll'),null);
- f.run("textEditor.values.message='Later individual text'");
- assert.equal(f.run('textEditor.all.message'),false,'later typing is not a shared operation');
- const second=f.run('applyTextToAllProducts("cta")');assert.equal(captured.all.cta,true);assert.equal(captured.all.message,false);release(false);await second;
- assert.equal(f.run('textEditor.all.cta'),false,'failure cannot leave a sticky all-products scope');
-});

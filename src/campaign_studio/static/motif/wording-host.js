@@ -16,12 +16,10 @@ function currentWordingView() {
   const view = MotifWording.fromIssue(issue);
   if (wordingCheckPhase?.campaign === C.id && wordingCheckPhase.owner === model) view.phase = wordingCheckPhase.phase;
   if (view.phase === "rules-pending" && pendingRuleForm()) view.phase = "rules-invalid";
-  const editing = page === "review" && reviewTab === "product";
-  const local = editing ? view.cases.findIndex(item => item.target.productId === C.products[currentProduct]?.id && item.target.market === MARKET[lang]) : -1;
-  let index = local >= 0 ? local : view.cases.findIndex(item => item.id === wordingCaseId);
+  let index = view.cases.findIndex(item => item.id === wordingCaseId);
   if (index < 0) index = 0;
   wordingCaseId = view.cases[index]?.id || null;
-  return { ...view, index, surface: page === "review" && reviewTab === "product" ? "studio-editor" : page, hasImages: !!model?.manifest && !proposal };
+  return { ...view, index, surface: page, hasImages: !!model?.manifest && !proposal };
 }
 function pendingRuleForm() {
   const target = model?.wording_issue?.pending_rule_targets?.find(item => Number.isInteger(item.rule_index));
@@ -52,8 +50,6 @@ function paintWordingAvailability() {
   const slots = $$('[data-wording-slot]');
   const focused = slots.some(slot => slot.contains(document.activeElement));
   for (const slot of slots) slot.innerHTML = content;
-  for (const slot of $$('[data-layout-slot]')) slot.innerHTML = layoutNotice();
-  if (typeof textEditor !== "undefined" && textEditor && typeof paintText === "function") paintText();
   for (const button of $$('[data-wording-export]')) button.disabled = exportBlocked() || button.dataset.wordingExport === "unavailable";
   if (focused) focusWordingControl();
 }
@@ -85,6 +81,11 @@ function returnFromWording(kind) {
     focusWordingControl(origin.control);
   });
 }
+function wordingReturnCopy() {
+  if (!wordingReturn || wordingReturn.campaign !== C.id) return "";
+  const label = { handoff: "Handoff", review: "Studio", production: "Production", campaign: "Campaign" }[wordingReturn.page];
+  return `<p class="small muted">Return to ${label} after Apply or Cancel.</p>`;
+}
 function focusMatchedWording(control, terms) {
   if (!control) return;
   control.focus();
@@ -107,14 +108,14 @@ function draftWordingTarget(session) {
 function draftWordingView() {
   const session = draftWording, item = session.item, cta = item.target.field === "cta";
   const scope = item.target.origin === "product_override"
-    ? "This product’s wording." : "Campaign wording. Updates every product for this language.";
+    ? "This product’s wording." : "Campaign wording. Products with custom wording keep it.";
   return dialog(cta ? "Edit the call to action." : "Edit the headline.",
     `<h3>${esc(item.product)}</h3><p class="small muted">${esc(item.language)}</p>` +
     (cta ? input("Call to action", "draft-wording-value", session.value)
       : area("Headline", "draft-wording-value", session.value)).replace('id="draft-wording-value"', `id="draft-wording-value" data-length-purpose="${cta ? "cta" : "headline"}"`) +
     MotifWording.fieldMessage(item.terms) + `<p class="small muted">${scope}</p>`,
-    `<span class="small muted">Updates the saved wording and previews.</span>` +
-    btn("Cancel", "close") + btn("Save wording", "applyDraftWording", "primary"));
+    `<span class="small muted">Updates the brief. Review the plan before creating images.</span>` +
+    btn("Cancel", "close") + btn("Apply wording", "applyDraftWording", "primary"));
 }
 function openDraftWording(item, control) {
   const session = { campaign: C.id, owner: draft, item, value: item.value, saving: false };
@@ -144,17 +145,16 @@ async function applyDraftWording() {
   try {
     target[field] = field === "cta" ? session.value || null : session.value;
     if (origin === "market_shared") {
-      setCampaignWording(field, session.value, market);
       const language = market === "es-MX" ? "es" : "en";
       const key = field === "message" ? "copy-headline" : "copy-cta";
       for (const [name, values] of Object.entries(projectBuffers.form_drafts.fields || {}))
-        if (name.startsWith("brief/") && name.endsWith(`/${language}`) && Object.prototype.hasOwnProperty.call(values, key))
+        if (name.startsWith("brief/") && name.endsWith(`/${language}`) && values[key] === session.expected)
           values[key] = session.value;
     }
     session.expected = target[field];
     markDirty();
     if (!(await saveProject()))
-      throw new Error("There was a problem saving your wording. Your edit is still here. Try again.");
+      throw new Error("Your wording is still here. Finish saving before reviewing its production plan.");
     if (draft !== session.owner || draftWording !== session || C.id !== session.campaign) return;
     blockedProposal = null;
   } finally {
@@ -166,48 +166,25 @@ async function applyDraftWording() {
   }
   if (draftWording === session && modal === "draft-wording") closeModal({ retain: false });
 }
-function openCampaignWording(item) {
-  page = "campaign"; tab = "copy";
-  lang = item.target.market === "es-MX" ? "es" : "en";
-  updateURL(); render();
-  focusMatchedWording($(`[data-bf-field="${item.target.field}"]`), item.terms);
-}
 async function openWordingCase(item, control) {
   if (!item) return;
   const index = C.products.findIndex(p => p.id === item.target.productId);
   if (index < 0) return;
   const beforeImages = !model?.manifest || (page === "production" && !!activeBlockedProposal());
-  if (beforeImages) return item.target.origin === "market_shared" ? openCampaignWording(item) : openDraftWording(item, control);
-  if (studioWorkspace) {
-    if (!await resolveStudioChanges()) return;
-    const cases = currentWordingView().cases;
-    item = cases.find(candidate => candidate.id === item.id) || cases[0];
-    if (!item) { paintWordingAvailability(); return; }
-    if (item.target.origin === "market_shared") {
-      if (!await leaveStudioWorkspace()) return;
-      return openCampaignWording(item);
-    }
-    if (studioWorkspace.product === item.target.productId && MARKET[lang] === item.target.market) {
-      if (studioWorkspace.mode !== "text") await switchStudioTarget({ mode: "text" });
-      if (!textEditor) return;
-      textEditor.selected = item.target.field;
-      paintText();
-      focusMatchedWording($(`#mf-word-${item.target.field}`), item.terms);
-      return;
-    }
-    if (!await leaveStudioWorkspace()) return;
-  }
-  if (item.target.origin === "market_shared") return openCampaignWording(item);
-  const latestIndex = C.products.findIndex(p => p.id === item.target.productId);
+  if (beforeImages) return openDraftWording(item, control);
+  if (studioWorkspace && !await leaveStudioWorkspace()) return;
   keepWordingOrigin("text", control);
-  currentProduct = selected[0] = latestIndex;
+  currentProduct = selected[0] = index;
   lang = item.target.market === "es-MX" ? "es" : "en";
   page = "review"; reviewTab = "product"; updateURL(); render();
   await openStudioWorkspace("text");
   if (!textEditor || C.id !== wordingReturn?.campaign) return;
+  textEditor.correctionCase = item;
   textEditor.selected = item.target.field;
   paintText();
   const field = $(`#mf-word-${item.target.field}`);
+  field?.insertAdjacentHTML("afterend", MotifWording.fieldMessage(item.terms));
+  $(".mf-combined-wording")?.insertAdjacentHTML("beforeend", wordingReturnCopy());
   focusMatchedWording(field, item.terms);
 }
 function openProhibitedRule(item, invalid = false, control = "edit-invalid-rule") {

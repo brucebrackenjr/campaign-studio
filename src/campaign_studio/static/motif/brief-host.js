@@ -30,12 +30,8 @@ function currentBriefValue() {
   for (const [key, property] of [["copy-origin", "label"], ["copy-rights", "rights"]])
     if (key in fields) value.copy_provenance[property] = fields[key];
   const wording = value.markets[MARKET[lang]]?.copy;
-  if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]]) {
-    const change = campaignCopyChanges.get(`${draft.campaign_id}/${MARKET[lang]}/${property}`);
-    if (key in fields && change?.owner === draft && change.value === fields[key] &&
-        !MotifWording.matchingTerms(fields[key], value.markets[MARKET[lang]].phrase_rules).length)
-      wording[property] = property === "cta" ? fields[key] || null : fields[key];
-  }
+  if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]])
+    if (key in fields) wording[property] = property === "cta" ? fields[key] || null : fields[key];
   return value;
 }
 function rememberBriefField(id, value) {
@@ -122,20 +118,17 @@ function briefViewModel(context) {
         ? model.attachment_hints?.[p.id] || null : null,
     })),
     logo: info ? { ...info, url: assetURL(value.brand.logo_path), filename: info.filename || "Campaign logo" } : null,
-    hasLogo: !!value.brand.logo_path,
+    hasLogo: !!value.brand.logo_path, requireLogo: value.brand.require_logo === true,
     logoStatus: context.logoStatus || "accepted", logoMessage: context.logoMessage || "",
     fitted: context.fitted || "", color, defaultDraft: rawDefault, palette,
     colorMessage, colorAction, paletteMessage, paletteAction, brandColorProblem,
-    copy: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, m === MARKET[lang] ? {
-      message: fields["copy-headline"] ?? data.copy.message, cta: fields["copy-cta"] ?? data.copy.cta,
-    } : data.copy])),
-    copyErrors: Object.fromEntries(["message", "cta"].map(field => [field,
-      MotifWording.matchingTerms(fields[BRIEF_FIELD[field]] ?? value.markets[MARKET[lang]].copy[field], value.markets[MARKET[lang]].phrase_rules)])),
+    copy: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, data.copy])),
     rules: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, data.phrase_rules || []])),
     hasSavedImages: !!model.manifest,
     brandPending: typeof brandChangesPending === "function" && brandChangesPending(),
     brandUpdating: typeof brandUpdating !== "undefined" && brandUpdating,
     customPreviewColors: uses.some(item => item.product === context.productId && item.market === MARKET[lang] && item.ratio === context.ratio),
+    overrideNotice: Object.keys(override).length ? `${selected.name} has custom wording for this language. These fields edit campaign wording; the preview includes that product’s overrides.` : null,
     preview, previewLayerKey: briefPreviewLayerKey(context),
   };
 }
@@ -322,32 +315,13 @@ async function briefRequestDigest(body) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, "0")).join("");
 }
-async function waitForBriefSaveReceipt(context) {
-  if (!ownsBrief(context) || getSaveState()?.phase !== "saving") return;
-  // A preview can reach the server after our save commits but before its
-  // response reaches this browser. Keep the displayed image while that exact
-  // save settles; this read must never adopt another window's newer version.
-  await new Promise(resolve => {
-    let unsubscribe, settled = false;
-    unsubscribe = subscribeSaveState(state => {
-      if (state.phase === "saving") return;
-      settled = true;
-      unsubscribe?.();
-      resolve();
-    });
-    if (settled) unsubscribe?.();
-  });
-}
 async function requestBriefPreview(context, request) {
   const current = () => ownsBrief(context) && request.identity.generation === context.generation;
   if (!current()) throw Error("Superseded preview");
   // A decoded-image failure may be an expired URL after our own autosave.
   // Only a newer token already acknowledged by this tab permits another read.
-  if (request.expiredVersion !== undefined && request.expiredVersion === model.version) {
-    await waitForBriefSaveReceipt(context);
-    if (!current()) throw Error("Superseded preview");
-    if (request.expiredVersion === model.version) throw Error("Preview image could not be loaded");
-  }
+  if (request.expiredVersion !== undefined && request.expiredVersion === model.version)
+    throw Error("Preview image could not be loaded");
   let body = { ...request.body, version: model.version };
   let expected = await briefRequestDigest(body), result;
   try {
@@ -355,9 +329,7 @@ async function requestBriefPreview(context, request) {
   } catch (error) {
     // Only this tab's acknowledged save can advance the token. An external
     // stale save remains an error; a read never adopts another tab's document.
-    if (!current() || error.status !== 409) throw error;
-    if (body.version === model.version) await waitForBriefSaveReceipt(context);
-    if (!current() || body.version === model.version) throw error;
+    if (!current() || body.version === model.version || error.status !== 409) throw error;
     body = { ...body, version: model.version };
     expected = await briefRequestDigest(body);
     result = await api(`/api/motif/campaigns/${encodeURIComponent(context.owner)}/brief-preview`, body);
@@ -388,163 +360,6 @@ async function requestBriefPreview(context, request) {
     alt: `Current Brief · ${briefTargetLabel({ name: request.body.brief.products.find(p => p.id === request.body.product_id)?.name, market: request.body.market, ratio: request.body.ratio })}`,
     note: context.fitted || undefined };
 }
-function setCampaignWording(field, value, market = MARKET[lang]) {
-  draft.markets[market].copy[field] = field === "cta" ? value || null : value;
-  for (const product of draft.products) {
-    const wording = product.copy_overrides?.[market];
-    if (wording) delete wording[field];
-  }
-}
-// A destructive shared wording edit stays local until the producer confirms it.
-// Other Campaign fields may still autosave while this decision is pending.
-const campaignCopyChanges = new Map();
-let campaignCopyTimer = null, campaignCopyDecision = null, campaignCopyReview = null;
-function pendingCampaignCopy() {
-  return [...campaignCopyChanges.values()].filter(change => change.owner === draft && !MotifWording.matchingTerms(change.value, draft.markets[change.market].phrase_rules).length);
-}
-function requeueAllowedCampaignCopy(previousRules) {
-  const market = MARKET[lang], fields = briefFields();
-  for (const field of ["message", "cta"]) {
-    const control = BRIEF_FIELD[field], value = fields[control], original = draft.markets[market].copy[field];
-    if (!(control in fields) || String(value ?? "") === String(original ?? "") ||
-        !MotifWording.matchingTerms(value, previousRules).length ||
-        MotifWording.matchingTerms(value, draft.markets[market].phrase_rules).length) continue;
-    const key = `${draft.campaign_id}/${market}/${field}`;
-    const previousFields = copy(projectBuffers.form_drafts.fields || {});
-    // The rule change makes an unfinished proposal eligible, not already applied.
-    // Cancel restores applied wording while retaining the producer's rule edit.
-    for (const [name, values] of Object.entries(previousFields))
-      if (name.startsWith("brief/") && name.endsWith(`/${lang}`) && control in values) values[control] = original ?? "";
-    campaignCopyChanges.set(key, { key, owner: draft, market, field, original,
-      displayed: original, previousFields, value });
-  }
-}
-function changeCampaignWording(field, value) {
-  const market = MARKET[lang], key = `${draft.campaign_id}/${market}/${field}`;
-  let change = campaignCopyChanges.get(key);
-  const original = draft.markets[market].copy[field];
-  const custom = draft.products.filter(product => {
-    const wording = product.copy_overrides?.[market];
-    return Object.hasOwn(wording || {}, field) && String(wording[field] ?? "") !== String(original ?? "");
-  });
-  if (!change) {
-    change = { key, owner: draft, market, field, original, displayed: briefFields()[BRIEF_FIELD[field]] ?? draft.markets[market].copy[field],
-      previousFields: copy(projectBuffers.form_drafts.fields || {}), products: custom.map(product => product.name) };
-    campaignCopyChanges.set(key, change);
-  }
-  change.value = value;
-  clearTimeout(campaignCopyTimer);
-  campaignCopyTimer = setTimeout(() => {
-    if (!modal && pendingCampaignCopy().length) saveProject().catch(() => {});
-  }, 1200);
-}
-function safeCampaignCopyCapture(authored) {
-  for (const change of pendingCampaignCopy()) {
-    const control = BRIEF_FIELD[change.field], language = change.market.split("-")[0];
-    for (const [name, fields] of Object.entries(authored.form_drafts?.fields || {})) {
-      if (!name.startsWith("brief/") || !name.endsWith(`/${language}`)) continue;
-      if (Object.hasOwn(change.previousFields[name] || {}, control)) fields[control] = change.previousFields[name][control];
-      else delete fields[control];
-      if (!Object.keys(fields).length) delete authored.form_drafts.fields[name];
-    }
-  }
-  return authored;
-}
-function affectedCampaignCopy(change) {
-  return draft.products.filter(product => {
-    const wording = product.copy_overrides?.[change.market];
-    return Object.hasOwn(wording || {}, change.field) &&
-      String(wording[change.field] ?? "") !== String(change.original ?? "") &&
-      String(wording[change.field] ?? "") !== String(change.value ?? "");
-  });
-}
-function campaignCopyView() {
-  const change = campaignCopyDecision.change, cta = change.field === "cta";
-  const kind = cta ? "calls to action" : "headlines", count = affectedCampaignCopy(change).length;
-  const language = change.market === "es-MX" ? "Spanish" : "English";
-  return dialog(`Replace custom ${kind}?`,
-    `<p>${count} ${count === 1 ? `product has a custom ${cta ? "call to action" : "headline"}` : `products have custom ${kind}`} in ${language}. This change will replace ${count === 1 ? "it" : "them"} with the ${cta ? "call to action" : "headline"} you just entered.</p>`,
-    btn("Cancel change", "cancelCampaignCopy") + btn(`Replace ${kind}`, "confirmCampaignCopy", "primary"));
-}
-function finishCampaignCopy(replace) {
-  const decision = campaignCopyDecision;
-  if (!decision) return;
-  campaignCopyDecision = null;
-  const change = decision.change;
-  campaignCopyChanges.delete(change.key);
-  if (draft === change.owner) {
-    if (replace) setCampaignWording(change.field, change.value, change.market);
-    const control = BRIEF_FIELD[change.field], language = change.market.split("-")[0];
-    for (const [name, fields] of Object.entries(projectBuffers.form_drafts.fields || {})) {
-      if (!name.startsWith("brief/") || !name.endsWith(`/${language}`)) continue;
-      if (replace) { if (control in fields) fields[control] = change.value; }
-      else if (Object.hasOwn(change.previousFields[name] || {}, control)) fields[control] = change.previousFields[name][control];
-      else delete fields[control];
-    }
-    if (page === "campaign" && MARKET[lang] === change.market) {
-      const field = $(`[data-bf-field="${change.field}"]`);
-      if (field) field.value = replace ? change.value : String(change.displayed ?? "");
-    }
-  }
-  if (modal === "campaign-copy-confirm") closeModal({ retain: false });
-  if (draft === change.owner) {
-    refreshBriefFlow(); markDirty();
-    if (page === "campaign" && MARKET[lang] === change.market) $(`[data-bf-field="${change.field}"]`)?.focus();
-  }
-  decision.resolve(true);
-}
-async function confirmCampaignCopyChanges() {
-  clearTimeout(campaignCopyTimer);
-  if (campaignCopyReview) return campaignCopyReview;
-  campaignCopyReview = (async () => {
-    while (pendingCampaignCopy().length) {
-      if (modal && modal !== "campaign-copy-confirm") return false;
-      await new Promise(resolve => {
-        campaignCopyDecision = { change: pendingCampaignCopy()[0], resolve };
-        const change = campaignCopyDecision.change;
-        if (String(change.value ?? "") === String(change.original ?? "")) {
-          // Correcting an invalid saved form back to the applied wording is a no-op
-          // for product overrides, but must retire the unfinished field value.
-          if (MotifWording.matchingTerms(change.displayed, draft.markets[change.market].phrase_rules).length) {
-            change.displayed = change.original;
-            const control = BRIEF_FIELD[change.field], language = change.market.split("-")[0];
-            for (const [name, fields] of Object.entries(change.previousFields))
-              if (name.startsWith("brief/") && name.endsWith(`/${language}`) && control in fields) fields[control] = change.original ?? "";
-          }
-          finishCampaignCopy(false);
-        }
-        else if (affectedCampaignCopy(change).length) openModal("campaign-copy-confirm");
-        else finishCampaignCopy(true);
-      });
-    }
-    return true;
-  })();
-  try { return await campaignCopyReview; }
-  finally { campaignCopyReview = null; }
-}
-function paintBriefCopyErrors() {
-  if (page !== "campaign" || tab !== "copy") return;
-  const fields = briefFields(), rules = draft.markets[MARKET[lang]]?.phrase_rules || [];
-  for (const field of ["message", "cta"]) {
-    const input = $(`[data-bf-field="${field}"]`);
-    if (!input?.dataset) continue;
-    const terms = MotifWording.matchingTerms(fields[BRIEF_FIELD[field]] ?? draft.markets[MARKET[lang]].copy[field], rules);
-    const id = `bf-${field}-wording`;
-    let note = $(`#${id}`);
-    if (terms.length) {
-      if (!note) { input.insertAdjacentHTML("afterend", `<p class="mw-field-error" id="${id}"></p>`); note = $(`#${id}`); }
-      note.textContent = `Remove ${terms.map(term => `“${term}”`).join(", ")} or edit the prohibited words.`;
-      input.setAttribute("aria-invalid", "true"); input.setAttribute("data-wording-invalid", "");
-      const descriptions = new Set((input.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
-      descriptions.add(id); input.setAttribute("aria-describedby", [...descriptions].join(" "));
-    } else {
-      note?.remove(); input.removeAttribute("data-wording-invalid");
-      if (!input.hasAttribute("data-length-invalid")) input.removeAttribute("aria-invalid");
-      const descriptions = (input.getAttribute("aria-describedby") || "").split(/\s+/).filter(value => value && value !== id);
-      if (descriptions.length) input.setAttribute("aria-describedby", descriptions.join(" ")); else input.removeAttribute("aria-describedby");
-    }
-  }
-}
 function changeBriefField(context, key, value, { commit = false } = {}) {
   if (!ownsBrief(context) || context.rendering) return;
   if (typeof brandUpdating !== "undefined" && brandUpdating) return;
@@ -552,6 +367,10 @@ function changeBriefField(context, key, value, { commit = false } = {}) {
     if (!Object.hasOwn(draft.markets, value)) return;
     captureProject();
     return briefAction(context, `language:${value}`);
+  }
+  if (key === "requireLogo") {
+    if (value) draft.brand.require_logo = true; else delete draft.brand.require_logo;
+    markDirty(); refreshBriefFlow(context); return;
   }
   if (key === "previewProduct") { context.productId = value; refreshBriefFlow(context); return; }
   const raw = currentBriefValue(), normalize = MotifBriefFlow.normalizeHex;
@@ -573,11 +392,10 @@ function changeBriefField(context, key, value, { commit = false } = {}) {
     else if (key === "brandName") draft.brand.name = value;
     else if (key === "copyOrigin") draft.copy_provenance.label = value;
     else if (key === "copyRights") draft.copy_provenance.rights = value;
-    else if (["message", "cta"].includes(key)) changeCampaignWording(key, value);
+    else if (["message", "cta"].includes(key)) draft.markets[MARKET[lang]].copy[key] = key === "cta" ? value || null : value;
     else return;
     rememberBriefField(BRIEF_FIELD[key], value);
   }
-  paintBriefCopyErrors();
   markDirty();
   refreshBriefFlow(context);
 }

@@ -119,13 +119,3 @@ test("an early style choice waits for measured geometry before save or navigatio
   assert.equal(calls.length,1);assert.deepEqual(calls[0],{placement:{left:.12,font_size:59,color:'#FFFFFF'},pendingStyle:null});
   assert.equal(queue.dirty(),false);
 });
-
-test("save acknowledgement removes corrected wording and fit findings while preserving source failures",()=>{
- const c=vm.createContext({structuredClone,setTimeout,clearTimeout});
- vm.runInContext(readFileSync("src/campaign_studio/static/motif/studio-autosave.js","utf8"),c);
- const previous={version:"old",wording_issue:{code:"prohibited_phrase"},manifest:{outputs:[],findings:[{rule:"text_fit",severity:"blocking"},{rule:"rule-guaranteed",context:{phrase:{}}},{rule:"source",severity:"blocking"}]}};
- const next=c.mergeStudioAcknowledgement(previous,{version:"new",composition_slots:[],composition_findings:[],wording_issue:null});
- assert.equal(next.wording_issue,null);
- assert.deepEqual(Array.from(next.manifest.findings,f=>f.rule),["source"]);
- assert.equal(previous.manifest.findings.length,3);
-});

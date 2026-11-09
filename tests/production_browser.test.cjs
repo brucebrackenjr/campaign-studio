@@ -285,8 +285,9 @@ test('rules-only and mixed progress retain independent causes and only actionabl
   h.context.operation = {run_id:'run',active:false,completed:1,total:3};
   let html = h.run('progressView()');
   assert.match(html, /pr-operation-count[^>]*>0 <small/, 'the source count is independent of format coverage');
-  assert.match(html, /Add the remaining images/);
-  assert.doesNotMatch(html, /withheld|Edit headline in Studio/);
+  assert.match(html, /Images are withheld by current rules\./);
+  assert.match(html, /withheld/);
+  assert.match(html, /Edit headline in Studio/);
   assert.doesNotMatch(html, /data-action="recover"/);
   h.context.model.manifest.outputs.push({id:'failed',url:null});
   h.context.model.local_recovery.output_ids = ['failed'];
@@ -310,7 +311,7 @@ test('withholding cannot conceal active, unknown, stopped, source, or integrity 
     if (kind === 'provider') h.context.model.notice = {code:'rejected_key',message:'Rejected key'};
     assert.equal(h.run('rulesOnlyResult()'), false, kind);
     const html = h.run('progressView()');
-    assert.doesNotMatch(html, /Edit headline in Studio|withheld by current rules/, kind);
+    assert.match(html, /prohibited-word list/, kind);
     if (kind === 'active' || kind === 'source') assert.equal(h.run('canRecoverCurrentOutputs()'), false, kind);
     if (kind === 'unknown') assert.match(html, /The image request could not be confirmed/);
     if (kind === 'provider') assert.match(html, /OpenAI did not accept this key.*Update API key/s);
@@ -626,14 +627,4 @@ test('active generation shows elapsed time and motion outside collapsed request 
   h.context.operation.active=false;
   html=h.run('progressView()');
   assert.doesNotMatch(html, /pr-operation-progress is-active|pr-working-indicator/);
-});
-
-
-test("source readiness does not confuse imported phrase IDs with built-in photo checks", () => {
-  const h = harness();
-  for (const rule of ["asset", "scene_coverage", "prepared_product"]) {
-    const finding = {rule, item: "one/en-US/1x1", severity: "blocking"};
-    assert.equal(h.context.sourceFindingBlocks(finding), true, `${rule} still checks the photo`);
-    assert.equal(h.context.sourceFindingBlocks({...finding, context: {phrase: {configured_phrase: "guaranteed"}}}), false, `${rule} phrase belongs to export validation`);
-  }
 });

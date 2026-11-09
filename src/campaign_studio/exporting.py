@@ -143,8 +143,30 @@ def wording_export_issue(state: State, campaign_id: str) -> dict | None:
     return None
 
 
+def logo_export_issue(state: State, campaign_id: str, revision_id: str | None = None):
+    current = state.current_output(campaign_id)
+    if current is None:
+        return None
+    accepted = state.revision_plan(state.revision(revision_id or current[1]))
+    required = accepted.brief.brand.require_logo
+    from campaign_studio.campaign_drafts import read as read_draft
+
+    document = read_draft(state.storage, campaign_id)
+    if document is not None:
+        authored = document.get("authored") or {"brief": document["value"]}
+        required = authored.get("brief", {}).get("brand", {}).get("require_logo", False)
+    if required and "logo" not in accepted.assets:
+        return {
+            "code": "logo_presence",
+            "message": "A logo is required. Attach and apply a logo, or turn off the requirement.",
+        }
+    return None
+
+
 def require_export_rules(state: State, campaign_id: str, revision_id: str | None = None) -> None:
-    issue = wording_export_issue(state, campaign_id)
+    issue = wording_export_issue(state, campaign_id) or logo_export_issue(
+        state, campaign_id, revision_id
+    )
     if issue:
         raise StateError(issue["message"], code=issue["code"])
 

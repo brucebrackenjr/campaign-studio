@@ -87,10 +87,6 @@ function productionCredentialState() {
     typeof keyLoadedAt === "number" && keyLoadedAt * 1000 > attemptedAt;
   return { credentialIssue: authentication && !keyUpdated && !keyReloaded ? code : !keyAvailable ? "missing_key" : null, keyUpdated, keyReloaded };
 }
-function sourceFindingBlocks(finding) {
-  return finding.severity === "blocking" && !finding.context?.phrase &&
-    (["prepared_product", "scene_coverage"].includes(finding.rule) || finding.rule === "asset" && finding.item !== "logo");
-}
 function productionContext() {
   const activity = operation?.run_id === model.run?.id ? operation : null;
   const active = !!activity?.active;
@@ -154,9 +150,9 @@ function productionContext() {
   return { value, products, markets, plan, pending, active, retry, proposal, preparation, results, sourceSummary,
     ...(requests || active ? productionCredentialState() : { credentialIssue: null, keyUpdated: false, keyReloaded: false }),
     resumeGeneration: !active && !!model.retry_plan, resumeAction: "resumeGeneration",
-    blocked: findings.some(sourceFindingBlocks),
+    blocked: findings.some(finding => finding.severity === "blocking"),
     total: products.length * markets.length * FMT.length,
-    complete: results && products.length > 0 && products.every(product => !!product.image) && !findings.some(sourceFindingBlocks),
+    complete: results && !!model.manifest?.complete && !damagedFiles(),
   };
 }
 

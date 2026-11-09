@@ -1,6 +1,6 @@
 # Motif – Campaign Studio
 
-**Version 0.3.1** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.3.0** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
 
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 
@@ -229,10 +229,6 @@ The four campaign pages are **Campaign → Production → Studio → Handoff**. 
 
 Create or import a campaign, then set its name, audience, creative direction, supplied headline/CTA copy, and brand palette. The subtabs are **Brief → Products → Brand → Copy & Rules**. Attach the product photographs you have and a logo if the campaign uses one. Each market has its own supplied wording.
 
-Editing a headline or call to action in **Copy & Rules** updates that field for every product in the selected language, including products whose wording you previously changed in Studio. It leaves the other text field, other languages, fonts, colors, and positions unchanged.
-
-If that change would replace custom wording, Motif asks first. **Cancel change** restores the previous Campaign field and keeps the individual wording. Confirming the replacement updates every product in the language. When there is no custom wording to replace, the field saves automatically.
-
 Campaign and Studio use the same current saved instructions. Campaign form fields autosave after a short typing pause, including unfinished values. Routine saves are silent. A save failure or conflicting browser tab remains visible with a recovery action. Saving does not make an AI request or create finished PNGs.
 
 Changing Brand's default text color updates text that inherits that color. A color deliberately customized in Studio remains specific to that image. **Use default for this image** restores inheritance. There is no separate Update Images action: saved changes are available when opening Studio or Handoff.
@@ -254,11 +250,9 @@ Studio displays previews built from the current sources and saved editing instru
 | Inspect | Save an accessible description and inspect factual source provenance. These are not approval markers or a review-status workflow. |
 | Framing | Zoom in and drag the photo to reframe it, or use the horizontal and vertical position sliders. Optional important-area bounds constrain crops; the guide is not drawn into exported pixels. |
 | Logo | Move or proportionally resize the logo for the selected output. Replacement is a separate campaign-wide action with an explicit affected scope. |
-| Text | Select **Headline** or **Call to action** to edit its wording, font, palette color, position, and size together. Typing changes the selected product's wording across its three formats in the selected language. Click **Apply to all products** to use that wording for every product in the language and update the matching Campaign → Copy & Rules field. Font, color, position, and size remain specific to the selected product, language, and format. Choose Noto Sans Regular or Barlow Condensed Semibold; drag the text to move it, and pull a corner or use the keyboard to resize it. |
+| Text | Select **Headline** or **Call to action** to edit its wording, font, palette color, position, and size together. Wording changes affect the selected product and market across three formats; each field’s **All products** checkbox extends only that wording to other products in the market. Font, color, and geometry remain specific to the selected product, market, and format. Choose Noto Sans Regular or Barlow Condensed Semibold; drag the text to move it, and pull a corner or use the keyboard to resize it. |
 
-**Apply to all products** is a single action, not a setting that stays on. After clicking it, later typing in Studio again changes only the selected product. Applying a headline does not change the call to action, and applying a call to action does not change the headline. Other languages and individual layout choices remain unchanged.
-
-If wording matches a campaign’s prohibited list, Motif identifies the affected product and field. If text extends outside an image, it asks the producer to move or resize that text. The second check depends on the font, size, wrapping, and position; it is separate from the input character limit. Studio keeps the preview visible for correction, and the warnings update after the change saves. The campaign must pass these checks before download.
+Checking **All products** deliberately extends the selected wording to the other products in that market. Untouched fields, other languages, and individual layout choices remain unchanged.
 
 Studio autosaves text, color, font, logo, crop, and description changes. A drag saves when the gesture ends; typing saves after a pause. The canvas gives immediate visual feedback while saving. There is no Apply button. Reopening the image restores the saved instructions and original source, so its text and logo remain editable.
 
@@ -281,7 +275,7 @@ The authoritative input contract is [the generated JSON Schema](docs/brief.schem
 | Input | Important behavior |
 | --- | --- |
 | Campaign | Lowercase hyphenated UUID string, editable name, audience, creative direction, brand, included markets, and one to five products. Create/import allocate a new campaign identity. Names need not be unique. |
-| Brand | An optional logo, a palette of one to eight colors, and a text color from that palette. Handoff notes when no logo is attached and lets you export. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
+| Brand | An optional logo, a palette of one to eight colors, and a text color from that palette. Select **Require a logo on final images** for campaigns that must carry one. Otherwise, Handoff flags its absence and lets you export. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
 | Market copy | Required `message` and optional `cta`, supplied independently for `en-US` and `es-MX`. No translation, language detection, or language certification. |
 | Product copy | Optional field-level `copy_overrides`. An omitted field inherits; `cta: null` deliberately clears the optional CTA. A required message cannot be cleared. |
 | Phrase rules | Optional configured phrases with literal or whole-word matching and optional case sensitivity. All matches block; there is no advisory severity. |
@@ -300,9 +294,7 @@ For example, this **market-content fragment** configures an ordinary whole-word 
 
 Matching uses Unicode normalization and the configured literal/word-boundary semantics. It scans the current resolved headlines and CTAs, not generation instructions or arbitrary descriptions. It is a simple configured-text check, not a legal-compliance engine.
 
-Campaign → Copy & Rules checks the headline and call to action as you type. If either contains a prohibited phrase, the field explains what to change and keeps your unfinished text available, including after a refresh. That proposed wording does not replace the saved campaign wording or any product wording until you correct it. Other valid Campaign fields can still save.
-
-Structurally valid briefs with prohibited wording can still be imported and opened. Adding a new rule can also flag wording that was already saved. In those cases, Studio keeps the images visible so you can correct the text, and export remains blocked until the wording passes the rules. Production prepares source photographs only; wording and the optional logo do not prevent source selection or generation.
+Structurally valid prohibited content can still be imported, opened, edited, and saved. Validation occurs when the producer requests a preview, prepares sources, or exports. A prohibited phrase does not make the campaign impossible to open for correction.
 
 ### Asset handling
 
@@ -352,37 +344,25 @@ Motif runs on the producer’s computer. The producer works in a browser, and a 
 
 ```mermaid
 flowchart TD
-    subgraph Computer["Your computer – files and printed campaign copy stay local"]
-        Browser["Browser<br/>Campaign forms and Studio controls"]
-        App["Motif – Python and FastAPI<br/>Checks requests and coordinates the work"]
-        DB[("SQLite database<br/>Editing instructions, file ownership, request records")]
-        Files["Campaign folders<br/>Imported brief, photos, logos, generated images"]
-        Pillow["Pillow image processing<br/>Editing previews and finished PNGs"]
-    end
-    OpenAI["Optional OpenAI API – internet<br/>Generates a missing concept image"]
-    Pad[" "]
-    Browser <-->|"Send edits; receive saved settings, previews, and downloads"| App
-    App <-->|"Read and save"| DB
-    App <-->|"Read and save"| Files
-    App <-->|"Draw previews and PNGs"| Pillow
-    App <-.->|"Confirm, send description, receive image"| OpenAI
-    OpenAI ~~~ Pad
-    linkStyle 0,1,2,3,4 stroke:#526253,stroke-width:1.5px
-    classDef local fill:#fffefa,stroke:#263b30,color:#242a25
-    classDef app fill:#263b30,stroke:#263b30,color:#fffefa
-    classDef store fill:#e6ebdc,stroke:#263b30,color:#242a25
-    classDef external fill:#fffefa,stroke:#ce3825,stroke-width:2px,stroke-dasharray:6 4,color:#242a25
-    class Browser local
-    class App app
-    class DB,Files,Pillow store
-    class OpenAI external
-    style Computer fill:#f4f2ec,stroke:#cbd2c2,color:#242a25
-    style Pad fill:none,stroke:none,color:transparent
+    Browser["Browser: enter campaign details and edit images"]
+    App["Python application on your computer"]
+    Settings[("SQLite database: campaign details and image editing instructions")]
+    Files["Campaign folders: imported brief, photographs, and logos"]
+    Preview["Show the photograph, text, and logo in the preview"]
+    OpenAI["OpenAI: generate a missing photograph"]
+    PNG["Pillow: combine the photograph, text, and logo into finished PNGs"]
+    ZIP["Check the files and send the ZIP to your browser"]
+    Browser -->|"Send edits to save automatically"| App
+    App <-->|"Save and read the current settings"| Settings
+    App <-->|"Save and read image files"| Files
+    App --> Preview
+    App -->|"Only after you confirm generation"| OpenAI
+    OpenAI -->|"Return the image response"| App
+    App -->|"When you choose Download ZIP"| PNG
+    PNG --> ZIP
 ```
 
-The shaded boundary contains the local application. The dashed connection is the optional paid API request. Pillow creates temporary previews while editing and finished files on download; Motif checks and packages those files before returning them to the browser.
-
-**Editing saves instructions, while the original pictures stay separate.** For example, moving a lantern’s logo in Studio saves its new position in SQLite. It does not permanently paint the logo into the photograph. Motif can reopen the photograph and logo in that saved arrangement, and you can move them again. Campaign details, such as the shared headline and default text color, are saved in the same campaign record. Shared color changes preserve deliberately customized colors. Shared wording changes replace the chosen headline or call to action across products without changing their styling.
+**Editing saves instructions, while the original pictures stay separate.** For example, moving a lantern’s logo in Studio saves its new position in SQLite. It does not permanently paint the logo into the photograph. Motif can reopen the photograph and logo in that saved arrangement, and you can move them again. Campaign details, such as the shared headline and default text color, are saved in the same campaign record. A deliberately customized image keeps its individual choices.
 
 **The database and folders have different jobs.** SQLite stores the campaign’s current details and editing instructions. The campaign folder stores the imported brief, uploaded photographs and logos, and photographs returned by OpenAI. SQLite also records which files belong to the campaign and what happened to each image-generation request. That lets Motif reopen the right files, delete the selected campaign safely, and recognize a request that was already sent. Ordinary edits replace the current settings rather than building a history of every adjustment.
 
@@ -444,8 +424,6 @@ Campaign identity is a canonical hyphenated UUID, separate from its editable dis
 
 New attachments keep a readable label, such as `leaflight-lantern-<identifier>.png`, while the identifier distinguishes separate files with the same label. Editing text, color, or framing does not rename the source file. Earlier registered asset names remain usable.
 
-Removing a product or logo stops using it in the campaign but keeps its uploaded files in the Assets folder. Replacing an image also keeps the previous file, so you can select it again later. **Delete campaign** removes these retained assets along with the campaign's other registered files.
-
 Folders appear only as needed. Current editing creates no `Outputs/`, `Exports/`, or archive folders. A supported older workspace may retain previously exported packages or files you added yourself.
 
 One SQLite database in `Workspace/private/state.sqlite3` stores the saved work for all campaigns. Each campaign has a current record containing its form values, image editing instructions, descriptions, and references to its photographs and logo. Other tables record image-generation requests and which files belong to each campaign. Motif uses those relationships to open the right files and avoid deleting another campaign’s work. There are no separate user accounts.
@@ -466,11 +444,11 @@ uv run --locked campaign-studio workspace
 
 Large uploads, source snapshots, temporary exports, and paid attempts check conservative disk estimates. Received provider material and essential control records are preserved when possible even if a result exceeds its estimate; subsequent growth can then be refused. Intact existing work remains usable, subject to the ordinary wording and integrity gates.
 
-This checks available space before starting work; it is not an operating-system quota, a RAM limit, or a guarantee against another process filling the disk. Large compressed inputs can require much more memory when decoded. Motif does not automatically delete campaigns to make room.
+This is disk admission, not an operating-system quota, a RAM limit, or a guarantee against another process filling the disk. Large compressed inputs can require much more memory when decoded. No automatic destructive retention policy substitutes for deliberate campaign deletion.
 
 ## Paid requests, Stop, and recovery
 
-Before generation, Motif saves the exact proposed request and the number of attempts the producer permits. Confirmation applies to those saved inputs, not to later edits. Immediately before contacting OpenAI, Motif records that the attempt is starting and checks that the request is still valid and enough disk space remains. It finishes that short database transaction before waiting for the provider, so the network request does not keep the database locked.
+An unfinished production plan records the exact request. Confirmation binds its digest and allowance. Immediately before dispatch, the runner reserves an attempt durably, rechecks relevant state and capacity, and then calls the provider outside the short database transaction.
 
 - **No automatic paid retry.** The SDK has retries disabled. A retry is an explicit producer action against the saved run, request, and remaining cumulative allowance.
 - **Stop prevents unsent work.** It cannot promise that a request already accepted by the provider was canceled or uncharged.

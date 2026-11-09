@@ -1,21 +1,3 @@
-# Motif v0.3.1 – Clearer corrections and smoother format switching
-
-- **Open new campaigns before adding rules.** A campaign created from scratch opens and remains editable when no prohibited words have been configured.
-- **Keep removed assets available.** Removing a product or logo, or replacing its image, keeps the uploaded files in the campaign's Assets folder for later reuse. Deleting the campaign still removes its registered files, including these retained assets.
-- **Keep shared wording consistent.** Editing a Campaign headline or call to action updates every product in that language, with confirmation before replacing customized wording. Studio's **Apply to all products** button does the same and updates the matching Campaign field. It is a one-time action; later ordinary Studio edits remain specific to the selected product.
-- **Find and correct prohibited wording.** Studio and Handoff identify the affected product and text. The correction opens the relevant field, and warnings update after the change saves. Handoff marks the affected image cards while leaving unrelated cards unmarked.
-- **Keep editing when text runs outside an image.** Studio keeps the photograph, logo, and text visible so the producer can move or resize the text. The layout warning explains what needs adjusting, and download remains blocked until the problem is corrected.
-- **Keep source preparation focused.** Production handles existing and generated product photos. Wording and logo choices do not block image preparation or access to Studio. Studio and Handoff handle finished-ad corrections.
-- **Keep the image visible when changing formats.** After an edit, Studio holds the displayed image until the selected format is ready, while leaving the format thumbnails in place.
-
-- **Catch prohibited Campaign copy immediately.** Headline and call-to-action fields identify prohibited words while keeping the typed text available for correction. Invalid new wording is not applied across products. If a rule changes to allow that wording, the normal confirmation still protects customized product text.
-- **Make branding optional.** Campaigns can be edited and exported without a logo, including imported briefs that previously required one. Handoff keeps a reminder when the images have no logo. Studio supports first attachment and replacement directly in the editor.
-- **Simplify page headings.** The four main pages keep their titles without repeating the numbered navigation labels.
-
-Autosave, deliberate source-image generation, and creating finished images at download continue to work as in v0.3.0.
-
----
-
 # Motif v0.3.0 – Autosave and simpler delivery
 
 Campaign and Studio now save changes as you work, and Motif creates the finished campaign images when you download them.

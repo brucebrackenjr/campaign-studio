@@ -550,21 +550,15 @@ class State:
                 create_project(self.storage, db, campaign_id, label)
 
     def create(self, plan: Plan, allowance: int) -> str:
-        if plan.source_blocked:
+        if plan.blocked:
             raise StateError("Correct the campaign details before creating a production plan.")
         if type(allowance) is not int or allowance < len(plan.generation_products):
             raise StateError("The allowance does not cover the displayed initial requests.")
         project = self.storage.project(plan.brief.campaign_id)
         project.check_brief(plan.brief.model_dump(mode="json"))
-        source_assets = {
-            key: asset
-            for key, asset in plan.assets.items()
-            if key != "logo"
-            or not any(f.item == "logo" and f.severity == "blocking" for f in plan.findings)
-        }
         sizes = [
             self.storage.path(project.require(a.reference)).stat().st_size
-            for a in source_assets.values()
+            for a in plan.assets.values()
         ]
         self.storage.require_capacity(sum(sizes) + max(sizes, default=0) + DOCUMENT_BYTES)
         run_id = self.reserve_owned_namespaces(
@@ -579,9 +573,7 @@ class State:
         brand_name = asset_component(plan.brief.brand.name + " logo", "Brand logo")
         brand_identity = hashlib.sha256(plan.brief.brand.id.encode()).hexdigest()[:12]
         assets = {}
-        if "logo" not in source_assets:
-            brief["brand"]["logo_path"] = ""
-        for item, asset in source_assets.items():
+        for item, asset in plan.assets.items():
             source = self.storage.path(asset.reference)
             data = source.read_bytes()
             if hashlib.sha256(data).hexdigest() != asset.sha256:

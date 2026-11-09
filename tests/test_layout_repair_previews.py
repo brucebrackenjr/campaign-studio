@@ -9,32 +9,22 @@ from test_current_composition import current, save_campaign  # noqa: F401
 
 from campaign_studio.brief import Framing, TextPlacement
 from campaign_studio.campaign_drafts import read
-from campaign_studio.compositions import acknowledgement, preview_image
+from campaign_studio.compositions import preview_image
 from campaign_studio.delivery import current_image, delivery_manifest
 from campaign_studio.motif import campaign_data
 from campaign_studio.previews import DraftPreviews
 from campaign_studio.state import StateError
-from campaign_studio.workspace import FrameEdit, LogoEdit, TextEdit
+from campaign_studio.workspace import ActionError, FrameEdit, LogoEdit, TextEdit
 
 
-@pytest.mark.parametrize("prohibited", [False, True])
 @pytest.mark.parametrize("tool", ["text", "framing", "logo"])
 def test_source_backed_text_overflow_has_temporary_repair_layers_and_still_blocks_export(
-    current, tool, prohibited
+    current, tool
 ):
     ws, cid = current
 
     def overflow(brief):
         brief["markets"]["en-US"]["copy"]["message"] = "Warm nights start here – review edition"
-        if prohibited:
-            brief["markets"]["en-US"]["phrase_rules"] = [
-                {
-                    "id": "rule-review",
-                    "phrase": "review",
-                    "match": "literal",
-                    "case_sensitive": False,
-                }
-            ]
         brief["products"][0]["framing"] = {
             "en-US": {
                 "1:1": {
@@ -56,12 +46,12 @@ def test_source_backed_text_overflow_has_temporary_repair_layers_and_still_block
     assert len(data["source_urls"]) == 2
     assert data["editable_products"]["product-1"]
     selected = next(o for o in data["manifest"]["outputs"] if o["id"] == "product-1/en-US/1x1")
-    assert selected["url"] is not None
+    assert selected["url"] is None
     assert any(f["rule"] == "text_fit" for f in data["manifest"]["findings"])
     before = read(ws.storage, cid)
-    payload = preview_image(ws, cid, before["version"], "product-1", "en-US", "1:1")
-    with Image.open(io.BytesIO(payload)) as image:
-        assert image.size == (1080, 1080)
+    with pytest.raises(ActionError) as gallery_blocked:
+        preview_image(ws, cid, before["version"], "product-1", "en-US", "1:1")
+    assert gallery_blocked.value.code == "preview_blocked"
     files = {p: p.read_bytes() for p in ws.storage.root.rglob("*.png")}
     command = {"text": TextEdit, "framing": FrameEdit, "logo": LogoEdit}[tool]
     edit = command(
@@ -107,7 +97,7 @@ def test_source_backed_text_overflow_has_temporary_repair_layers_and_still_block
     for partial in (False, True):
         with pytest.raises(StateError) as blocked:
             delivery_manifest(snapshot, allow_partial=partial)
-        assert blocked.value.code == ("prohibited_phrase" if prohibited else "export_inputs")
+        assert blocked.value.code == "export_inputs"
     assert read(ws.storage, cid) == before
     assert {p: p.read_bytes() for p in ws.storage.root.rglob("*.png")} == files
 
@@ -119,8 +109,6 @@ def test_source_backed_text_overflow_has_temporary_repair_layers_and_still_block
             product_id="product-1",
             market="en-US",
             ratio="1:1",
-            values={"message": "Warm nights start here"},
-            field_scopes={"message": "all_products"},
             placements={
                 "message": TextPlacement(
                     left=0.06, top=0.24, width=0.88, font_size=40, font_id="barlow_condensed"
@@ -135,66 +123,3 @@ def test_source_backed_text_overflow_has_temporary_repair_layers_and_still_block
     with ws.storage.connect() as db:
         assert db.execute("SELECT count(*) FROM revisions").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM attempts").fetchone()[0] == 0
-
-
-def test_save_acknowledgement_refreshes_wording_and_layout_without_source_reads(
-    current, monkeypatch
-):
-    ws, cid = current
-
-    def block(brief):
-        brief["markets"]["en-US"]["copy"]["message"] = "Warm guaranteed nights"
-        brief["markets"]["en-US"]["phrase_rules"] = [
-            {
-                "id": "rule-guaranteed",
-                "phrase": "guaranteed",
-                "match": "literal",
-                "case_sensitive": False,
-            }
-        ]
-        brief["products"][0]["framing"] = {
-            "en-US": {
-                "1:1": {
-                    "text_placements": {
-                        "message": {
-                            "left": 0.9,
-                            "top": 0.9,
-                            "width": 0.88,
-                            "font_size": 88,
-                            "font_id": "barlow_condensed",
-                        }
-                    }
-                }
-            }
-        }
-
-    save_campaign(ws, cid, block)
-    monkeypatch.setattr(
-        "campaign_studio.compositions.make_plan",
-        lambda *a, **k: pytest.fail(
-            "An acknowledgement must not read sources or prepare image rendering"
-        ),
-    )
-    before = acknowledgement(ws, cid)
-    assert before["wording_issue"]["matches"]
-    assert any(f["rule"] == "text_fit" for f in before["composition_findings"])
-    ws.save_composition(
-        cid,
-        TextEdit(
-            revision_id=before["version"],
-            product_id="product-1",
-            market="en-US",
-            ratio="1:1",
-            values={"message": "Warm nights"},
-            field_scopes={"message": "all_products"},
-            placements={
-                "message": TextPlacement(
-                    left=0.06, top=0.24, width=0.88, font_size=40, font_id="barlow_condensed"
-                )
-            },
-        ),
-    )
-    after = acknowledgement(ws, cid)
-    assert after["wording_issue"] is None
-    assert not any(f["severity"] == "blocking" for f in after["composition_findings"])
-    assert {o["copy"]["message"] for o in after["composition_slots"]} == {"Warm nights"}

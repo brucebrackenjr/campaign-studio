@@ -128,29 +128,8 @@ class Plan(Contract):
         return list(self.generation_requests)
 
     @property
-    def source_findings(self) -> list[Finding]:
-        """Only supplied-photo and reusable-source checks can stop source production."""
-        return [finding for finding in self.findings if blocks_source(finding)]
-
-    @property
-    def source_blocked(self) -> bool:
-        return bool(self.source_findings)
-
-    @property
     def blocked(self) -> bool:
         return any(finding.severity == "blocking" for finding in self.findings)
-
-
-def blocks_source(finding: Finding) -> bool:
-    return (
-        finding.severity == "blocking"
-        and not (finding.context and finding.context.phrase)
-        and (
-            finding.rule in {"prepared_product", "scene_coverage"}
-            or finding.rule == "asset"
-            and finding.item != "logo"
-        )
-    )
 
 
 def canonical_hash(value: object) -> str:
@@ -322,9 +301,11 @@ def make_plan(
             Finding(
                 item="logo",
                 rule="logo_presence",
-                severity="warning",
+                severity="blocking" if brief.brand.require_logo else "warning",
                 evidence="No logo artwork is attached.",
-                remedy="Attach a logo if these images need branding.",
+                remedy="Attach a logo, or turn off the logo requirement."
+                if brief.brand.require_logo
+                else "Attach a logo if these images need branding.",
             )
         )
     references.update(

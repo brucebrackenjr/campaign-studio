@@ -72,6 +72,11 @@
         "logo_provenance": {
           "$ref": "#/$defs/Provenance"
         },
+        "require_logo": {
+          "default": false,
+          "title": "Require Logo",
+          "type": "boolean"
+        },
         "palette": {
           "items": {
             "pattern": "^#[0-9A-Fa-f]{6}$",

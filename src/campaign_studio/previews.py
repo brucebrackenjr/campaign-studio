@@ -149,15 +149,13 @@ class DraftPreviews:
             selected = set(edit.preview_products)
             size = 0
             # Editors may show a clipped text layout so the producer can repair it.
-            # These temporary diagnostics never relax export validation.
+            # These temporary diagnostics never relax gallery or export validation.
             editor_preview = framing_preview or logo_preview or text_preview
             can_render = not any(
                 any(blocks_output(f, o) for o in plan.outputs if o.id in required)
                 and not (framing_preview and f.rule == "subject_crop")
                 and not (missing_logo and f.item == "logo")
-                and not (
-                    editor_preview and (f.rule == "text_fit" or (f.context and f.context.phrase))
-                )
+                and not (editor_preview and f.rule == "text_fit")
                 for f in plan.findings
             )
             if can_render:
@@ -183,10 +181,7 @@ class DraftPreviews:
                                 blocks_output(f, output)
                                 and not (framing_preview and f.rule == "subject_crop")
                                 and not (missing_logo and f.item == "logo")
-                                and not (
-                                    editor_preview
-                                    and (f.rule == "text_fit" or (f.context and f.context.phrase))
-                                )
+                                and not (editor_preview and f.rule == "text_fit")
                                 for f in plan.findings
                             )
                         ):

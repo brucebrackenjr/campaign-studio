@@ -383,11 +383,7 @@ function captureProject() {
   if (typeof captureProductInputs === "function") captureProductInputs();
   if (modal === "rule" && ruleIndex >= 0 && $("#mw-rule-phrase")) {
     const rule = draft.markets[MARKET[lang]]?.phrase_rules?.[ruleIndex];
-    if (rule && rule.phrase !== $("#mw-rule-phrase").value) {
-      const previousRules = copy(draft.markets[MARKET[lang]].phrase_rules);
-      rule.phrase = $("#mw-rule-phrase").value;
-      if (typeof requeueAllowedCampaignCopy === "function") requeueAllowedCampaignCopy(previousRules);
-    }
+    if (rule) rule.phrase = $("#mw-rule-phrase").value;
   }
   if (modal === "rename" && $("#rename-name")) draft.name = $("#rename-name").value;
   if (page === "campaign") {
@@ -396,7 +392,7 @@ function captureProject() {
   const formKey = projectFormKey();
   if (formKey && modal !== "inspect") captureProjectFields(formKey, imageEditorRoot());
   if (forms.fields && !Object.keys(forms.fields).length) delete forms.fields;
-  const captured = {
+  return {
     brief: copy(draft),
     ...copy(projectBuffers),
     ui_context: {
@@ -407,7 +403,6 @@ function captureProject() {
       ruleIndex,
     },
   };
-  return typeof safeCampaignCopyCapture === "function" ? safeCampaignCopyCapture(captured) : captured;
 }
 function isImageEditor(kind = modal) {
   return ["text", "frame", "logo"].includes(kind);
@@ -538,7 +533,7 @@ function reconcileAppliedBrief(local, before, after) {
       }
   };
   advance(local, before, after, ["schema_version", "campaign_id", "name", "audience", "creative_direction", "copy_provenance", "markets", "products", "replay"]);
-  advance(local.brand, before.brand, after.brand, ["id", "name", "logo_path", "logo_provenance", "palette", "text_color"]);
+  advance(local.brand, before.brand, after.brand, ["id", "name", "logo_path", "logo_provenance", "palette", "text_color", "require_logo"]);
   for (const [id, source] of Object.entries(local.replay?.sources || {}))
     advance(source, before.replay?.sources?.[id], after.replay?.sources?.[id], ["path"]);
   for (const market of Object.keys(local.markets || {})) {
@@ -605,7 +600,6 @@ function reconcileAppliedForms(previous, current) {
 }
 async function saveProject() {
   if (!projectQueue) return false;
-  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges()) return false;
   const owner = projectOwner;
   const saved = await projectQueue.saveCurrent();
   if (saved && owner === projectOwner) dirty = false;

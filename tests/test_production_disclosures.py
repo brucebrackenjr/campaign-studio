@@ -60,7 +60,7 @@ def test_readiness_requires_request_guards_and_reports_real_local_failures(tmp_p
 
 
 @pytest.mark.parametrize("cause", ["phrase", "subject_crop"])
-def test_source_plan_retains_finished_image_findings_without_dispatch(tmp_path, cause):
+def test_rejected_plan_summary_is_exact_read_only_and_retains_previous_version(tmp_path, cause):
     app = create_app(
         Settings(data_dir=tmp_path),
         key_available=lambda: False,
@@ -90,15 +90,11 @@ def test_source_plan_retains_finished_image_findings_without_dispatch(tmp_path, 
             f"/api/motif/campaigns/{brief.campaign_id}/plan",
             json={"version": document["version"]},
         )
-        assert response.status_code == 200, response.text
-        proposal = response.json()["plan"]
-        assert response.json()["version"] == document["version"]
-        assert proposal["outputs"] == 12
-        findings = [
-            item
-            for item in proposal["findings"]
-            if item["context"] and item["severity"] == "blocking"
-        ]
+        assert response.status_code == 422, response.text
+        proposal = response.json()["proposal"]
+        assert proposal["version"] == document["version"]
+        assert len(proposal["outputs"]) == 12
+        findings = [item for item in proposal["findings"] if item["context"]]
         if cause == "phrase":
             assert len(findings) == 6 and all(item["context"]["phrase"] for item in findings)
             assert {item["context"]["market"] for item in findings} == {"es-MX"}
@@ -107,14 +103,9 @@ def test_source_plan_retains_finished_image_findings_without_dispatch(tmp_path, 
             assert len(findings) == 4 and all(item["rule"] == "subject_crop" for item in findings)
             assert {item["context"]["market"] for item in findings} == {"en-US", "es-MX"}
             assert len({item["context"]["product_id"] for item in findings}) == 1
-        refused = client.post(
-            f"/api/campaigns/{brief.campaign_id}/delivery/zip",
-            json={"version": response.json()["version"], "allow_partial": True},
-        )
-        assert refused.status_code == 409, refused.text
-        assert refused.json()["code"] == (
-            "prohibited_phrase" if cause == "phrase" else "export_inputs"
-        )
+        fields = response.json()["field_errors"]
+        assert len(fields) == len({(tuple(field["path"]), field["code"]) for field in fields})
+        assert len(fields) < sum(len(item["context"]["fields"]) for item in findings)
         assert ws.state.run(run) == before and len(ws.runs()) == 1
         assert ws.state.attempts(run) == []
         assert "prompt" not in json.dumps(proposal) and "reference" not in proposal

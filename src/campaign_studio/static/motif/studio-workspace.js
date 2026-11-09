@@ -68,29 +68,6 @@ function studioShowRetainedSurface() {
   if (!held || held.target !== studioVisualTarget()) { if (owner) owner.retainedSurface = null; return; }
   owner.root.querySelector('[data-ws-slot="surface"]')?.append(held.node);
 }
-function studioFormatSurface(format) {
-  const owner = studioWorkspace;
-  if (!owner?.thumbnails) return null;
-  const output = outputFor(currentProduct, lang, format);
-  const signature = studioThumbnailSignature(output, format);
-  const target = JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format]);
-  for (const [button, state] of owner.thumbnails) {
-    if (state.target !== target || state.signature !== signature) continue;
-    const image = button.querySelector('.ws-thumb img');
-    if (!image?.complete || !image.naturalWidth) return null;
-    // This thumbnail already shows this format's current settings, even when
-    // another format's edit changed the campaign's preview URL. Copy its pixels
-    // without moving or reloading the thumbnail while the new tool loads.
-    const canvas = document.createElement('canvas');
-    canvas.width = FMT[format].w; canvas.height = FMT[format].h;
-    const paint = canvas.getContext('2d');
-    if (!paint) return null;
-    paint.drawImage(image, 0, 0, canvas.width, canvas.height);
-    canvas.className = 'ws-preview-continuity'; canvas.setAttribute('aria-hidden', 'true');
-    return { node: canvas, target };
-  }
-  return null;
-}
 function studioPreviewReady() {
   const owner = studioWorkspace;
   if (!owner) return;
@@ -256,7 +233,7 @@ function refreshStudioThumbnail(button, thumbnail, output, format, url) {
   const sequence = ++state.sequence;
   state.pending = url;
   const image = new Image(); image.alt = ""; image.src = url;
-  state.ready = image.decode().then(() => {
+  image.decode().then(() => {
     if (studioWorkspace !== owner || state.sequence !== sequence ||
         studioThumbnailSignature(outputFor(currentProduct, lang, format), format) !== signature) return;
     thumbnail.replaceChildren(image);
@@ -385,38 +362,15 @@ async function mountStudioTool(mode) {
   }
 }
 async function switchStudioTarget({ mode = studioWorkspace?.mode, format = currentFormat, language = lang } = {}) {
-  const owner = studioWorkspace;
-  if (!owner) return;
-  const sequence = owner.switchSequence = (owner.switchSequence || 0) + 1;
-  const current = () => studioWorkspace === owner && owner.switchSequence === sequence;
-  if (mode === owner.mode && format === currentFormat && language === lang) return;
-  if (!await resolveStudioChanges() || !current()) return;
-  let targetSurface = language === lang && format !== currentFormat ? studioFormatSurface(format) : null;
-  if (!targetSurface && language === lang && format !== currentFormat) {
-    const target = JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format]);
-    const pending = [...(owner.thumbnails?.values() || [])].find(state => state.target === target && state.pending);
-    if (pending?.ready) {
-      // A quick return to the just-edited format can beat its thumbnail decode.
-      // Keep the current canvas mounted until that existing request finishes.
-      await pending.ready;
-      if (!current() || !await resolveStudioChanges() || !current()) return;
-      targetSurface = studioFormatSurface(format);
-    }
-  }
+  if (!studioWorkspace || (mode === studioWorkspace.mode && format === currentFormat && language === lang)) return;
+  if (!await resolveStudioChanges()) return;
   teardownStudioTool();
   currentFormat = format; formats[0] = format; lang = language;
-  if (targetSurface) studioWorkspace.retainedSurface = targetSurface;
   await mountStudioTool(mode);
 }
 async function cancelStudioTool() {
   if (!studioWorkspace || !await resolveStudioChanges()) return;
-  if (wordingReturn?.kind === "text") {
-    const origin = wordingReturn;
-    if (!await leaveStudioWorkspace()) return;
-    wordingReturn = origin;
-    returnFromWording("text");
-    return;
-  }
+  if (wordingReturn?.kind === "text") { finishStudioVisit(); returnFromWording("text"); return; }
   await mountStudioTool("inspect");
 }
 async function studioApplied(data, accept) {

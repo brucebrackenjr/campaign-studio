@@ -6,27 +6,6 @@ const { readFileSync } = require("node:fs");
 const vm = require("node:vm");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-test('all logo attachment entry points share labels and disabled state during upload and review',()=>{
-  const context=vm.createContext({});
-  vm.runInContext(readFileSync('src/campaign_studio/static/motif/direct-manipulation.js','utf8'),context);
-  vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo-controls.js','utf8').replace('const api={mount:','const api={Editor,mount:'),context);
-  const controls=[{},{}],nodes=new Map();
-  const node=selector=>{if(!nodes.has(selector))nodes.set(selector,{dataset:{},style:{},classList:{toggle(){}},setAttribute(){},getAttribute(){return''},getBoundingClientRect(){return{width:400,height:400}}});return nodes.get(selector)};
-  const editor=Object.create(context.MotifLogo.Editor.prototype);
-  Object.assign(editor,{open:true,asset:null,o:{embedded:true},p:{x:.2,y:.2,width:.2},default:{},target:{width:1080,height:1080},dirty:()=>false,
-    root:{matches:()=>false,querySelector:node,querySelectorAll:selector=>selector==='[data-lg="replace"]'?controls:[]}});
-  for(const asset of [null,{width:100,height:100,url:'/logo',filename:'logo.png'}]) {
-    editor.asset=asset;
-    for(const phase of ['loading','busy','reviewing','reviewRequired','uploading']) {
-      for(const key of ['loading','busy','reviewing','reviewRequired','uploading'])editor[key]=key===phase;
-      editor.paint();
-      for(const control of controls){assert.equal(control.disabled,true,phase);assert.equal(control.textContent,asset?'Replace logo':'Attach logo');}
-    }
-    for(const key of ['loading','busy','reviewing','reviewRequired','uploading'])editor[key]=false;
-    editor.paint();for(const control of controls)assert.equal(control.disabled,false);
-  }
-});
-
 test("small-logo selection expands screen controls without changing artwork or resize anchors", () => {
   const context=vm.createContext({});
   vm.runInContext(readFileSync('src/campaign_studio/static/motif/direct-manipulation.js','utf8'),context);

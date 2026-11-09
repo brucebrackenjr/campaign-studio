@@ -218,64 +218,6 @@ test('edited canvas stays visible across a version change but never crosses prod
   f.run('studioShowRetainedSurface()');assert.equal(appended,null);assert.equal(owner.retainedSurface,null);
 });
 
-test('format switching paints the destination thumbnail without moving or refreshing it',async()=>{
-  const f=fixture(),owner=f.run('studioWorkspace'),draws=[];
-  const image={complete:true,naturalWidth:1080,src:'/previous-document/story.png'};
-  const button={querySelector:selector=>{assert.equal(selector,'.ws-thumb img');return image}};
-  const canvas={setAttribute(){},getContext:()=>({drawImage:(...args)=>draws.push(args)})};
-  f.context.document.createElement=tag=>{assert.equal(tag,'canvas');return canvas};
-  f.context.FMT=[{ratio:'1:1',w:1080,h:1080},{ratio:'9:16',w:1080,h:1920}];
-  f.context.outputFor=()=>({url:'/current-document/story.png',copy:{message:'Story headline'}});
-  f.context.button=button;
-  f.run(`studioWorkspace.thumbnails=new Map([[button,{
-    target:JSON.stringify([C.id,C.products[0].id,lang,1]),
-    signature:studioThumbnailSignature(outputFor(),1)
-  }]])`);
-  await f.run('switchStudioTarget({format:1})');
-  assert.equal(f.context.currentFormat,1);
-  assert.equal(owner.retainedSurface.node,canvas);
-  assert.equal(owner.retainedSurface.target,f.run('studioVisualTarget()'));
-  assert.deepEqual(draws,[[image,0,0,1080,1920]]);
-  assert.equal(button.querySelector('.ws-thumb img'),image);
-  assert.equal(image.src,'/previous-document/story.png','A document version alone must not reload an unchanged thumbnail');
-});
-
-test('destination continuity never uses an outdated, different-target, or unloaded thumbnail',()=>{
-  for(const scenario of ['outdated','other market','unloaded']){
-    const f=fixture();f.context.outputFor=()=>({url:'/current.png'});
-    const image={complete:scenario!=='unloaded',naturalWidth:1080};
-    const button={querySelector:()=>image};f.context.button=button;
-    f.run(`studioWorkspace.thumbnails=new Map([[button,{
-      target:JSON.stringify([C.id,C.products[0].id,lang,1]),
-      signature:studioThumbnailSignature(outputFor(),1)
-    }]])`);
-    if(scenario==='outdated')f.run("studioWorkspace.thumbnails.get(button).signature='old settings'");
-    if(scenario==='other market')f.run("studioWorkspace.thumbnails.get(button).target='other market'");
-    f.context.document.createElement=()=>{throw Error('Must not copy this image')};
-    assert.equal(f.run('studioFormatSurface(1)'),null,scenario);
-  }
-});
-
-test('a format still loading keeps the current canvas, and a newer selection cancels the delayed switch',async()=>{
-  for(const cancel of [false,true]){
-    const f=fixture(),owner=f.run('studioWorkspace');let decoded;
-    const ready=new Promise(resolve=>decoded=resolve);
-    const state={target:JSON.stringify(['campaign','product','en',1]),pending:'/story.png',ready};
-    owner.thumbnails=new Map([[{},state]]);
-    f.context.destination={node:{pixels:'story'},target:state.target};
-    f.run('studioFormatSurface=()=>null');
-    const switching=f.run('switchStudioTarget({format:1})');
-    await new Promise(setImmediate);
-    assert.equal(f.context.currentFormat,0,'Keep the displayed format until its replacement is decoded');
-    assert.equal(f.context.modal,'text','The existing editor remains mounted');
-    if(cancel)await f.run('switchStudioTarget({format:0})');
-    f.run('studioFormatSurface=()=>destination');decoded();await switching;
-    assert.equal(f.context.currentFormat,cancel?0:1);
-    assert.equal(f.run('publications'),cancel?1:2,'Changes entered while waiting must also flush before switching');
-    assert.equal(owner.retainedSurface,cancel?undefined:f.context.destination);
-  }
-});
-
 test('thumbnail refresh decodes only changed format inputs and cannot adopt an obsolete target',async()=>{
  const f=fixture(),loads=[],buttons=[0,1].map(()=>({removeAttribute(){}}));
  f.context.FMT=[{ratio:'1:1'},{ratio:'9:16'}];f.context.MARKET={en:'en-US',es:'es-MX'};
@@ -325,15 +267,4 @@ test('failed thumbnail decode retains the current target image and permits a fre
  assert.equal(thumb.image,shown);assert.match(button.title,/could not be updated/);
  f.run('refreshStudioThumbnail(button,thumb,output,0,output.url)');assert.equal(loads.length,2);
  loads[1].resolve();await new Promise(setImmediate);assert.equal(thumb.image,loads[1]);assert.equal(button.title,undefined);
-});
-
-
-test('Escape after a wording correction refreshes the final Handoff projection before returning',async()=>{
- const f=fixture(),checks=[];f.context.projectQueue=null;
- f.context.model={version:'v2',composition_projection_stale:true};
- f.context.api=async()=>{checks.push('projection');return {version:'v2',value:{campaign_id:'campaign'},manifest:{complete:true}}};
- f.context.useData=data=>{f.context.model=data;checks.push('adopt')};
- await f.run('cancelStudioTool()');
- assert.deepEqual(checks,['projection','adopt']);assert.equal(f.context.model.manifest.complete,true);
- assert.equal(f.context.page,'handoff');assert.equal(f.run('originReturns'),1);assert.equal(f.run('studioWorkspace'),null);
 });

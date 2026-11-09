@@ -453,11 +453,7 @@ class Cleanup:
         inventory = json.loads(row[0])
         try:
             if inventory["kind"] == "upload":
-                # Earlier builds queued deletion when an attachment was removed.
-                # Cancel that obsolete intent while retaining the file and its owner.
-                with self.storage.connect() as db:
-                    db.execute("DELETE FROM cleanup_intents WHERE id=?", (identity,))
-                return {"state": "complete", "cleanup_id": identity, "removed_bytes": 0}
+                self._prepare_upload_retirement(identity, inventory)
             project = self.storage.project(inventory["campaign_id"])
             references = [item["reference"] for item in inventory["files"]]
             references.extend(inventory.get("owned_directories", []))

@@ -120,10 +120,10 @@ def routes() -> APIRouter:
     def services(request):
         return request.app.state.workspace
 
-    def after_previews(request, operation, *args):
-        # Background previews must finish before an upload or export takes the
-        # workspace mutation lock. Keep this order so a preview cannot slip in
-        # between waiting and the mutation itself.
+    def export_after_previews(request, operation, *args):
+        # Leaving an editor can retire its UI before its server preview finishes.
+        # Take the preview mutex before the operation's runner and authored locks,
+        # and keep it held so another preview cannot slip ahead of the export.
         with request.app.state.previews.lock:
             return operation(*args)
 
@@ -355,8 +355,6 @@ def routes() -> APIRouter:
                 "upload_campaign", "Choose a campaign before attaching an image.", 422
             )
         return await asyncio.to_thread(
-            after_previews,
-            request,
             Intake(services(request).storage).upload,
             await request.body(),
             request.headers.get("content-type", "").split(";", 1)[0],
@@ -468,7 +466,7 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="current"
         )
         download = await run_in_threadpool(
-            after_previews,
+            export_after_previews,
             request,
             Handoff(services(request).state).create_zip,
             target,
@@ -486,7 +484,7 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="saved_version"
         )
         payload = await asyncio.to_thread(
-            after_previews,
+            export_after_previews,
             request,
             Handoff(services(request).state).download,
             target,
@@ -651,7 +649,7 @@ def routes() -> APIRouter:
             return status(request, campaign_id)
         require_idle(request)
         plan = workspace.state.plan(run["id"])
-        if plan.source_blocked:
+        if plan.blocked:
             raise ActionError(
                 "blocked", "Some campaign details need correcting before production can start."
             )
@@ -872,7 +870,7 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="current"
         )
         return await asyncio.to_thread(
-            after_previews,
+            export_after_previews,
             request,
             Handoff(services(request).state).create_preview,
             target,
@@ -983,7 +981,7 @@ def routes() -> APIRouter:
     ):
         args = (request, campaign_id, revision_id, product_id, market, ratio, download)
         if download:
-            return await asyncio.to_thread(after_previews, request, image_response, *args)
+            return await asyncio.to_thread(export_after_previews, request, image_response, *args)
         return image_response(*args)
 
     @router.get("/campaigns/{campaign_id}/sources/{product_id}/{ratio}")
@@ -1051,7 +1049,7 @@ def routes() -> APIRouter:
             campaign_id=campaign_id, run_id=run_id, revision_id=revision_id, mode="current"
         )
         payload = await asyncio.to_thread(
-            after_previews,
+            export_after_previews,
             request,
             Handoff(services(request).state).preview_file,
             target,
@@ -1065,7 +1063,7 @@ def routes() -> APIRouter:
     @router.get("/reports/{report_id}/{reference:path}")
     async def report_file(request: Request, report_id: str, reference: str):
         payload = await asyncio.to_thread(
-            after_previews,
+            export_after_previews,
             request,
             Handoff(services(request).state).report_file,
             report_id,

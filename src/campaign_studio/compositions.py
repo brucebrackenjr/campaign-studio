@@ -12,16 +12,7 @@ from campaign_studio.campaign_drafts import read as read_draft
 from campaign_studio.campaign_drafts import write as write_draft
 from campaign_studio.composition_migration import migrate_current
 from campaign_studio.costing import estimate_requests
-from campaign_studio.imaging import (
-    ImageProblem,
-    compose,
-    composition_base,
-    crop_box,
-    load_image,
-    protects_subject,
-    save_srgb,
-    text_layout,
-)
+from campaign_studio.imaging import compose, crop_box, load_image, protects_subject, save_srgb
 from campaign_studio.plan_storage import completed_run, dump_completed
 from campaign_studio.planning import (
     Asset,
@@ -29,7 +20,6 @@ from campaign_studio.planning import (
     canonical_hash,
     compare_plans,
     contextualize_findings,
-    copy_findings,
     expand_outputs,
     make_plan,
 )
@@ -486,27 +476,6 @@ def save(workspace, campaign_id, edit):
             )
         reconcile_descriptions(document, document["authored"]["brief"], value)
         document["authored"]["brief"] = value
-        # An explicit shared Studio edit also replaces that field's saved
-        # Campaign control. Otherwise an old raw form value can conceal the
-        # new shared wording, even after a reload. Other fields stay untouched.
-        from campaign_studio.workspace import TextEdit
-
-        if isinstance(edit, TextEdit):
-            fields = document["authored"].get("form_drafts", {}).get("fields", {})
-            language = edit.market.split("-", 1)[0]
-            for field in edit.values:
-                if edit.field_scopes[field] != "all_products":
-                    continue
-                control = "copy-headline" if field == "message" else "copy-cta"
-                text = value["markets"][edit.market]["copy"][field] or ""
-                for name, controls in fields.items():
-                    if (
-                        name.startswith("brief/")
-                        and name.rsplit("/", 1)[-1] == language
-                        and isinstance(controls, dict)
-                        and control in controls
-                    ):
-                        controls[control] = text
         document["version"] = uuid4().hex
         document["saved_at"] = timestamp()
         document["composition_receipt"] = {
@@ -531,25 +500,10 @@ def acknowledgement(workspace, campaign_id):
     value = copy.deepcopy(project["authored"]["brief"])
     version = project["version"]
     issues = []
-    findings = []
     try:
         slots = []
         brief, issues = preview_brief(value)
-        outputs = expand_outputs(brief)
-        for output in outputs:
-            findings.extend(copy_findings(brief, output))
-            try:
-                text_layout(output.text, output.ratio, output.framing)
-            except ImageProblem as error:
-                findings.append(
-                    Finding(
-                        item=output.id,
-                        rule="text_fit",
-                        severity="blocking",
-                        evidence=str(error),
-                        remedy="Move or resize the text in Studio.",
-                    )
-                )
+        for output in expand_outputs(brief):
             slots.append(
                 {
                     "id": output.id,
@@ -565,13 +519,6 @@ def acknowledgement(workspace, campaign_id):
     except ValidationError as error:
         slots = None
         issues = validation_issues(error)
-    if slots is not None:
-        contextualize_findings(brief, outputs, findings)
-    matches = [
-        f.model_dump(mode="json")
-        for f in findings
-        if f.severity == "blocking" and f.context and f.context.phrase
-    ]
     descriptions = {
         item["id"]: public_metadata(
             document.get("creative_metadata", {}).get(
@@ -591,8 +538,6 @@ def acknowledgement(workspace, campaign_id):
         "project": project,
         "composition_slots": slots,
         "composition_issues": issues,
-        "composition_findings": [f.model_dump(mode="json") for f in findings],
-        "wording_issue": {"code": "prohibited_phrase", "matches": matches} if matches else None,
         "metadata": {**metadata, "snapshot_id": canonical_hash(metadata)},
     }
 
@@ -615,9 +560,7 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
             "source", "This image needs a source. Open Production to prepare it.", 404
         )
     if any(
-        blocks_output(finding, output)
-        and not (finding.context and finding.context.phrase)
-        and finding.rule != "text_fit"
+        blocks_output(finding, output) and not (finding.context and finding.context.phrase)
         for finding in plan.findings
     ):
         raise ActionError("preview_blocked", "Correct the image findings to show its preview.", 422)
@@ -631,23 +574,15 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
             cutout, _ = load_image(
                 workspace.storage.path(plan.assets[f"products/{product_id}"].reference)
             )
-        if any(f.rule == "text_fit" and blocks_output(f, output) for f in plan.findings):
-            from campaign_studio.previews import diagnostic_overlay
-
-            with composition_base(scene, output.ratio, cutout, output.framing) as base:
-                with diagnostic_overlay(logo, output, plan.brief.brand.text_color) as overlay:
-                    base.alpha_composite(overlay)
-                result = base.convert("RGB")
-        else:
-            result = compose(
-                scene,
-                logo,
-                output.text,
-                output.ratio,
-                plan.brief.brand.text_color,
-                cutout,
-                output.framing,
-            )
+        result = compose(
+            scene,
+            logo,
+            output.text,
+            output.ratio,
+            plan.brief.brand.text_color,
+            cutout,
+            output.framing,
+        )
         try:
             with io.BytesIO() as buffer:
                 save_srgb(result, buffer, compress_level=3)

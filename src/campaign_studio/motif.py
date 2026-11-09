@@ -456,16 +456,23 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
         if matches
         else None
     )
-    result["logo_issue"] = None  # Retained response key for older browser clients.
+    logo_findings = [
+        f for f in plan.findings if f.rule == "logo_presence" and f.severity == "blocking"
+    ]
+    result["logo_issue"] = (
+        {
+            "code": "logo_presence",
+            "message": "Attach a logo in Brand, or turn off the logo requirement.",
+        }
+        if logo_findings
+        else None
+    )
     outputs = []
     descriptions = {}
     for output in plan.outputs:
         blocked = any(blocks_output(f, output) for f in plan.findings)
         available = output.product_id in sources and not any(
-            blocks_output(f, output)
-            and not (f.context and f.context.phrase)
-            and f.rule != "text_fit"
-            for f in plan.findings
+            blocks_output(f, output) and not (f.context and f.context.phrase) for f in plan.findings
         )
         url = (
             f"/api/campaigns/{campaign_id}/composition/{version}/images/{output.id}"

@@ -17,11 +17,11 @@
     ["message", "Headline"],
     ["cta", "Call to action"],
   ];
-  function wordingFields({ values }) {
+  function wordingFields({ values, all = {} }) {
     return fields
       .map(
         ([id, label]) =>
-          `<div class="mf-word-field" data-mf-field="${id}"><div class="mf-word-label"><label for="mf-word-${id}">${label}</label></div>${id === "cta" ? `<input id="mf-word-${id}" data-mf-value="${id}" value="${esc(values[id])}" autocomplete="off">` : `<textarea id="mf-word-${id}" data-mf-value="${id}" rows="3">${esc(values[id])}</textarea>`}<div class="mf-word-action"><button type="button" class="btn small" data-mf-apply-all="${id}" aria-label="Apply ${esc(label.toLowerCase())} to all products">Apply to all products</button></div><span class="mf-field-scope" data-mf-scope="${id}" hidden></span></div>`,
+          `<div class="mf-word-field" data-mf-field="${id}"><div class="mf-word-label"><label for="mf-word-${id}">${label}</label><label class="mf-all-products"><input type="checkbox" data-mf-all="${id}" aria-label="All products for ${esc(label)}" ${all[id] ? "checked" : ""}>All products</label></div>${id === "cta" ? `<input id="mf-word-${id}" data-mf-value="${id}" value="${esc(values[id])}" autocomplete="off">` : `<textarea id="mf-word-${id}" data-mf-value="${id}" rows="3">${esc(values[id])}</textarea>`}<span class="mf-field-scope" data-mf-scope="${id}" hidden></span></div>`,
       )
       .join("");
   }
@@ -31,7 +31,9 @@
     root
       .querySelectorAll("[data-mf-value]")
       .forEach((el) => (values[el.dataset.mfValue] = el.value));
-
+    root
+      .querySelectorAll("[data-mf-all]")
+      .forEach((el) => (all[el.dataset.mfAll] = el.checked));
     return { values, all };
   }
   function changes({

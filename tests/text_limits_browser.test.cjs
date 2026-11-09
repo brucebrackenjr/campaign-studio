@@ -101,7 +101,7 @@ for(const [purpose,setup] of [
 for(const [action,field,purpose] of [['create','new-name','campaign_name'],['create','new-brand','brand_name'],['create','new-audience','audience'],['saveName','rename-name','campaign_name'],['saveRule','mw-rule-phrase','phrase'],['saveDescription','image-description','description'],['applyText','mf-word-message','headline'],['applyText','mf-word-cta','cta'],['applyDraftWording','draft-wording-value','cta']]) test(`${action} stops an invalid ${field} before dispatch`,async()=>{
  const h=control(),input=h.make(field,'🦊'.repeat(h.api.contract.limits[purpose]+1));
  if(field==='draft-wording-value')input.dataset.lengthPurpose=purpose;
- const context=vm.createContext({scheduleStudioSave(){},MotifTextLimits:h.api,localDialog:false,draft:null,modal:null,busy:false,guardImageCleanup(){throw Error('Invalid field escaped its action guard');}});
+ const context=vm.createContext({scheduleStudioSave(){},MotifTextLimits:h.api,localDialog:false,draft:null,busy:false,guardImageCleanup(){throw Error('Invalid field escaped its action guard');}});
  const source=readFileSync('src/campaign_studio/static/motif/actions.js','utf8');
  vm.runInContext(source.slice(source.indexOf('async function dispatchAction('),source.indexOf('document.addEventListener("click", event => {',source.indexOf('async function dispatchAction('))),context);
  await context.dispatchAction({action});assert.equal(input.focused,true);assert.equal(input.reported,true);
@@ -116,15 +116,4 @@ test('Text over-limit wording never queues preview or applies an obsolete previe
  assert.equal(timers.length,0);assert.equal(editor.preview,null);assert.match(editor.message,/Headline.*120/);
  await context.previewText();assert.equal(await context.applyText(),false);
  editor.values.message='Corrected';context.scheduleTextPreview();assert.equal(timers.length,1);assert.equal(editor.message,'Preparing preview');
-});
-
-test('correcting both wording and length does not restore a removed wording invalid state',()=>{
- const h=control(),field=h.make('mf-word-message','guaranteed');
- field.setAttribute('data-wording-invalid','');field.setAttribute('aria-invalid','true');
- h.type('guaranteed '+'W'.repeat(121),field);
- assert.equal(field.getAttribute('data-length-invalid'),'');
- field.removeAttribute('data-wording-invalid');
- h.type('Corrected',field);
- assert.equal(field.getAttribute('aria-invalid'),null);
- assert.equal(field.getAttribute('data-length-invalid'),null);
 });

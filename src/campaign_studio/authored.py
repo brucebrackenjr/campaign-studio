@@ -348,6 +348,14 @@ class AuthoredProjects:
                 ) from error
 
     def save(self, campaign_id, action):
+        acknowledgement, cleanup_id = self._save(campaign_id, action)
+        if cleanup_id:
+            from campaign_studio.cleanup import Cleanup
+
+            Cleanup(self.workspace.state).resume_upload(cleanup_id)
+        return acknowledgement
+
+    def _save(self, campaign_id, action):
         self.check_envelope(action.authored)
         if action.authored["brief"].get("campaign_id") != campaign_id:
             raise ActionError("campaign_identity", "A campaign’s identity cannot be changed.", 422)
@@ -368,7 +376,7 @@ class AuthoredProjects:
                 and receipt.get("version") == previous["version"]
                 and base == current_base
             ):
-                return {key: receipt[key] for key in ("version", "saved_at", "authored_hash")}
+                return {key: receipt[key] for key in ("version", "saved_at", "authored_hash")}, None
             if action.version != previous["version"] or base != current_base:
                 raise ActionError(
                     "authored_conflict",
@@ -418,11 +426,18 @@ class AuthoredProjects:
                 "request_version": action.version,
             }
             project = self.storage.project(campaign_id)
+            from campaign_studio.cleanup import Cleanup
             from campaign_studio.output_files import sync_draft_comparisons
 
             with self.storage.connect() as db:
                 write_draft(self.storage, campaign_id, result, db=db)
                 sync_draft_comparisons(self.workspace.state, db, project, result)
-                # Removing an attachment changes its use, not ownership of its file.
-                # Retain uploads for reattachment; Delete campaign removes them.
-            return acknowledgement
+                detached = {
+                    ref for ref in attachment_paths(old_authored) if isinstance(ref, str)
+                } - {ref for ref in attachment_paths(result["authored"]) if isinstance(ref, str)}
+                cleanup_id = (
+                    Cleanup(self.workspace.state).plan_upload_retirement(db, project, detached)
+                    if detached
+                    else None
+                )
+            return acknowledgement, cleanup_id
