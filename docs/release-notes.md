@@ -1,5 +1,6 @@
 # Motif v0.3.1 – Clearer corrections and smoother format switching
 
+- **Keep removed assets available.** Removing a product or logo, or replacing its image, keeps the uploaded files in the campaign's Assets folder for later reuse. Deleting the campaign still removes its registered files, including these retained assets.
 - **Keep shared wording consistent.** Editing a Campaign headline or call to action updates every product in that language, with confirmation before replacing customized wording. Studio's **Apply to all products** button does the same and updates the matching Campaign field. It is a one-time action; later ordinary Studio edits remain specific to the selected product.
 - **Find and correct prohibited wording.** Studio and Handoff identify the affected product and text. The correction opens the relevant field, and warnings update after the change saves. Handoff marks the affected image cards while leaving unrelated cards unmarked.
 - **Keep editing when text runs outside an image.** Studio keeps the photograph, logo, and text visible so the producer can move or resize the text. The layout warning explains what needs adjusting, and download remains blocked until the problem is corrected.

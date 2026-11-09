@@ -256,23 +256,34 @@ def pending_upload(ws, cid):
     return [item for item in Cleanup(ws.state).status(cid)["pending"] if item["kind"] == "upload"]
 
 
-def test_repeated_add_remove_returns_files_and_rows_to_baseline(ui):
+def test_repeated_add_remove_retains_assets_until_campaign_deletion(ui):
+    from campaign_studio.cleanup import Cleanup
+
     client, ws = ui
     cid, _ = Intake(ws.storage).new()
     before = counts(ws)
+    retained = []
     for _ in range(3):
         _, pid, reference = added_photo(client, ws, cid)
         remove_photo(ws, cid, pid)
+        retained.append(reference)
+        assert ws.storage.path(reference).read_bytes() == photo()
+        assert upload_rows(ws, reference) == (1, 1)
+        assert pending_upload(ws, cid) == []
+        assert client.get("/uploads/" + reference.rsplit("/", 1)[1]).content == photo()
+    assert AuthoredProjects(ws).read(cid)["authored"]["brief"]["products"] == []
+    cleanup = Cleanup(ws.state)
+    inventory = cleanup.preview_campaign(cid)
+    assert cleanup.delete_campaign(cid, inventory["token"])["state"] == "complete"
+    for reference in retained:
         assert not ws.storage.path(reference).exists()
         assert upload_rows(ws, reference) == (0, 0)
-        assert pending_upload(ws, cid) == []
-        assert counts(ws)[:2] == before[:2]
-        assert client.get("/uploads/" + reference.rsplit("/", 1)[1]).status_code == 404
+    assert counts(ws)[0][0:2] == before[0][0:2]
     with ws.storage.connect() as db:
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_replacement_retires_only_old_upload_and_ordinary_save_does_no_cleanup(ui, monkeypatch):
+def test_replacement_keeps_old_upload_and_ordinary_save_does_no_cleanup(ui, monkeypatch):
     from campaign_studio.cleanup import Cleanup
 
     client, ws = ui
@@ -282,8 +293,7 @@ def test_replacement_retires_only_old_upload_and_ordinary_save_does_no_cleanup(u
     action = saved_action(ws, cid)
     action["authored"]["brief"]["products"][0]["source"]["path"] = replacement["reference"]
     save_action(ws, cid, action)
-    assert upload_rows(ws, reference) == (0, 0)
-    for kept in (replacement["reference"], unused["reference"]):
+    for kept in (reference, replacement["reference"], unused["reference"]):
         assert upload_rows(ws, kept) == (1, 1)
         assert ws.storage.path(kept).read_bytes() == photo()
     monkeypatch.setattr(
@@ -404,27 +414,20 @@ def test_rejected_or_failed_removal_preserves_photo_and_has_no_intent(ui, monkey
 
 
 @pytest.mark.parametrize("recovery", ["retry", "restart", "readopt"])
-def test_unlink_failure_retains_ownership_and_recovers_safely(ui, monkeypatch, recovery):
+def test_older_pending_upload_cleanup_is_cancelled_without_deleting_assets(ui, recovery):
     from campaign_studio.campaign_drafts import read, write
     from campaign_studio.cleanup import Cleanup
     from campaign_studio.state import State
 
     client, ws = ui
     cid, pid, reference = added_photo(client, ws)
-    original = ws.storage.unlink
-
-    def fail(path, **kwargs):
-        if path == ws.storage.path(reference):
-            raise PermissionError("Injected file in use")
-        return original(path, **kwargs)
-
-    monkeypatch.setattr(ws.storage, "unlink", fail)
     removed = remove_photo(ws, cid, pid)
     assert removed["version"] == AuthoredProjects(ws).read(cid)["version"]
     assert upload_rows(ws, reference) == (1, 1)
     assert ws.storage.path(reference).read_bytes() == photo()
-    intent = pending_upload(ws, cid)[0]["id"]
-    monkeypatch.setattr(ws.storage, "unlink", original)
+    # Reproduce an unfinished deletion queued by the preceding release.
+    with ws.storage.connect() as db:
+        intent = Cleanup(ws.state).plan_upload_retirement(db, ws.storage.project(cid), {reference})
     if recovery == "readopt":
         document = read(ws.storage, cid)
         document["authored"]["brief"]["brand"]["logo_path"] = reference
@@ -435,12 +438,13 @@ def test_unlink_failure_retains_ownership_and_recovers_safely(ui, monkeypatch, r
         else [Cleanup(ws.state).retry(cid, intent)]
     )
     assert result[0]["state"] == "complete"
+    assert result[0]["removed_bytes"] == 0
     assert pending_upload(ws, cid) == []
-    assert upload_rows(ws, reference) == ((1, 1) if recovery == "readopt" else (0, 0))
-    assert ws.storage.path(reference).exists() == (recovery == "readopt")
+    assert upload_rows(ws, reference) == (1, 1)
+    assert ws.storage.path(reference).read_bytes() == photo()
 
 
-def test_active_export_snapshot_defers_detached_upload_cleanup(ui):
+def test_removal_during_export_keeps_source_after_export_finishes(ui):
     from types import SimpleNamespace
 
     from campaign_studio.cleanup import Cleanup
@@ -458,26 +462,25 @@ def test_active_export_snapshot_defers_detached_upload_cleanup(ui):
     remove_photo(ws, cid, pid)
     assert upload_rows(ws, reference) == (1, 1)
     assert ws.storage.path(reference).read_bytes() == photo()
-    intent = pending_upload(ws, cid)[0]["id"]
+    assert pending_upload(ws, cid) == []
     job.closed = True
-    assert Cleanup(ws.state).retry(cid, intent)["state"] == "complete"
-    assert upload_rows(ws, reference) == (0, 0)
+    assert Cleanup(ws.state).resume_all() == []
+    assert upload_rows(ws, reference) == (1, 1)
+    assert ws.storage.path(reference).read_bytes() == photo()
     ws.state.delivery_jobs.clear()
 
 
-def test_intent_and_removal_roll_back_together_if_the_save_transaction_fails(ui, monkeypatch):
-    from campaign_studio.cleanup import Cleanup
+def test_removal_rolls_back_without_losing_asset_if_transaction_fails(ui, monkeypatch):
+    from campaign_studio import output_files
 
     client, ws = ui
     cid, pid, reference = added_photo(client, ws)
     before = saved_action(ws, cid)
-    original = Cleanup.plan_upload_retirement
 
-    def fail(self, *args):
-        assert original(self, *args)
-        raise StorageError("Injected failure after retirement intent, before commit")
+    def fail(*args):
+        raise StorageError("Injected failure after draft update, before commit")
 
-    monkeypatch.setattr(Cleanup, "plan_upload_retirement", fail)
+    monkeypatch.setattr(output_files, "sync_draft_comparisons", fail)
     with pytest.raises(StorageError):
         remove_photo(ws, cid, pid)
     assert saved_action(ws, cid) == before
@@ -487,7 +490,7 @@ def test_intent_and_removal_roll_back_together_if_the_save_transaction_fails(ui,
 
 
 @pytest.mark.parametrize("busy", ["export", "production"])
-def test_busy_export_or_production_defers_cleanup_without_blocking_the_save(ui, busy):
+def test_busy_export_or_production_does_not_block_removal_or_delete_asset(ui, busy):
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
@@ -511,9 +514,10 @@ def test_busy_export_or_production_defers_cleanup_without_blocking_the_save(ui, 
             assert result["version"] == saved_action(ws, cid)["version"]
             assert not holder.done()
             assert upload_rows(ws, reference) == (1, 1)
-            intent = pending_upload(ws, cid)[0]["id"]
+            assert pending_upload(ws, cid) == []
         finally:
             release.set()
         holder.result(timeout=2)
-    assert Cleanup(ws.state).retry(cid, intent)["state"] == "complete"
-    assert upload_rows(ws, reference) == (0, 0)
+    assert Cleanup(ws.state).resume_all() == []
+    assert upload_rows(ws, reference) == (1, 1)
+    assert ws.storage.path(reference).read_bytes() == photo()

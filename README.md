@@ -444,6 +444,8 @@ Campaign identity is a canonical hyphenated UUID, separate from its editable dis
 
 New attachments keep a readable label, such as `leaflight-lantern-<identifier>.png`, while the identifier distinguishes separate files with the same label. Editing text, color, or framing does not rename the source file. Earlier registered asset names remain usable.
 
+Removing a product or logo stops using it in the campaign but keeps its uploaded files in the Assets folder. Replacing an image also keeps the previous file, so you can select it again later. **Delete campaign** removes these retained assets along with the campaign's other registered files.
+
 Folders appear only as needed. Current editing creates no `Outputs/`, `Exports/`, or archive folders. A supported older workspace may retain previously exported packages or files you added yourself.
 
 One SQLite database in `Workspace/private/state.sqlite3` stores the saved work for all campaigns. Each campaign has a current record containing its form values, image editing instructions, descriptions, and references to its photographs and logo. Other tables record image-generation requests and which files belong to each campaign. Motif uses those relationships to open the right files and avoid deleting another campaign’s work. There are no separate user accounts.

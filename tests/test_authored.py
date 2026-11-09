@@ -220,17 +220,17 @@ def test_exact_retry_after_commit_loss_and_conflicting_tab_preserve_current_work
     other_tab = copy.deepcopy(request)
     request["authored"]["brief"]["audience"] = "First tab"
     write = authored_module.write_draft
-    save = AuthoredProjects._save
+    save = AuthoredProjects.save
 
     def lose_response(*args, **kwargs):
         save(*args, **kwargs)
         raise OSError("Controlled response loss after durable publication")
 
-    monkeypatch.setattr(AuthoredProjects, "_save", lose_response)
+    monkeypatch.setattr(AuthoredProjects, "save", lose_response)
     with pytest.raises(OSError):
         AuthoredProjects(ws).save(cid, AuthoredSave.model_validate(request))
     committed = Intake(ws.storage).read(cid)
-    monkeypatch.setattr(AuthoredProjects, "_save", save)
+    monkeypatch.setattr(AuthoredProjects, "save", save)
     monkeypatch.setattr(
         authored_module,
         "write_draft",

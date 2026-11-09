@@ -24,6 +24,8 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Version 0.3.1 correction checks
 
+The asset-retention checks remove and replace product photos and logos, reopen the campaign, and attach the retained files again. They verify the file bytes and database ownership records remain intact. Deleting the whole campaign must remove both attached and detached assets without changing another campaign or an original file outside the workspace. An older pending attachment cleanup must be canceled on restart. These focused checks do not change prohibited-word behavior or preview performance.
+
 This update covers Campaign wording entry, Studio corrections, Handoff checks, optional logos, and Studio format switching. Production checks only whether source photographs are available or can be prepared. Wording findings remain available in Studio and Handoff and continue to block export; they do not prevent source attachment or generation.
 
 The browser checks use a three-product Winter campaign with both markets. They introduce prohibited wording in shared copy and in individual product wording, follow the correction to its source, and check whether notices and field errors disappear without a page refresh. A separate case combines prohibited wording with text extending outside the image. The preview must remain visible for correction, while download stays blocked until both problems are resolved. The checks also cover a readable, source-focused Production sidebar, affected Handoff cards, and returning from an editor correction.
