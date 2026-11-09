@@ -88,7 +88,7 @@ function productionCredentialState() {
   return { credentialIssue: authentication && !keyUpdated && !keyReloaded ? code : !keyAvailable ? "missing_key" : null, keyUpdated, keyReloaded };
 }
 function sourceFindingBlocks(finding) {
-  return finding.severity === "blocking" &&
+  return finding.severity === "blocking" && !finding.context?.phrase &&
     (["prepared_product", "scene_coverage"].includes(finding.rule) || finding.rule === "asset" && finding.item !== "logo");
 }
 function productionContext() {

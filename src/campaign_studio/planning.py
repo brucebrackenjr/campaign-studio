@@ -142,10 +142,14 @@ class Plan(Contract):
 
 
 def blocks_source(finding: Finding) -> bool:
-    return finding.severity == "blocking" and (
-        finding.rule in {"prepared_product", "scene_coverage"}
-        or finding.rule == "asset"
-        and finding.item != "logo"
+    return (
+        finding.severity == "blocking"
+        and not (finding.context and finding.context.phrase)
+        and (
+            finding.rule in {"prepared_product", "scene_coverage"}
+            or finding.rule == "asset"
+            and finding.item != "logo"
+        )
     )
 
 

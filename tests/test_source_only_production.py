@@ -17,7 +17,10 @@ from campaign_studio.sample import write_sample
 
 
 @pytest.mark.parametrize("logo", ["absent", "broken"])
-def test_source_plan_and_start_ignore_copy_and_logo_but_export_still_checks(tmp_path, logo):
+@pytest.mark.parametrize("rule_id", ["blocked", "asset"])
+def test_source_plan_and_start_ignore_copy_and_logo_but_export_still_checks(
+    tmp_path, logo, rule_id
+):
     calls, body = [], {}
 
     def response(request):
@@ -48,7 +51,7 @@ def test_source_plan_and_start_ignore_copy_and_logo_but_export_still_checks(tmp_
         else:
             value["brand"]["logo_path"] = ""
         value["brand"]["require_logo"] = True
-        value["markets"]["en-US"]["phrase_rules"] = [{"id": "blocked", "phrase": "guaranteed"}]
+        value["markets"]["en-US"]["phrase_rules"] = [{"id": rule_id, "phrase": "guaranteed"}]
         value["markets"]["en-US"]["copy"]["message"] = "A guaranteed adventure"
         value["products"][1]["source"] = {
             "role": "concept",

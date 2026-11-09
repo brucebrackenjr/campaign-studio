@@ -627,3 +627,13 @@ test('active generation shows elapsed time and motion outside collapsed request 
   html=h.run('progressView()');
   assert.doesNotMatch(html, /pr-operation-progress is-active|pr-working-indicator/);
 });
+
+
+test("source readiness does not confuse imported phrase IDs with built-in photo checks", () => {
+  const h = harness();
+  for (const rule of ["asset", "scene_coverage", "prepared_product"]) {
+    const finding = {rule, item: "one/en-US/1x1", severity: "blocking"};
+    assert.equal(h.context.sourceFindingBlocks(finding), true, `${rule} still checks the photo`);
+    assert.equal(h.context.sourceFindingBlocks({...finding, context: {phrase: {configured_phrase: "guaranteed"}}}), false, `${rule} phrase belongs to export validation`);
+  }
+});
