@@ -944,44 +944,51 @@ test('an expired preview waits for a pending save failure without adopting an ex
  }
 });
 
-test('invalid Campaign headline and CTA stay in saved form buffers without applying or confirming custom replacement', async()=>{
- for(const field of ['message','cta']) {
-  const h=harness(), control=field==='message'?'copy-headline':'copy-cta';
-  h.c.tab='copy';h.c.draft.markets['en-US'].phrase_rules=[{phrase:'guaranteed',match:'whole_word',case_sensitive:false}];
+test('prohibited Campaign wording previews and saves after the same custom-copy confirmation', async()=>{
+ for(const field of ['message','cta']) for(const replace of [false,true]) {
+  const h=harness();h.c.tab='copy';
+  h.c.draft.markets['en-US'].phrase_rules=[{phrase:'guaranteed'}];
   h.c.draft.products[0].copy_overrides={'en-US':{[field]:'My custom wording'}};
-  const previous=h.c.draft.markets['en-US'].copy[field];
-  h.c.openModal=()=>assert.fail('Invalid text must not open replacement confirmation');
+  const before=structuredClone(h.c.draft);
+  h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
   h.run(`changeBriefField(briefHost,'${field}','This is GUARANTEED')`);
-  assert.equal(h.c.draft.markets['en-US'].copy[field],previous);
-  assert.equal(h.run(`currentBriefValue().markets['en-US'].copy.${field}`),previous);
-  assert.equal(h.run(`briefHost.vm.copy['en-US'].${field}`),'This is GUARANTEED');
+  assert.equal(h.run(`currentBriefValue().markets['en-US'].copy.${field}`),'This is GUARANTEED');
   assert.equal(h.run(`briefHost.vm.copyErrors.${field}.length`),1);
-  assert.equal(h.run('pendingCampaignCopy().length'),0);
-  assert.equal(await h.run('confirmCampaignCopyChanges()'),true);
-  const capture=h.plain('safeCampaignCopyCapture({brief:copy(draft),...copy(projectBuffers)})');
-  assert.equal(capture.brief.markets['en-US'].copy[field],previous);
-  assert.equal(capture.form_drafts.fields['brief/copy/en'][control],'This is GUARANTEED');
-  h.run("changeBriefField(briefHost,'audience','Unrelated change')");
-  assert.equal(h.c.draft.audience,'Unrelated change');
-  assert.equal(h.c.draft.products[0].copy_overrides['en-US'][field],'My custom wording');
-  h.c.openModal=kind=>{h.c.modal=kind};h.c.closeModal=()=>{h.c.modal=null};
-  h.run(`changeBriefField(briefHost,'${field}','Corrected text')`);
+  assert.deepEqual(h.c.draft,before,'custom wording is protected until the decision');
   const confirmation=h.run('confirmCampaignCopyChanges()');
   assert.equal(h.c.modal,'campaign-copy-confirm');
-  h.run('finishCampaignCopy(true)');await confirmation;
-  assert.equal(h.c.draft.markets['en-US'].copy[field],'Corrected text');
-  assert.equal(h.c.draft.products[0].copy_overrides['en-US'][field],undefined);
-  assert.equal(h.run(`briefHost.vm.copyErrors.${field}.length`),0);
+  h.run(`finishCampaignCopy(${replace})`);await confirmation;
+  assert.equal(h.c.draft.markets['en-US'].copy[field],replace?'This is GUARANTEED':before.markets['en-US'].copy[field]);
+  assert.equal(h.c.draft.products[0].copy_overrides['en-US'][field],replace?undefined:'My custom wording');
+  assert.equal(h.run(`briefHost.vm.copyErrors.${field}.length`),replace?1:0);
  }
 });
 
-test('typing a prohibited phrase character by character cannot autosave its unfinished prefix',async()=>{
+test('partial prohibited-word corrections update the saved headline or CTA and its preview together',async()=>{
+ for(const field of ['message','cta']) {
+  const h=harness();h.c.tab='copy';
+  h.c.draft.markets['en-US'].phrase_rules=[{phrase:'stay'},{phrase:'longer'}];
+  h.c.openModal=()=>assert.fail('No customized wording to replace');
+  for(const [value,terms] of [['Stay a little longer.',['stay','longer']],['a little longer.',['longer']],['a little. ',[]]]) {
+   h.c.value=value;h.c.field=field;
+   h.run('changeBriefField(briefHost,field,value)');
+   assert.equal(h.run(`currentBriefValue().markets['en-US'].copy.${field}`),value);
+   await h.run('confirmCampaignCopyChanges()');
+   assert.equal(h.c.draft.markets['en-US'].copy[field],value);
+   assert.deepEqual(h.plain(`MotifWording.matchingTerms(draft.markets['en-US'].copy.${field},draft.markets['en-US'].phrase_rules)`),terms);
+   assert.equal(h.run(`briefHost.vm.copyErrors.${field}.length`),terms.length);
+   assert.equal(h.run(`currentBriefValue().markets['en-US'].copy.${field}`),value);
+  }
+ }
+});
+
+test('typing a prohibited phrase saves the latest text rather than an earlier prefix',async()=>{
  const h=harness();h.c.tab='copy';h.c.draft.markets['en-US'].phrase_rules=[{phrase:'guaranteed'}];
  for(const value of ['g','guaran','guarantee','guaranteed'])h.run(`changeBriefField(briefHost,'message',${JSON.stringify(value)})`);
  await h.run('confirmCampaignCopyChanges()');
- assert.equal(h.c.draft.markets['en-US'].copy.message,'English');
- assert.equal(h.run("currentBriefValue().markets['en-US'].copy.message"),'English');
- assert.equal(h.run("briefHost.vm.copy['en-US'].message"),'guaranteed');
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'guaranteed');
+ assert.equal(h.run("currentBriefValue().markets['en-US'].copy.message"),'guaranteed');
+ assert.equal(h.run("briefHost.vm.copyErrors.message.length"),1);
 });
 
 test('restored invalid form and newly added rules keep applied copy distinct and correctable',async()=>{

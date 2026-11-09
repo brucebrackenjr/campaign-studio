@@ -1,6 +1,6 @@
 # Motif – Campaign Studio
 
-**Version 0.3.1** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.3.2** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
 
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 
@@ -300,7 +300,7 @@ For example, this **market-content fragment** configures an ordinary whole-word 
 
 Matching uses Unicode normalization and the configured literal/word-boundary semantics. It scans the current resolved headlines and CTAs, not generation instructions or arbitrary descriptions. It is a simple configured-text check, not a legal-compliance engine.
 
-Campaign → Copy & Rules checks the headline and call to action as you type. If either contains a prohibited phrase, the field explains what to change and keeps your unfinished text available, including after a refresh. That proposed wording does not replace the saved campaign wording or any product wording until you correct it. Other valid Campaign fields can still save.
+Campaign → Copy & Rules checks the headline and call to action as you type. Your wording saves and appears in Campaign previews and Studio even when it contains a prohibited word. The warning identifies the words that need correcting; it does not leave an older headline on screen. Removing one of several prohibited words updates the preview and leaves only the remaining warnings. Download stays blocked until the wording is corrected or the rule is deliberately changed. Replacing customized product wording still requires confirmation.
 
 Structurally valid briefs with prohibited wording can still be imported and opened. Adding a new rule can also flag wording that was already saved. In those cases, Studio keeps the images visible so you can correct the text, and export remains blocked until the wording passes the rules. Production prepares source photographs only; wording and the optional logo do not prevent source selection or generation.
 

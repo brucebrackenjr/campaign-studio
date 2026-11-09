@@ -1,3 +1,12 @@
+# Motif v0.3.2 – Current wording in every preview
+
+- **Show the text being edited.** Campaign previews and Studio now use the saved headline and call to action even when they contain a prohibited word. Removing one prohibited word updates the preview and warnings without waiting for every word to be corrected. Download still requires all prohibited wording to be resolved, and confirmation still protects customized product wording.
+- **Offer logo attachment immediately.** Opening the Logo tool without an attached logo shows the attachment prompt without first requesting a logo-positioning preview. Selecting a file still runs the normal image checks and saves the attached logo.
+
+These are focused changes to the Campaign wording and empty Logo tool paths. Source-image generation, asset retention, and export rendering are unchanged.
+
+---
+
 # Motif v0.3.1 – Clearer corrections and smoother format switching
 
 - **Open new campaigns before adding rules.** A campaign created from scratch opens and remains editable when no prohibited words have been configured.

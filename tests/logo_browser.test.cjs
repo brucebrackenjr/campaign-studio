@@ -652,3 +652,20 @@ test('opening Logo reaches its verified source context when the composite previe
  await assert.rejects(context.openLogo(0,0),/available current image/);
  assert.equal(called,1,'an unavailable source never reaches the context request');
 });
+
+
+test('a missing campaign logo opens an actionable attachment prompt without a preview request',async()=>{
+ let options,ready=0;
+ const context=vm.createContext({
+  C:{id:'campaign',products:[{id:'product'}],logo:null},lang:'en',MARKET:{en:'en-US'},FMT:[{ratio:'1:1',name:'Square',w:1080,h:1080}],LANG:{en:'English'},
+  canEditLogo:()=>true,outputFor:()=>({url:'/current-image'}),
+  document:{activeElement:{}},lastFocus:null,modal:'',studioWorkspace:{root:{}},
+  MotifLogo:{mount:value=>{options=value;return{}}},mountProjectViews(){},studioPreviewReady(){ready++;},
+  model:{value:{campaign_id:'campaign'},version:'version',output_brief:{name:'Campaign',brand:{logo_path:''},products:[{id:'product',name:'Lantern'}]},manifest:{revision_id:'version',outputs:[{product_id:'product',market:'en-US',ratio:'1:1',url:'/current-image'}]},logo_editable_products:{product:true}},
+  api:()=>assert.fail('An absent logo needs no positioning preview'),decodedImage:()=>assert.fail('An absent logo needs no decoded layers'),
+ });
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo.js','utf8'),context);
+ await context.openLogo(0,0);
+ assert.equal(options.loading,false);assert.equal(options.savedDisplay.compositeUrl,'/current-image');
+ assert.equal(typeof options.onSelectFile,'function');assert.equal(ready,1);
+});

@@ -531,9 +531,10 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
     previewSequence: 0,
   };
   const workspaceOwner = studioWorkspace;
+  const missingLogo = !!model.output_brief?.brand && !model.output_brief.brand.logo_path;
   logoEditor = MotifLogo.mount({
     target,
-    loading: true,
+    loading: !missingLogo,
     embedded: true,
     logoUrl: C.logo,
     savedDisplay: { compositeUrl: (typeof studioRetainedImage === "function" && studioRetainedImage()?.src) || outputFor(product, lang, format)?.url },
@@ -563,6 +564,12 @@ async function openLogo(product, format, { isCurrent = () => true, signal } = {}
       }),
   });
   mountProjectViews();
+  // The saved campaign already tells us whether there is artwork to position.
+  // A first attachment obtains its own checked preview after the file is chosen.
+  if (missingLogo) {
+    if (isCurrent() && typeof studioPreviewReady === "function") studioPreviewReady();
+    return;
+  }
   const openingEditor = logoEditor;
   const context = await logoContext(model, target, signal);
   if (!isCurrent() || studioWorkspace !== workspaceOwner || logoEditor !== openingEditor) return;

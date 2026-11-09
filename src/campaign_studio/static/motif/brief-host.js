@@ -32,8 +32,7 @@ function currentBriefValue() {
   const wording = value.markets[MARKET[lang]]?.copy;
   if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]]) {
     const change = campaignCopyChanges.get(`${draft.campaign_id}/${MARKET[lang]}/${property}`);
-    if (key in fields && change?.owner === draft && change.value === fields[key] &&
-        !MotifWording.matchingTerms(fields[key], value.markets[MARKET[lang]].phrase_rules).length)
+    if (key in fields && change?.owner === draft && change.value === fields[key])
       wording[property] = property === "cta" ? fields[key] || null : fields[key];
   }
   return value;
@@ -400,7 +399,8 @@ function setCampaignWording(field, value, market = MARKET[lang]) {
 const campaignCopyChanges = new Map();
 let campaignCopyTimer = null, campaignCopyDecision = null, campaignCopyReview = null;
 function pendingCampaignCopy() {
-  return [...campaignCopyChanges.values()].filter(change => change.owner === draft && !MotifWording.matchingTerms(change.value, draft.markets[change.market].phrase_rules).length);
+  // Wording warnings block delivery, not editing or previewing current text.
+  return [...campaignCopyChanges.values()].filter(change => change.owner === draft);
 }
 function requeueAllowedCampaignCopy(previousRules) {
   const market = MARKET[lang], fields = briefFields();
