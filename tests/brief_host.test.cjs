@@ -997,6 +997,25 @@ test('restored invalid form and newly added rules keep applied copy distinct and
  assert.equal(h.c.draft.markets['en-US'].copy.message,'English','existing applied copy stays available to correct');
 });
 
+test('new campaigns with no prohibited-word list can open and edit either market',async()=>{
+ for(const language of ['en','es']) {
+  const h=harness(),market=h.c.MARKET[language];
+  h.c.lang=language;h.c.tab='copy';h.c.draft.products=[];
+  for(const entry of Object.values(h.c.draft.markets))entry.phrase_rules=null;
+  h.run('refreshBriefFlow()');
+  assert.equal(h.run('briefHost.vm.products.length'),0);
+  assert.equal(h.run('briefHost.vm.copyErrors.message.length'),0);
+  assert.equal(h.run('briefHost.vm.copyErrors.cta.length'),0);
+  h.run("changeBriefField(briefHost,'message','New campaign headline')");
+  await h.run('confirmCampaignCopyChanges()');
+  assert.equal(h.c.draft.markets[market].copy.message,'New campaign headline');
+  h.c.draft.markets[market].phrase_rules=[{phrase:'prohibited'}];
+  h.run("changeBriefField(briefHost,'message','prohibited')");
+  assert.equal(h.run('briefHost.vm.copyErrors.message.length'),1);
+  assert.equal(h.c.draft.markets[market].copy.message,'New campaign headline');
+ }
+});
+
 test('Campaign phrase checks match literal, whole-word, case-sensitive, NFC, and case-fold rules',()=>{
  const h=harness();
  for(const [value,rule,match] of [
