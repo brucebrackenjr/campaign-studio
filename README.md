@@ -281,7 +281,7 @@ The authoritative input contract is [the generated JSON Schema](docs/brief.schem
 | Input | Important behavior |
 | --- | --- |
 | Campaign | Lowercase hyphenated UUID string, editable name, audience, creative direction, brand, included markets, and one to five products. Create/import allocate a new campaign identity. Names need not be unique. |
-| Brand | An optional logo, a palette of one to eight colors, and a text color from that palette. Select **Require a logo on final images** for campaigns that must carry one. Otherwise, Handoff flags its absence and lets you export. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
+| Brand | An optional logo, a palette of one to eight colors, and a text color from that palette. Handoff notes when no logo is attached and lets you export. Completed six-digit hex values are normalized; unfinished form text is preserved as authored work. |
 | Market copy | Required `message` and optional `cta`, supplied independently for `en-US` and `es-MX`. No translation, language detection, or language certification. |
 | Product copy | Optional field-level `copy_overrides`. An omitted field inherits; `cta: null` deliberately clears the optional CTA. A required message cannot be cleared. |
 | Phrase rules | Optional configured phrases with literal or whole-word matching and optional case sensitivity. All matches block; there is no advisory severity. |
@@ -300,7 +300,9 @@ For example, this **market-content fragment** configures an ordinary whole-word 
 
 Matching uses Unicode normalization and the configured literal/word-boundary semantics. It scans the current resolved headlines and CTAs, not generation instructions or arbitrary descriptions. It is a simple configured-text check, not a legal-compliance engine.
 
-Structurally valid prohibited content can still be imported, opened, edited, and saved. Validation occurs when the producer requests a preview, prepares sources, or exports. A prohibited phrase does not make the campaign impossible to open for correction.
+Campaign → Copy & Rules checks the headline and call to action as you type. If either contains a prohibited phrase, the field explains what to change and keeps your unfinished text available, including after a refresh. That proposed wording does not replace the saved campaign wording or any product wording until you correct it. Other valid Campaign fields can still save.
+
+Structurally valid briefs with prohibited wording can still be imported and opened. Adding a new rule can also flag wording that was already saved. In those cases, Studio keeps the images visible so you can correct the text, and export remains blocked until the wording passes the rules. Production prepares source photographs only; wording and the optional logo do not prevent source selection or generation.
 
 ### Asset handling
 

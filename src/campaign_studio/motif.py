@@ -456,17 +456,7 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
         if matches
         else None
     )
-    logo_findings = [
-        f for f in plan.findings if f.rule == "logo_presence" and f.severity == "blocking"
-    ]
-    result["logo_issue"] = (
-        {
-            "code": "logo_presence",
-            "message": "Attach a logo in Brand, or turn off the logo requirement.",
-        }
-        if logo_findings
-        else None
-    )
+    result["logo_issue"] = None  # Retained response key for older browser clients.
     outputs = []
     descriptions = {}
     for output in plan.outputs:

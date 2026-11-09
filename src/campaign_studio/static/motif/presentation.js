@@ -224,7 +224,7 @@ function production() {
   const { plan, pending, active, retry, proposal } = context;
   const done = !!model.run && !pending && !retry && !["planned", "confirmed"].includes(model.run.state);
   if (active || (done && !context.complete) || (!pending && (context.resumeGeneration || model.notice))) return progressView(context);
-  const notices = `${unavailableSource() ? sourceRecoveryNotice() : ""}${wordingNotice()}${planInputErrors(proposal?.findings || plan?.findings || [])}`;
+  const notices = `${unavailableSource() ? sourceRecoveryNotice() : ""}${planInputErrors(proposal?.findings || plan?.findings || [])}`;
   return productionView(context, "", notices);
 }
 
@@ -235,7 +235,7 @@ function planInputErrors(findings = model?.plan?.findings || []) {
   const seen = new Set();
   const products = currentBriefValue().products || [];
   const items = findings.map((finding, index) => {
-    if (finding.severity !== "blocking" || finding.context?.phrase) return "";
+    if (!sourceFindingBlocks(finding)) return "";
     const field = finding.context?.fields?.[0];
     const product = products.find(item => item.id === finding.context?.product_id) ||
       (field?.path?.[0] === "products" ? products[field.path[1]] : null);
@@ -275,21 +275,19 @@ function progressView(context = productionContext()) {
   const retained = recoverable && model.local_recovery.saved_result;
   const noticeText = operation?.notice || model.notice?.message;
   const credentials = !active ? MotifProducerRepair.credentialPanel(context) : "";
-  if (!active && !credentials && !unknown && !retained && completed === expected && expected > 0 && wordingExportBlocked())
-    return productionView(context, `<p>${completed} of ${expected} product images available.</p>`, wordingNotice());
   let content;
   if (credentials) content = credentials;
   else if (active) content = `<h2>Preparing source images…</h2><p>${esc(operation?.stage || "Generating the next product image.")}</p>${operation?.stoppable ? btn("Stop unsent work", "stop", "pr-button pr-wide") : ""}`;
   else if (unknown) content = `<h2>The image request could not be confirmed.</h2><p>The request may have completed and may be charged. Nothing will be resent automatically.</p>${recoverable ? btn("Look for saved result", "recover", "pr-button pr-primary pr-wide") : context.resumeGeneration ? btn("Review a new attempt", context.resumeAction, "pr-button pr-primary pr-wide") : ""}`;
   else if (retained) content = `<h2>A provider result is already saved.</h2><p>Recover the source image without another AI request.</p>${btn("Recover saved source images · 0 calls", "recover", "pr-button pr-primary pr-wide")}`;
   else if (context.resumeGeneration) content = `<h2>${stopped ? "Production stopped." : "Generation paused."}</h2>${noticeText ? `<p>${esc(noticeText)}</p>` : ""}${btn("Resume generation", context.resumeAction, "pr-button pr-primary pr-wide")}`;
-  else if (completed === expected && expected > 0) content = `<h2>Your source images are available.</h2><p>Correct the highlighted wording or text layout in Studio before downloading.</p>${btn("Open Studio →", "nav:review", "pr-button pr-primary pr-wide")}`;
-  else content = `<h2>${stopped ? "Production stopped." : rulesOnlyResult() ? "Images are withheld by current rules." : noticeText ? "Generation paused." : "Add the remaining images."}</h2><p>${noticeText ? esc(noticeText) : "Use the product cards to select a photo or choose a new image to generate."}</p>`;
+  else if (completed === expected && expected > 0) content = `<h2>Your source images are available.</h2><p>Open Studio to edit your campaign images.</p>${btn("Open Studio →", "nav:review", "pr-button pr-primary pr-wide")}`;
+  else content = `<h2>${stopped ? "Production stopped." : noticeText ? "Generation paused." : "Add the remaining images."}</h2><p>${noticeText ? esc(noticeText) : "Use the product cards to select a photo or choose a new image to generate."}</p>`;
   const elapsed = Number.isFinite(operation?.elapsed_seconds) ? Math.max(0, Math.floor(operation.elapsed_seconds)) : 0;
   const count = `<div class="pr-source-progress" ${active ? 'aria-busy="true"' : ''}><div class="pr-operation-count">${completed} <small>/ ${expected} source images</small></div><div class="pr-operation-progress${active ? ' is-active' : ''}"><i style="width:${expected ? Math.min(100, (completed / expected) * 100) : 0}%"></i></div>${active ? `<p class="pr-generation-elapsed"><span class="pr-working-indicator" aria-hidden="true"></span><span>${elapsed}s elapsed</span></p>` : ''}</div>`;
   const accounting = allowance === 0 ? "No image requests in this run." : `This run: ${attempted} of ${allowance} requests used · ${remaining} remaining.${unknown ? " The request result was not confirmed. A charge may still apply." : " This count is not a confirmed charge."}`;
   const details = `<details class="pr-request-details"><summary>Request details</summary><p>${esc(accounting)}</p>${operation?.elapsed_seconds != null ? `<p>${operation.elapsed_seconds}s elapsed</p>` : ""}${btn("Attempt details", "attempts", "pr-button pr-small pr-wide")}${Object.keys(model.plan?.generation_requests || {}).length ? btn("Exact prompt & settings", "settings", "pr-button pr-small pr-wide") : ""}<p>Available sources can be edited in Studio. Finished formats are created when you download.</p></details>`;
-  return productionView(context, `${content}${count}${details}`, wordingNotice());
+  return productionView(context, `${content}${count}${details}`);
 }
 
 function currentRuleWithholding() {
@@ -478,7 +476,6 @@ function activityView() {
 </div>`;
 }
 function handoffLogoNotice() {
-  if (model.logo_issue) return notice("This campaign requires a logo.", "Attach the logo in Brand. It saves automatically and will be included in the export.", "block", "nav:brand", "Open Brand");
   if (model.manifest?.findings?.some(f => f.rule === "logo_presence" && f.severity === "warning"))
     return notice("These images have no logo. You can export them as they are.", "", "", "nav:brand", "Open Brand");
   return "";
@@ -486,7 +483,7 @@ function handoffLogoNotice() {
 function handoff() {
   const campaign = campaignMetricDisplay();
   if (!model?.manifest)
-    return `${head("A good handoff starts with saved work.", "Your brief is safe. Create campaign images before exporting.", btn("Review production plan →", "plan", "primary"), "04 / HANDOFF", "wf-stage-header")}<div class="empty">
+    return `${head("A good handoff starts with saved work.", "Your brief is safe. Create campaign images before exporting.", btn("Review production plan →", "plan", "primary"), "", "wf-stage-header")}<div class="empty">
 <div class="empty-symbol">↗</div>
 <h2>No composition is ready to export yet.</h2>
 <p>Finish any incomplete campaign fields and provide source imagery for your products. Production can generate missing source images.</p>${btn("Open Production", "nav:production")}</div>`;
@@ -496,7 +493,7 @@ function handoff() {
     empty = (model.manifest?.metrics.completed_images ?? 0) === 0,
     damaged = damagedFiles(),
     missing = otherUnavailableOutputs().length;
-  return `${head("Ready for the next pair of eyes.", `${C.name} · Current images`, btn("← Studio", "nav:review", "small quiet"), "04 / HANDOFF", "wf-stage-header")}<section class="export-hero">
+  return `${head("Ready for the next pair of eyes.", `${C.name} · Current images`, btn("← Studio", "nav:review", "small quiet"), "", "wf-stage-header")}<section class="export-hero">
 <div>
 <span class="eyebrow">${changesNeeded ? "CHANGES NEEDED" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
 <h2>${layoutBlocked ? "Review the affected layouts." : empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>

@@ -32,7 +32,9 @@ class Runner:
             state.storage.refresh_edit_capacity()
 
     def _verify_sources(self, plan: Plan) -> None:
-        for asset in plan.assets.values():
+        for key, asset in plan.assets.items():
+            if key == "logo":
+                continue
             try:
                 payload = self.state.storage.path(asset.reference).read_bytes()
             except OSError as error:

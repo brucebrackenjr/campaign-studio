@@ -84,7 +84,9 @@ def seed_current_plan(state, run):
 
 
 @pytest.mark.parametrize("market", ["en-US", "es-MX"])
-def test_form_prohibited_rule_saves_blocks_and_can_be_corrected(project, market):
+def test_form_prohibited_rule_saves_allows_sources_but_blocks_export_until_corrected(
+    project, market
+):
     from uuid import uuid4
 
     client, ws, cid = project
@@ -115,13 +117,17 @@ def test_form_prohibited_rule_saves_blocks_and_can_be_corrected(project, market)
     request["authored"]["brief"] = value
     saved = client.post(f"/api/motif/campaigns/{cid}/authored", json=request)
     assert saved.status_code == 200, saved.text
-    refused = client.post(
+    prepared = client.post(
         f"/api/motif/campaigns/{cid}/plan", json={"version": saved.json()["version"]}
     )
-    assert refused.status_code == 422, refused.text
-    matches = [
-        item for item in refused.json()["proposal"]["findings"] if item["rule"] == identifier
-    ]
+    assert prepared.status_code == 200, prepared.text
+    matches = [item for item in prepared.json()["plan"]["findings"] if item["rule"] == identifier]
+    refused = client.post(
+        f"/api/campaigns/{cid}/delivery/zip",
+        json={"version": prepared.json()["version"], "allow_partial": True},
+    )
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "prohibited_phrase"
     assert len(matches) == 6 and all(item["severity"] == "blocking" for item in matches)
     assert ws.runs(cid) == []
     request = action(client, cid)

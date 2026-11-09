@@ -534,7 +534,7 @@ function reconcileAppliedBrief(local, before, after) {
       }
   };
   advance(local, before, after, ["schema_version", "campaign_id", "name", "audience", "creative_direction", "copy_provenance", "markets", "products", "replay"]);
-  advance(local.brand, before.brand, after.brand, ["id", "name", "logo_path", "logo_provenance", "palette", "text_color", "require_logo"]);
+  advance(local.brand, before.brand, after.brand, ["id", "name", "logo_path", "logo_provenance", "palette", "text_color"]);
   for (const [id, source] of Object.entries(local.replay?.sources || {}))
     advance(source, before.replay?.sources?.[id], after.replay?.sources?.[id], ["path"]);
   for (const market of Object.keys(local.markets || {})) {

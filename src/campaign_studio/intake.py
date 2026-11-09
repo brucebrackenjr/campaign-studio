@@ -847,7 +847,7 @@ class Intake:
                 field_errors=validation_issues(error),
             ) from error
         plan = current["plan"]
-        if plan.blocked:
+        if plan.source_blocked:
             raise ActionError(
                 "brief_images",
                 "Correct the listed campaign findings before preparing sources.",
@@ -855,8 +855,8 @@ class Intake:
                 field_errors=list(
                     {
                         (tuple(field.path), field.code): field.model_dump(mode="json")
-                        for finding in plan.findings
-                        if finding.severity == "blocking" and finding.context
+                        for finding in plan.source_findings
+                        if finding.context
                         for field in finding.context.fields
                     }.values()
                 ),
@@ -864,9 +864,7 @@ class Intake:
                     "outputs": [o.model_dump(mode="json") for o in plan.outputs],
                     "campaign_id": campaign_id,
                     "version": expected,
-                    "findings": [
-                        f.model_dump(mode="json") for f in plan.findings if f.severity == "blocking"
-                    ],
+                    "findings": [f.model_dump(mode="json") for f in plan.source_findings],
                 },
             )
         # Supplied and previously generated sources are already editable. Reviewing
@@ -898,7 +896,8 @@ class Intake:
                 ) == canonical_hash(document["authored"]["brief"]):
                     return frozen
             authored = document["authored"]["brief"]
-            authored["brand"]["logo_path"] = frozen.brief.brand.logo_path
+            if "logo" in frozen.assets:
+                authored["brand"]["logo_path"] = frozen.brief.brand.logo_path
             products = {p.id: p for p in frozen.brief.products}
             for product in authored["products"]:
                 if products[product["id"]].source.role != "concept":

@@ -38,8 +38,6 @@ def delivery_manifest(snapshot, *, allow_partial=False):
         findings.extend(copy_findings(plan.brief, output))
     if any(f.context and f.context.phrase and f.severity == "blocking" for f in findings):
         raise StateError("Correct prohibited wording before exporting.", code="prohibited_phrase")
-    if plan.brief.brand.require_logo and "logo" not in plan.assets:
-        raise StateError("Attach a logo, or turn off the logo requirement.", code="logo_presence")
     if any(f.item == "logo" and f.severity == "blocking" for f in findings):
         raise StateError("Correct the attached logo before exporting.", code="logo_presence")
     if any(f.severity == "blocking" for f in findings):

@@ -81,7 +81,7 @@ _LABELS = {
     "creative_direction": "Scene direction",
     "brand": "Brand",
     "logo_path": "Logo",
-    "require_logo": "Require logo",
+    "require_logo": "Legacy logo option",
     "logo_placement": "Logo position and size",
     "logo_provenance": "Logo origin",
     "palette": "Brand colors",

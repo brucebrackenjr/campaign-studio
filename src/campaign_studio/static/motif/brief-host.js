@@ -31,7 +31,8 @@ function currentBriefValue() {
     if (key in fields) value.copy_provenance[property] = fields[key];
   const wording = value.markets[MARKET[lang]]?.copy;
   if (wording) for (const [key, property] of [["copy-headline", "message"], ["copy-cta", "cta"]])
-    if (key in fields) wording[property] = property === "cta" ? fields[key] || null : fields[key];
+    if (key in fields && !MotifWording.matchingTerms(fields[key], value.markets[MARKET[lang]].phrase_rules).length)
+      wording[property] = property === "cta" ? fields[key] || null : fields[key];
   return value;
 }
 function rememberBriefField(id, value) {
@@ -118,11 +119,15 @@ function briefViewModel(context) {
         ? model.attachment_hints?.[p.id] || null : null,
     })),
     logo: info ? { ...info, url: assetURL(value.brand.logo_path), filename: info.filename || "Campaign logo" } : null,
-    hasLogo: !!value.brand.logo_path, requireLogo: value.brand.require_logo === true,
+    hasLogo: !!value.brand.logo_path,
     logoStatus: context.logoStatus || "accepted", logoMessage: context.logoMessage || "",
     fitted: context.fitted || "", color, defaultDraft: rawDefault, palette,
     colorMessage, colorAction, paletteMessage, paletteAction, brandColorProblem,
-    copy: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, data.copy])),
+    copy: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, m === MARKET[lang] ? {
+      message: fields["copy-headline"] ?? data.copy.message, cta: fields["copy-cta"] ?? data.copy.cta,
+    } : data.copy])),
+    copyErrors: Object.fromEntries(["message", "cta"].map(field => [field,
+      MotifWording.matchingTerms(fields[BRIEF_FIELD[field]] ?? value.markets[MARKET[lang]].copy[field], value.markets[MARKET[lang]].phrase_rules)])),
     rules: Object.fromEntries(Object.entries(value.markets).map(([m, data]) => [m, data.phrase_rules || []])),
     hasSavedImages: !!model.manifest,
     brandPending: typeof brandChangesPending === "function" && brandChangesPending(),
@@ -392,7 +397,7 @@ function setCampaignWording(field, value, market = MARKET[lang]) {
 const campaignCopyChanges = new Map();
 let campaignCopyTimer = null, campaignCopyDecision = null, campaignCopyReview = null;
 function pendingCampaignCopy() {
-  return [...campaignCopyChanges.values()].filter(change => change.owner === draft);
+  return [...campaignCopyChanges.values()].filter(change => change.owner === draft && !MotifWording.matchingTerms(change.value, draft.markets[change.market].phrase_rules).length);
 }
 function changeCampaignWording(field, value) {
   const market = MARKET[lang], key = `${draft.campaign_id}/${market}/${field}`;
@@ -402,9 +407,8 @@ function changeCampaignWording(field, value) {
     const wording = product.copy_overrides?.[market];
     return Object.hasOwn(wording || {}, field) && String(wording[field] ?? "") !== String(original ?? "");
   });
-  if (!change && !custom.length) return setCampaignWording(field, value, market);
   if (!change) {
-    change = { key, owner: draft, market, field, original, displayed: currentBriefValue().markets[market].copy[field],
+    change = { key, owner: draft, market, field, original, displayed: briefFields()[BRIEF_FIELD[field]] ?? draft.markets[market].copy[field],
       previousFields: copy(projectBuffers.form_drafts.fields || {}), products: custom.map(product => product.name) };
     campaignCopyChanges.set(key, change);
   }
@@ -478,7 +482,17 @@ async function confirmCampaignCopyChanges() {
       await new Promise(resolve => {
         campaignCopyDecision = { change: pendingCampaignCopy()[0], resolve };
         const change = campaignCopyDecision.change;
-        if (String(change.value ?? "") === String(change.original ?? "")) finishCampaignCopy(false);
+        if (String(change.value ?? "") === String(change.original ?? "")) {
+          // Correcting an invalid saved form back to the applied wording is a no-op
+          // for product overrides, but must retire the unfinished field value.
+          if (MotifWording.matchingTerms(change.displayed, draft.markets[change.market].phrase_rules).length) {
+            change.displayed = change.original;
+            const control = BRIEF_FIELD[change.field], language = change.market.split("-")[0];
+            for (const [name, fields] of Object.entries(change.previousFields))
+              if (name.startsWith("brief/") && name.endsWith(`/${language}`) && control in fields) fields[control] = change.original ?? "";
+          }
+          finishCampaignCopy(false);
+        }
         else if (affectedCampaignCopy(change).length) openModal("campaign-copy-confirm");
         else finishCampaignCopy(true);
       });
@@ -488,6 +502,29 @@ async function confirmCampaignCopyChanges() {
   try { return await campaignCopyReview; }
   finally { campaignCopyReview = null; }
 }
+function paintBriefCopyErrors() {
+  if (page !== "campaign" || tab !== "copy") return;
+  const fields = briefFields(), rules = draft.markets[MARKET[lang]]?.phrase_rules || [];
+  for (const field of ["message", "cta"]) {
+    const input = $(`[data-bf-field="${field}"]`);
+    if (!input?.dataset) continue;
+    const terms = MotifWording.matchingTerms(fields[BRIEF_FIELD[field]] ?? draft.markets[MARKET[lang]].copy[field], rules);
+    const id = `bf-${field}-wording`;
+    let note = $(`#${id}`);
+    if (terms.length) {
+      if (!note) { input.insertAdjacentHTML("afterend", `<p class="mw-field-error" id="${id}"></p>`); note = $(`#${id}`); }
+      note.textContent = `Remove ${terms.map(term => `“${term}”`).join(", ")} or edit the prohibited words.`;
+      input.setAttribute("aria-invalid", "true"); input.setAttribute("data-wording-invalid", "");
+      const descriptions = new Set((input.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      descriptions.add(id); input.setAttribute("aria-describedby", [...descriptions].join(" "));
+    } else {
+      note?.remove(); input.removeAttribute("data-wording-invalid");
+      if (!input.hasAttribute("data-length-invalid")) input.removeAttribute("aria-invalid");
+      const descriptions = (input.getAttribute("aria-describedby") || "").split(/\s+/).filter(value => value && value !== id);
+      if (descriptions.length) input.setAttribute("aria-describedby", descriptions.join(" ")); else input.removeAttribute("aria-describedby");
+    }
+  }
+}
 function changeBriefField(context, key, value, { commit = false } = {}) {
   if (!ownsBrief(context) || context.rendering) return;
   if (typeof brandUpdating !== "undefined" && brandUpdating) return;
@@ -495,10 +532,6 @@ function changeBriefField(context, key, value, { commit = false } = {}) {
     if (!Object.hasOwn(draft.markets, value)) return;
     captureProject();
     return briefAction(context, `language:${value}`);
-  }
-  if (key === "requireLogo") {
-    if (value) draft.brand.require_logo = true; else delete draft.brand.require_logo;
-    markDirty(); refreshBriefFlow(context); return;
   }
   if (key === "previewProduct") { context.productId = value; refreshBriefFlow(context); return; }
   const raw = currentBriefValue(), normalize = MotifBriefFlow.normalizeHex;
@@ -524,6 +557,7 @@ function changeBriefField(context, key, value, { commit = false } = {}) {
     else return;
     rememberBriefField(BRIEF_FIELD[key], value);
   }
+  paintBriefCopyErrors();
   markDirty();
   refreshBriefFlow(context);
 }

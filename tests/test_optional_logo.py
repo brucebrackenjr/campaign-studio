@@ -17,7 +17,6 @@ from campaign_studio.campaign_drafts import write
 from campaign_studio.config import Settings
 from campaign_studio.planning import make_plan
 from campaign_studio.sample import write_sample
-from campaign_studio.state import StateError
 
 
 @pytest.fixture
@@ -53,7 +52,7 @@ def exported(client, current):
         return json.loads(archive.read(name)), archive.read(prefix + "index.html").decode()
 
 
-def test_brand_logo_requirement_is_explicit_and_preserves_old_serialization():
+def test_legacy_logo_requirement_is_accepted_but_no_longer_published():
     value = {
         "id": "brand",
         "name": "Brand",
@@ -64,7 +63,7 @@ def test_brand_logo_requirement_is_explicit_and_preserves_old_serialization():
     }
     assert Brand.model_validate(value).model_dump() == value
     assert Brand.model_validate(value | {"require_logo": False}).model_dump() == value
-    assert Brand.model_validate(value | {"require_logo": True}).model_dump()["require_logo"]
+    assert Brand.model_validate(value | {"require_logo": True}).model_dump() == value
     for bad in (None, 1, "false"):
         with pytest.raises(ValidationError):
             Brand.model_validate(value | {"require_logo": bad})
@@ -107,7 +106,7 @@ def test_unbranded_autosaved_edit_preview_and_report(unbranded):
         assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
 
 
-def test_required_logo_blocks_delivery_until_attached_and_stales_old_preview(unbranded):
+def test_legacy_required_logo_stays_optional_and_new_artwork_updates_export(unbranded):
     client, ws, url, original = unbranded
     before = client.get(url).json()
     old_paths = export_urls(before)
@@ -116,14 +115,14 @@ def test_required_logo_blocks_delivery_until_attached_and_stales_old_preview(unb
     old_manifest, _ = exported(client, before)
     save(client, url, lambda a: a["brief"]["brand"].update(require_logo=True))
     current = client.get(url).json()
-    assert current["logo_issue"]["code"] == "logo_presence"
-    assert client.get(report.json()["url"]).status_code == 409
+    assert current["logo_issue"] is None
+    assert all(current["editable_products"].values())
     for partial in (False, True):
         paths = export_urls(current)
         for kind in ("zip", "preview"):
-            denied = client.post(paths[kind], json=paths["body"] | {"allow_partial": partial})
-            assert denied.status_code == 409 and denied.json()["code"] == "logo_presence"
-    # Invalid delivery settings stay editable; attaching the owned artwork fixes them.
+            response = client.post(paths[kind], json=paths["body"] | {"allow_partial": partial})
+            assert response.status_code == 200, response.text
+    # Adding optional artwork remains a normal campaign edit.
     assert client.get(url + "/authored").status_code == 200
     save(
         client,
@@ -150,13 +149,8 @@ def test_missing_logo_policy_does_not_mask_invalid_attached_artwork(unbranded, r
     value = original.model_dump(mode="json")
     value["brand"].update(require_logo=required, logo_path="")
     plan = make_plan(Brief.model_validate(value), ws.storage)
-    assert plan.blocked == required
-    assert next(f for f in plan.findings if f.rule == "logo_presence").severity == (
-        "blocking" if required else "warning"
-    )
-    if required:
-        with pytest.raises(StateError):
-            ws.state.create(plan, 0)
+    assert not plan.blocked
+    assert next(f for f in plan.findings if f.rule == "logo_presence").severity == "warning"
     value["brand"]["logo_path"] = original.brand.logo_path
     ws.storage.path(original.brand.logo_path).write_bytes(b"broken image")
     plan = make_plan(Brief.model_validate(value), ws.storage)

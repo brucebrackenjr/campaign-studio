@@ -168,7 +168,14 @@
       }catch(error){if(this.open&&seq===this.seq){if(error?.code==='conflict'||error?.reviewRequired===true)this.requireReview();else {this.message='Preview unavailable. Your logo edits are still here.';this.paint();}}}
     }
     reset() {if(!this.asset||this.busy||this.reviewing)return;this.p=constrain(clone(this.default),this.target,this.asset);this.message='Default placement restored.';this.changed();this.validate();this.o.onChange?.(true);}
-    pick() {if(this.busy||this.reviewing)return;const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg';input.addEventListener('change',()=>{if(input.files[0])this.selectFile(input.files[0]);},{once:true});input.click();}
+    pick() {
+      if(this.loading||this.busy||this.reviewing||this.uploading)return;
+      this.fileInput?.remove();
+      const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg';input.hidden=true;
+      this.fileInput=input;this.root.append(input);
+      const finish=event=>{const file=event.type==='change'?input.files?.[0]:null;input.remove();if(this.fileInput===input)this.fileInput=null;if(file&&this.open)this.selectFile(file);};
+      input.addEventListener('change',finish,{once:true});input.addEventListener('cancel',finish,{once:true});input.click();
+    }
     async selectFile(file) {
       const owner=this.target.campaignId,uploadSeq=++this.uploadSeq;this.uploading=true;this.message='Checking the selected image…';this.paint();try{const asset=await this.o.onSelectFile(file);if(!this.open||owner!==this.target.campaignId||uploadSeq!==this.uploadSeq)return;this.uploading=false;
         const old=this.asset,before=clone(this.p);this.replacementFit=null;this.asset=clone(asset);this.pendingAsset=true;this.p=old?fitReplacement(this.p,this.target,old,this.asset):constrain(defaultPlacement(this.target,this.asset),this.target,this.asset);if(old&&this.p.width<before.width-1e-10)this.replacementFit=before;this.default=clone(asset.defaultPlacement||defaultPlacement(this.target,this.asset));this.message='New campaign artwork selected.';this.paint();this.o.onChange?.(true);await this.validate();
@@ -219,7 +226,7 @@
       if(this.busy||this.reviewing||!this.open)return;
       // Teardown owns only this transient session. It cannot persist a draft or
       // let a late preview/upload reopen the closed dialog.
-      this.tearingDown=true;this.closeSub(false);this.input?.destroy();this.open=false;this.settleSwitch(false);
+      this.fileInput?.remove();this.fileInput=null;this.tearingDown=true;this.closeSub(false);this.input?.destroy();this.open=false;this.settleSwitch(false);
       this.seq++;clearTimeout(this.keyTimer);cancelAnimationFrame(this.raf);this.observer?.disconnect();
       this.root.removeEventListener('click',this.click);this.root.removeEventListener('keydown',this.key);if(this.o.onUnmount)this.o.onUnmount();else this.root.innerHTML='';
       this.o.onClose?.({cancelled});

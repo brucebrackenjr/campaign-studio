@@ -198,7 +198,7 @@ def test_missing_sources_require_explicit_partial_and_never_dispatch_generation(
         assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
 
 
-def test_partial_export_cannot_bypass_prohibited_copy_or_required_logo(case):
+def test_partial_export_blocks_prohibited_copy_but_legacy_logo_flag_is_optional(case):
     state, snapshot = case
     plan = snapshot["plan"]
     plan.outputs[-1].text.message = "TESTBLOCK"
@@ -207,8 +207,8 @@ def test_partial_export_cannot_bypass_prohibited_copy_or_required_logo(case):
     plan.outputs[-1].text.message = "Clean message"
     plan.brief.brand.require_logo = True
     plan.assets.pop("logo")
-    with pytest.raises(StateError, match="Attach a logo"):
-        delivery.prepare_current_zip(state, snapshot, allow_partial=True)
+    result = delivery.prepare_current_zip(state, snapshot, allow_partial=True)
+    result.close()
 
 
 def test_unregistered_source_is_rejected_even_with_matching_hash(case):

@@ -14,6 +14,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 from campaign_studio.text_limits import LIMITS
 
@@ -223,16 +224,10 @@ class Brand(Contract):
     logo_provenance: Provenance = Field(
         default_factory=lambda: Provenance(label="Not provided", rights="Not provided")
     )
-    require_logo: bool = Field(default=False, strict=True)
+    # Accept old briefs without retaining their retired enforcement flag.
+    require_logo: SkipJsonSchema[bool] = Field(default=False, strict=True, exclude=True)
     palette: list[Color] = Field(min_length=1, max_length=8)
     text_color: Color
-
-    @model_serializer(mode="wrap")
-    def serialize_logo_requirement(self, handler):
-        value = handler(self)
-        if not self.require_logo:
-            value.pop("require_logo", None)
-        return value
 
     @field_validator("palette", mode="before")
     @classmethod
