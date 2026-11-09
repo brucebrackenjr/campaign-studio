@@ -402,6 +402,34 @@ function pendingCampaignCopy() {
   // Wording warnings block delivery, not editing or previewing current text.
   return [...campaignCopyChanges.values()].filter(change => change.owner === draft);
 }
+function requeueRestoredCampaignCopy() {
+  // Older saves kept unfinished wording in form fields. Bring that wording
+  // through the same replacement decision as typing it in this version.
+  const owner = draft;
+  let restored = false;
+  for (const [language, market] of Object.entries(MARKET)) {
+    if (!draft.markets[market]?.copy) continue;
+    const fields = Object.assign({}, briefForm("campaign", language), briefForm("brand", language),
+      briefForm("copy", language), language === lang ? briefForm(tab, language) : {});
+    for (const field of ["message", "cta"]) {
+      const control = BRIEF_FIELD[field], value = fields[control], original = draft.markets[market].copy[field];
+      const key = `${draft.campaign_id}/${market}/${field}`;
+      if (typeof value !== "string" || value === String(original ?? "") ||
+          campaignCopyChanges.get(key)?.owner === draft) continue;
+      const previousFields = copy(projectBuffers.form_drafts.fields || {});
+      for (const [name, values] of Object.entries(previousFields))
+        if (name.startsWith("brief/") && name.endsWith(`/${language}`) && control in values) values[control] = original ?? "";
+      campaignCopyChanges.set(key, { key, owner, market, field, original,
+        displayed: original, previousFields, value });
+      restored = true;
+    }
+  }
+  if (!restored) return;
+  clearTimeout(campaignCopyTimer);
+  campaignCopyTimer = setTimeout(() => {
+    if (draft === owner && !modal && pendingCampaignCopy().length) saveProject().catch(() => {});
+  }, 1200);
+}
 function requeueAllowedCampaignCopy(previousRules) {
   const market = MARKET[lang], fields = briefFields();
   for (const field of ["message", "cta"]) {

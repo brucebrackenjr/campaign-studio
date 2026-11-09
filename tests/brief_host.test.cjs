@@ -1101,3 +1101,81 @@ test('capturing an edited rule queues a newly valid restored copy proposal befor
  assert.equal(h.c.draft.markets['en-US'].copy.message,'guaranteed');
  assert.equal(h.c.draft.products[0].copy_overrides['en-US'].message,undefined);
 });
+
+test('restored Campaign wording enters the normal save and preview flow in both languages',async()=>{
+ for(const language of ['en','es'])for(const field of ['message','cta']) {
+  const h=harness(),market=h.c.MARKET[language],control=field==='message'?'copy-headline':'copy-cta';
+  h.c.lang=language;h.c.tab='copy';
+  h.c.draft.markets[market].phrase_rules=[{phrase:'guaranteed'}];
+  h.c.projectBuffers.form_drafts.fields={[`brief/copy/${language}`]:{[control]:'guaranteed longer'}};
+  const before=structuredClone(h.c.draft);let saves=0;
+  h.c.saveProject=async()=>{saves++;await h.run('confirmCampaignCopyChanges()');return true;};
+  h.c.openModal=()=>assert.fail('no customized wording needs confirmation');
+  h.run('requeueRestoredCampaignCopy();refreshBriefFlow()');
+  assert.equal(h.run('pendingCampaignCopy().length'),1);
+  assert.equal(h.run(`currentBriefValue().markets['${market}'].copy.${field}`),'guaranteed longer');
+  assert.equal(h.c.draft.markets[market].copy[field],before.markets[market].copy[field]);
+  const timer=h.run('campaignCopyTimer');await h.timers.get(timer)();await Promise.resolve();
+  assert.equal(saves,1);assert.equal(h.c.draft.markets[market].copy[field],'guaranteed longer');
+  h.run('requeueRestoredCampaignCopy()');assert.equal(h.run('pendingCampaignCopy().length'),0);
+  const other=language==='en'?'es-MX':'en-US';assert.deepEqual(h.c.draft.markets[other],before.markets[other]);
+ }
+});
+
+test('restored custom headline and CTA require separate confirmation and preserve Cancel across reload',async()=>{
+ for(const language of ['en','es'])for(const field of ['message','cta'])for(const replace of [false,true]) {
+  const h=harness(),market=h.c.MARKET[language],control=field==='message'?'copy-headline':'copy-cta';
+  h.c.lang=language;h.c.tab='copy';h.c.draft.markets[market].phrase_rules=[{phrase:'guaranteed'}];
+  h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom headline',cta:'Custom CTA'},'es-MX':{message:'Propio',cta:'Propia'}};
+  h.c.projectBuffers.form_drafts.fields={[`brief/copy/${language}`]:{[control]:'Guaranteed restored wording'},'brief/brand/es':{'text-color':'#12'}};
+  const before=structuredClone(h.c.draft);
+  h.run('requeueRestoredCampaignCopy()');
+  h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+  const review=h.run('confirmCampaignCopyChanges()');assert.equal(h.c.modal,'campaign-copy-confirm');
+  assert.deepEqual(h.c.draft,before,'restoring cannot silently replace custom wording');
+  h.run(`finishCampaignCopy(${replace})`);await review;
+  const expected=replace?'Guaranteed restored wording':before.markets[market].copy[field];
+  assert.equal(h.c.draft.markets[market].copy[field],expected);
+  assert.equal(h.c.projectBuffers.form_drafts.fields[`brief/copy/${language}`][control],expected??'');
+  assert.equal(h.c.draft.products[0].copy_overrides[market][field],replace?undefined:before.products[0].copy_overrides[market][field]);
+  assert.equal(h.c.draft.products[0].copy_overrides[market][field==='message'?'cta':'message'],before.products[0].copy_overrides[market][field==='message'?'cta':'message']);
+  h.run('draft=copy(draft);requeueRestoredCampaignCopy()');assert.equal(h.run('pendingCampaignCopy().length'),0,'resolved buffers stay resolved after reopening');
+  assert.equal(h.c.projectBuffers.form_drafts.fields['brief/brand/es']['text-color'],'#12');
+ }
+});
+
+test('restored wording handles both fields and unopened languages without changing selection',async()=>{
+ const h=harness();h.c.tab='brand';h.c.lang='en';
+ h.c.projectBuffers.form_drafts.fields={'brief/copy/en':{'copy-headline':'Guaranteed headline','copy-cta':'Guaranteed CTA'},'brief/copy/es':{'copy-headline':'Titular nuevo','copy-cta':'Acción nueva'}};
+ h.run('requeueRestoredCampaignCopy()');assert.equal(h.run('pendingCampaignCopy().length'),4);
+ h.c.openModal=()=>assert.fail('no customized wording needs confirmation');
+ await h.run('confirmCampaignCopyChanges()');
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'Guaranteed headline');
+ assert.equal(h.c.draft.markets['en-US'].copy.cta,'Guaranteed CTA');
+ assert.equal(h.c.draft.markets['es-MX'].copy.message,'Titular nuevo');
+ assert.equal(h.c.draft.markets['es-MX'].copy.cta,'Acción nueva');
+ assert.equal(h.c.lang,'en');assert.equal(h.c.tab,'brand');
+});
+
+test('restoration is inert for current fields and cannot replace a new edit or save another campaign',async()=>{
+ const h=harness();h.c.tab='copy';
+ h.c.projectBuffers.form_drafts.fields={'brief/copy/en':{'copy-headline':'English','copy-cta':''}};
+ h.run('requeueRestoredCampaignCopy()');assert.equal(h.run('pendingCampaignCopy().length'),0);
+ h.run("changeBriefField(briefHost,'message','Newly typed headline');requeueRestoredCampaignCopy()");
+ assert.equal(h.run('pendingCampaignCopy()[0].value'),'Newly typed headline');
+ h.run('campaignCopyChanges.clear()');h.c.projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline']='Restored headline';
+ h.run('requeueRestoredCampaignCopy()');const timer=h.run('campaignCopyTimer');
+ h.c.saveProject=()=>assert.fail('an old campaign restoration must not save the next campaign');
+ h.run('draft=copy(draft);draft.campaign_id="other"');await h.timers.get(timer)();
+});
+
+test('opening a saved project queues restored copy after the save queue restores its buffers',()=>{
+ const h=harness();h.c.restoreProject=()=>{};let opened=false,recovered=false;
+ h.c.projectSaveQueue=()=>({open(){opened=true;}});
+ h.c.publishProjectState=()=>{};h.c.captureProject=()=>{};h.c.saveProject=async()=>{};h.c.MotifTextLimits={authoredIssue:()=>''};
+ h.c.requeueRestoredCampaignCopy=()=>{assert.equal(opened,true);recovered=true;};
+ h.run('let projectQueue=null,projectOwner=null,projectFieldDefaults={}');
+ const project=readFileSync('src/campaign_studio/static/motif/project.js','utf8');
+ h.run(project.slice(project.indexOf('function initializeProject('),project.indexOf('function forgetProject(')));
+ h.run('initializeProject({authored:{}})');assert.equal(recovered,true);
+});

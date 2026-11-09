@@ -1,6 +1,6 @@
 # Image generation, cost, and recovery
 
-The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. In Motif 0.3.2, confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
+The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. In Motif 0.3.1, confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
 
 ## Request contract
 

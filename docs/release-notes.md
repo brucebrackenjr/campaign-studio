@@ -1,27 +1,20 @@
-# Motif v0.3.2 – Current wording in every preview
+# Motif v0.3.1 – Consistent wording, clearer corrections, and retained assets
 
-- **Show the text being edited.** Campaign previews and Studio now use the saved headline and call to action even when they contain a prohibited word. Removing one prohibited word updates the preview and warnings without waiting for every word to be corrected. Download still requires all prohibited wording to be resolved, and confirmation still protects customized product wording.
-- **Offer logo attachment immediately.** Opening the Logo tool without an attached logo shows the attachment prompt without first requesting a logo-positioning preview. Selecting a file still runs the normal image checks and saves the attached logo.
+This update keeps Campaign and Studio wording in sync, makes corrections easier to follow, and preserves uploaded photos and logos when they are removed from a campaign.
 
-These are focused changes to the Campaign wording and empty Logo tool paths. Source-image generation, asset retention, and export rendering are unchanged.
-
----
-
-# Motif v0.3.1 – Clearer corrections and smoother format switching
-
-- **Open new campaigns before adding rules.** A campaign created from scratch opens and remains editable when no prohibited words have been configured.
-- **Keep removed assets available.** Removing a product or logo, or replacing its image, keeps the uploaded files in the campaign's Assets folder for later reuse. Deleting the campaign still removes its registered files, including these retained assets.
-- **Keep shared wording consistent.** Editing a Campaign headline or call to action updates every product in that language, with confirmation before replacing customized wording. Studio's **Apply to all products** button does the same and updates the matching Campaign field. It is a one-time action; later ordinary Studio edits remain specific to the selected product.
-- **Find and correct prohibited wording.** Studio and Handoff identify the affected product and text. The correction opens the relevant field, and warnings update after the change saves. Handoff marks the affected image cards while leaving unrelated cards unmarked.
-- **Keep editing when text runs outside an image.** Studio keeps the photograph, logo, and text visible so the producer can move or resize the text. The layout warning explains what needs adjusting, and download remains blocked until the problem is corrected.
-- **Keep source preparation focused.** Production handles existing and generated product photos. Wording and logo choices do not block image preparation or access to Studio. Studio and Handoff handle finished-ad corrections.
-- **Keep the image visible when changing formats.** After an edit, Studio holds the displayed image until the selected format is ready, while leaving the format thumbnails in place.
-
-- **Catch prohibited Campaign copy immediately.** Headline and call-to-action fields identify prohibited words while keeping the typed text available for correction. Invalid new wording is not applied across products. If a rule changes to allow that wording, the normal confirmation still protects customized product text.
-- **Make branding optional.** Campaigns can be edited and exported without a logo, including imported briefs that previously required one. Handoff keeps a reminder when the images have no logo. Studio supports first attachment and replacement directly in the editor.
+- **Keep shared wording consistent.** Editing a Campaign headline or call to action updates every product in that language, with confirmation before replacing customized wording. Studio’s **Apply to all products** button updates only the selected text field and the matching Campaign field. It is a one-time action; later Studio typing again changes only that product’s wording across its three formats.
+- **Show the current wording while correcting it.** Campaign previews and Studio display the saved headline and call to action even when they contain prohibited words. Removing one of several prohibited words updates the preview and leaves warnings only for the words that remain. Export stays blocked until prohibited wording is resolved.
+- **Restore unfinished wording from an earlier build.** Reopening a campaign brings those fields into the current save flow, with confirmation before replacing customized product wording.
+- **Show which text needs attention.** One consolidated warning lets the producer move through affected products and fields. Each correction opens its Campaign or Studio text field, and Handoff also marks the affected image cards. Warnings disappear as the corrections save.
+- **Keep editing when text runs outside an image.** Studio keeps the photograph, logo, and text visible so the producer can move or resize the text. Download remains blocked until the layout is corrected.
+- **Keep source preparation focused.** Production handles existing and generated product photos. Wording and logo choices do not block source preparation or access to Studio.
+- **Make logos optional and easy to attach.** Images can be edited and exported without a logo. Handoff reminds the producer when none is attached. The Studio Logo tool immediately offers attachment, and both the canvas and sidebar upload buttons work for first attachment and replacement.
+- **Keep removed assets available.** Removing a product or logo, or replacing an attachment, keeps the uploaded files in the campaign’s Assets folder for reuse. Deleting the campaign still removes its registered files, including retained attachments.
+- **Keep images visible when switching formats.** Studio holds the displayed image until its replacement is ready and keeps the three format thumbnails visible.
+- **Open new campaigns without configured rules.** A campaign created from scratch opens and remains editable before prohibited words are added.
 - **Simplify page headings.** The four main pages keep their titles without repeating the numbered navigation labels.
 
-Autosave, deliberate source-image generation, and creating finished images at download continue to work as in v0.3.0.
+Autosave, deliberate AI source-image generation, and creation of finished PNGs during download continue as in v0.3.0. See the [verification record](verification.md) for the checks performed and their scope.
 
 ---
 

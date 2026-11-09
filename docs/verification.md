@@ -1,6 +1,6 @@
 # Verification
 
-Motif 0.3.2 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
+Motif 0.3.1 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
 
 ## Repeatable local checks
 
@@ -24,7 +24,7 @@ JavaScript tests use Node’s built-in runner without npm dependencies. Provider
 
 ## Version 0.3.1 correction checks
 
-The asset-retention checks remove and replace product photos and logos, reopen the campaign, and attach the retained files again. They verify the file bytes and database ownership records remain intact. Deleting the whole campaign must remove both attached and detached assets without changing another campaign or an original file outside the workspace. An older pending attachment cleanup must be canceled on restart. These focused checks do not change prohibited-word behavior or preview performance.
+The asset-retention checks remove and replace product photos and logos, reopen the campaign, and attach the retained files again. They verify the file bytes and database ownership records remain intact. Deleting the whole campaign must remove both attached and detached assets without changing another campaign or an original file outside the workspace. An older pending attachment cleanup must be canceled on restart. These asset checks are separate from the wording and preview checks below.
 
 This update covers Campaign wording entry, Studio corrections, Handoff checks, optional logos, and Studio format switching. Production checks only whether source photographs are available or can be prepared. Wording findings remain available in Studio and Handoff and continue to block export; they do not prevent source attachment or generation.
 
@@ -34,13 +34,17 @@ The wording checks follow a complete round trip: change Campaign text, edit a pr
 
 The follow-up browser checks use the five-product Autumn campaign to attach a transparent logo from the Studio canvas placeholder, replace it from the right-hand controls, reload, remove it in Campaign, and attach it again from Studio. They also test immediate prohibited-word errors for both Campaign text fields, preservation of unfinished wording across navigation and refresh, and correction without losing unrelated values. Adding a prohibited rule to existing saved wording leaves its image editable and prevents download until corrected. Missing-logo delivery is checked separately from invalid attached artwork.
 
-Further checks reload unfinished prohibited copy, then remove or change its rule. Newly allowed wording must follow the same shared-copy confirmation as a normal Campaign edit; it cannot appear applied in the preview while Studio still uses older wording. Both text fields and languages cover Cancel and Replace. Delayed real uploads verify that both Studio logo attachment controls are disabled during an upload and become available afterward, without a second upload request.
+The latest browser checks enter multiple prohibited words in both Campaign text fields, remove one word at a time, and compare the form, preview request, Studio text, and consolidated warning. Current wording must save and remain visible while correction is unfinished. Custom headline and CTA replacements are tested with both Cancel and Replace. ZIP, individual PNG, and report-preview requests must refuse prohibited copy; a corrected campaign must download successfully.
+
+Upgrade checks reopen unfinished headline and CTA fields saved by an earlier build. Those values enter the current save flow, including the confirmation before replacing custom wording. Browser checks cover both languages, Cancel and Replace, matching previews, removing prohibited words one at a time, successful corrected downloads, and reopening without repeating a settled confirmation.
+
+The missing-logo prompt was checked after removal and on reopening the Logo tool. It appears without a logo-preview request. Both the canvas and sidebar file pickers attach artwork successfully, and subsequent movement and resizing survive reload. The original retained logo and product photograph remain on disk. Delayed uploads also check that both attachment controls stay disabled until the upload finishes.
 
 Backend regressions cover legacy `require_logo` inputs, source preparation with prohibited wording or an unusable logo, and an upload arriving while a preview holds the workspace lock. That upload waits for the preview; the existing refusal during a real competing workspace operation remains intact. Mock-provider tests verify source preparation without spending money, and export tests retain the prohibited-word gate. Four main-page heading checks retain the numbered navigation and product counter while removing duplicated heading labels.
 
 Format-switching checks cover the main canvas and all three thumbnails during edits and navigation. The displayed image stays in place until its replacement has loaded. A format-specific edit must leave the other format thumbnails unchanged. Local browser results include screenshots, timing measurements, and inspection of downloaded PNGs and the offline report; they are not inferred from successful requests alone.
 
-These follow-up checks do not make live provider requests. Earlier live-provider results belong to their recorded source and ZIP checksums, not automatically to this later candidate. These browser checks run on macOS with Playwright. WebKit automation is separate from testing the native Safari application. The v0.3.0 platform checks below describe that earlier release, rather than a new Windows test of this correction.
+These follow-up checks do not make live provider requests. Separate live OpenAI checks passed on an earlier v0.3.1 candidate on native Windows with Edge and on macOS with WebKit. They covered a newly generated source, Studio editing, verified 18-image downloads, saved credentials, and restart without another generation request. Those results belong to that candidate’s recorded source and ZIP checksums; the later wording and logo-prompt fixes received focused local checks. These browser checks run on macOS with Playwright. WebKit automation is separate from testing the native Safari application. The v0.3.0 platform checks below describe that earlier release, rather than a new Windows test of this correction.
 
 ## Version 0.3.0 check coverage
 

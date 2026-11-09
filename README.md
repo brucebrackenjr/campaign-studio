@@ -1,6 +1,6 @@
 # Motif – Campaign Studio
 
-**Version 0.3.2** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.3.1** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
 
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 
@@ -50,9 +50,9 @@ The assessment separates minimum pipeline requirements from three optional bonus
 | Three aspect ratios | Square **1080 × 1080 (1:1)**, Story **1080 × 1920 (9:16)**, and Landscape **1920 × 1080 (16:9)** PNGs. | Minimum: at least three formats. |
 | Printed campaign message | Compose exact supplied English copy locally; Spanish (Mexico) copy can be supplied separately. | English is the minimum; supplied localization is an additional capability, without translation or language detection. |
 | Local execution | A Python application serves the browser interface and CLI checks on the evaluator’s machine. | Minimum: a local CLI or app. No hosted service is required. |
-| Organized delivery | Download a ZIP organized by product and format, with language-specific PNGs, an offline HTML overview, and a manifest. | Minimum: clearly organized output files. |
+| Organized delivery | Download a ZIP with folders for each product and language, PNGs named by format, an offline HTML overview, and a manifest. | Minimum: clearly organized output files. |
 | Documentation | Setup, inputs/outputs, decisions, assumptions, and limitations are explained here and in the linked references. | Minimum README and the requested comprehensive submission documentation. |
-| Brand checks | Check supplied logo presence and approved text colors, with layout and rendering validation. | Optional bonus. |
+| Brand checks | Check approved text colors, layout, and rendering. Handoff notes a missing logo without requiring one. | Optional bonus. |
 | Legal content checks | Match configured prohibited phrases in printed headlines and CTAs and require correction or a deliberate rule change before export. | Optional bonus. |
 | Logging and reporting | Record which image requests were sent, whether they succeeded, and their estimated cost. The exported report lists the delivered images, identifies supplied or AI-generated photographs, and includes any descriptions the producer supplied. | Optional bonus. |
 
@@ -253,14 +253,14 @@ Studio displays previews built from the current sources and saved editing instru
 | --- | --- |
 | Inspect | Save an accessible description and inspect factual source provenance. These are not approval markers or a review-status workflow. |
 | Framing | Zoom in and drag the photo to reframe it, or use the horizontal and vertical position sliders. Optional important-area bounds constrain crops; the guide is not drawn into exported pixels. |
-| Logo | Move or proportionally resize the logo for the selected output. Replacement is a separate campaign-wide action with an explicit affected scope. |
+| Logo | Attach a logo directly in Studio, or move and proportionally resize an attached logo for the selected output. Attachment and replacement change the campaign’s logo artwork; placement changes affect the selected output. |
 | Text | Select **Headline** or **Call to action** to edit its wording, font, palette color, position, and size together. Typing changes the selected product's wording across its three formats in the selected language. Click **Apply to all products** to use that wording for every product in the language and update the matching Campaign → Copy & Rules field. Font, color, position, and size remain specific to the selected product, language, and format. Choose Noto Sans Regular or Barlow Condensed Semibold; drag the text to move it, and pull a corner or use the keyboard to resize it. |
 
 **Apply to all products** is a single action, not a setting that stays on. After clicking it, later typing in Studio again changes only the selected product. Applying a headline does not change the call to action, and applying a call to action does not change the headline. Other languages and individual layout choices remain unchanged.
 
-If wording matches a campaign’s prohibited list, Motif identifies the affected product and field. If text extends outside an image, it asks the producer to move or resize that text. The second check depends on the font, size, wrapping, and position; it is separate from the input character limit. Studio keeps the preview visible for correction, and the warnings update after the change saves. The campaign must pass these checks before download.
+If wording matches a campaign’s prohibited list, one consolidated warning identifies the affected product, language, field, and matching words. Its arrows move between corrections without stacking a separate banner for each word. If text extends outside an image, it asks the producer to move or resize that text. The second check depends on the font, size, wrapping, and position; it is separate from the input character limit. Studio keeps the preview visible for correction, and the warnings update after the change saves. The campaign must pass these checks before download.
 
-Studio autosaves text, color, font, logo, crop, and description changes. A drag saves when the gesture ends; typing saves after a pause. The canvas gives immediate visual feedback while saving. There is no Apply button. Reopening the image restores the saved instructions and original source, so its text and logo remain editable.
+Studio autosaves text, color, font, logo, crop, and description changes. A drag saves when the gesture ends; typing saves after a pause. The canvas gives immediate visual feedback while saving. There is no separate button to save an ordinary edit. **Apply to all products** only copies wording across products. Reopening the image restores the saved instructions and original source, so its text and logo remain editable.
 
 Navigation waits for pending saves. If a save fails, the proposed edits remain available and the interface offers a retry. If the campaign was updated elsewhere, Motif pauses saving and offers **Refresh** to load the latest changes, warning that this window’s unsaved edits will be discarded. A lost response is checked before retrying the same request. Temporary previews share the compositor used for export; ordinary saves do not write finished images to the campaign folder.
 
@@ -355,8 +355,8 @@ flowchart TD
     subgraph Computer["Your computer – files and printed campaign copy stay local"]
         Browser["Browser<br/>Campaign forms and Studio controls"]
         App["Motif – Python and FastAPI<br/>Checks requests and coordinates the work"]
-        DB[("SQLite database<br/>Editing instructions, file ownership, request records")]
-        Files["Campaign folders<br/>Imported brief, photos, logos, generated images"]
+        DB[("SQLite database<br/>Current edits, campaign file references,<br/>and image request records")]
+        Files["Campaign folders<br/>Imported briefs, photos, and logos"]
         Pillow["Pillow image processing<br/>Editing previews and finished PNGs"]
     end
     OpenAI["Optional OpenAI API – internet<br/>Generates a missing concept image"]
@@ -566,6 +566,7 @@ Useful focused test groups include:
 - **Local and single-user.** No cloud account, multi-user permissions, collaborative approvals, hosted deployment, ad-platform publishing, or scheduling.
 - **Supplied localization.** English (United States) and Spanish (Mexico) are separate supplied texts. The application neither translates nor determines whether text is actually written in the selected language.
 - **Bounded imagery.** Finished-image reuse and explicitly invented concept generation are supported. JSON import and the underlying service also accept a prepared transparent product cutout for composition over a generated background. This route is not offered by the product editor, has no adjustable framing, and has not been verified with a live provider request. It is not a fidelity guarantee for an existing commercial product.
+- **Preview response time.** Galleries and the first selection of some Studio tools can take a second or two to finish loading. The canvas responds while an element is moved, while thumbnails follow the saved change and preview refresh. Further preview optimization is outside this release.
 - **Deliberate editing.** Headline and CTA have independent font/palette controls, but there is no arbitrary font upload, free color picker in the image editor, rich text, effects, rotation, or layer-order tool. Brand owns the palette.
 - **Simple configured legal check.** Prohibited-phrase matching is not legal advice, trademark clearance, fact-checking, or comprehensive compliance review.
 - **No approval workflow.** There are no human-review status markers, warning-center tasks, history controls, fixed version allowance, or saved image-editor draft queue.

@@ -520,6 +520,7 @@ function initializeProject(saved) {
     },
   });
   projectQueue.open(projectOwner, saved);
+  if (typeof requeueRestoredCampaignCopy === "function") requeueRestoredCampaignCopy();
 }
 function forgetProject(owner) {
   if (projectOwner !== owner) return;
