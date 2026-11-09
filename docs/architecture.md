@@ -125,7 +125,7 @@ Handoff shows previews based on the current saved settings. Download ZIP then pe
 
 1. **Finish saving edits.** The browser waits for its pending autosaves. The server checks that the requested campaign version is still current.
 2. **Keep consistent inputs for this download.** Motif takes the current instructions and temporary copies of the required photographs and logos. It checks that each file belongs to the campaign and has not changed while being copied. An edit in another window cannot alter only some images halfway through the download.
-3. **Create and check each PNG.** Pillow combines each photograph, text, and logo. Motif checks dimensions, the color profile, and the required text and logo conditions. Prohibited wording or a required missing logo stops the download.
+3. **Create and check each PNG.** Pillow combines each photograph, text, and any attached logo. Motif checks dimensions, the color profile, text placement, and the rendered artwork. Prohibited wording stops the download. A logo is optional; Handoff reminds the producer when none is attached, but the images can still be downloaded.
 4. **Package the files.** The ZIP contains the PNGs, an `index.html` report, and a `manifest.json` listing the delivered files. Motif checks the archive before sending it to the browser.
 5. **Release temporary files.** When the response finishes or closes, Motif removes its temporary working files. The browser saves the downloaded ZIP wherever the producer chooses.
 
@@ -167,7 +167,9 @@ The trade-off is that a small edit rewrites the campaign’s JSON text, and the 
 
 The application checks which campaign a file belongs to before reading or deleting it. A path written in an imported brief is only text; the producer must attach the actual file. Imported text cannot authorize access to another campaign’s files.
 
-Delete campaign removes registered files and related database records, then removes empty directories. Files added outside Motif are left alone. If deletion is interrupted, Motif uses its recorded file list to continue after restart. The supported v0.2.0 upgrade transfers current editing settings into the new document and removes recognized obsolete working files only after checking their replacements. Original imports, useful photographs, earlier exported packages, and unrecognized user files are preserved.
+Removing a product or logo disconnects it from the current campaign settings. Its uploaded file stays in the campaign's Assets folder so the producer can select it again. Replacing an attachment also keeps the previous file. SQLite retains the file's campaign association so campaign deletion can still find it.
+
+Delete campaign removes registered files, including retained attachments, and related database records, then removes empty directories. Files added outside Motif are left alone. If deletion is interrupted, Motif uses its recorded file list to continue after restart. The supported v0.2.0 upgrade transfers current editing settings into the new document and removes recognized obsolete working files only after checking their replacements. Original imports, useful photographs, earlier exported packages, and unrecognized user files are preserved.
 
 Back up the whole Workspace with Motif stopped. A campaign folder alone does not include its current database settings.
 
