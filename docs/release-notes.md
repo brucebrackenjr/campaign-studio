@@ -1,9 +1,6 @@
 # Motif v0.3.2 – Install Motif, open the workbench, and switch campaigns in Studio
 
-A fresh installation could report `ModuleNotFoundError: No module named 'campaign_studio'` in Documents, even after the same download started successfully in Downloads. Python can skip a hidden file that points to Motif’s source. The installed launcher now also reads the project location recorded by the installer when it needs to find that source.
-
-You can move the ZIP before extracting it or move the extracted folder before installing. From the Motif folder, run `uv sync --locked` and `uv run --locked campaign-studio serve`.
-
+- Fixed a macOS startup error that could prevent a fresh installation from finding the `campaign_studio` package.
 - After starting the server, you can click the workbench or health-check address in the README on GitHub. Both links open on the computer running Motif.
 - Inside a Studio product, you can open the campaign menu and dismiss it with Escape or the close button, then keep editing. You can also switch campaigns or return to the workbench. Motif saves pending edits before opening the menu.
 

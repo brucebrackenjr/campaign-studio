@@ -77,11 +77,11 @@ The trash button on each Workbench card shows the files Motif will remove and as
 ### Requirements
 
 - **Python 3.14.4**, as pinned in [`.python-version`](.python-version). The package supports the Python 3.14 series.
-- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder.
+- **macOS, Linux, or Windows** with a writable folder on a local drive.
 - A current desktop browser. Connected verification includes Chromium journeys at 1440 × 900 and 1366 × 768; this is not a mobile or universal browser certification.
 - An OpenAI API key only if you choose to generate new imagery. It is unnecessary for local composition, corrections, exports, or the key-free checks below.
 
-Choose where you want to keep Motif before installing. You can move the ZIP and extract it there, or move the entire extracted Motif folder there first. If Safari already expanded the download, use that folder. The [public release download](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides the published version. In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
+Extract the [Motif ZIP](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip). In Terminal or PowerShell, run the following command from the directory containing the `Motif` folder.
 
 ```sh
 cd Motif
@@ -544,6 +544,7 @@ Useful focused test groups include:
 | Symptom | Appropriate next step |
 | --- | --- |
 | Python or dependency installation fails | Use Python 3.14.4 and the locked commands above. Do not combine independently chosen package versions with the supplied lock. |
+| Windows rejects the workspace folder | If Documents is redirected to OneDrive or uses a reparse point, use a regular local folder under your account. |
 | Port 8000 is occupied | Open the existing instance if it is the intended workspace, or choose another `CAMPAIGN_STUDIO_PORT`. Do not start two instances against the same workspace. |
 | A key was saved, but generation is unavailable | Saving proves local persistence only. Inspect the specific access, billing, rate-limit, or connection message. If the launch environment controls the key, update it and restart. |
 | Saving a key fails | On macOS and Linux, use an installation folder owned by your account and keep the .env file private. On Windows, sign in with the account that saved the encrypted key. Use a regular local folder without symbolic links or junctions, and check free disk space. |
