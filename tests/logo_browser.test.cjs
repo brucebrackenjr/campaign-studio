@@ -694,3 +694,18 @@ test('first logo preview installs drag layers, while obsolete responses cannot r
  const obsolete=editor.validate();editor.seq++;resolve({previewUrl:'/old-base',copyOverlayUrl:'/old-copy'});await obsolete;
  assert.equal(nodes['.mf-logo-photo'].src,'/base');assert.equal(editor.o.copyOverlayUrl,'/copy');
 });
+
+
+test('failed first logo preview can retry without reopening or losing placement', async()=>{
+ const context=vm.createContext({});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo-controls.js','utf8').replace('const api={mount:','const api={Editor,mount:'),context);
+ const nodes={'.mf-logo-photo':{},'.mf-logo-copy':{}};
+ let fail=true;
+ const editor=Object.create(context.MotifLogo.Editor.prototype);
+ Object.assign(editor,{open:true,seq:0,target:{},asset:{reference:'logo'},p:{x:.2},signature:()=> 'same',paint(){},root:{querySelector:s=>nodes[s]},o:{onPreview:async()=>{if(fail)throw Error('offline');return{previewUrl:'/base',copyOverlayUrl:'/copy'};}}});
+ await editor.validate();
+ assert.equal(editor.previewFailed,true);assert.equal(editor.p.x,.2);
+ editor.o.onPreview=async()=>({blocked:true,message:'Service unavailable'});await editor.validate();assert.equal(editor.previewFailed,true);
+ editor.o.onPreview=async()=>({previewUrl:'/base',copyOverlayUrl:'/copy'});fail=false;await editor.validate();
+ assert.equal(editor.previewFailed,false);assert.equal(editor.o.previewUrl,'/base');assert.equal(editor.o.copyOverlayUrl,'/copy');assert.equal(editor.p.x,.2);
+});

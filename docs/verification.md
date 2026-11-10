@@ -28,7 +28,7 @@ The launcher regression test starts a fresh Python process outside the project, 
 
 ## Version 0.3.2 first-logo attachment checks
 
-Focused Chromium and WebKit browser checks start without a campaign logo, attach it through Studio, and drag it while inspecting the visible photograph and wording. Chromium checks also cover resizing, keyboard movement, all three formats, replacing artwork, and reopening the Logo tool. JavaScript regression tests check decoded editing layers, first-attachment installation, rejection of obsolete responses, and the retained preview while layers load. These are local rendering checks with no paid provider requests.
+Focused Chromium and WebKit browser checks start without a campaign logo, attach it through Studio, and drag it while inspecting the visible photograph and wording. Chromium checks also cover resizing, keyboard movement, all three formats, replacing artwork, and reopening the Logo tool. JavaScript regression tests check decoded editing layers, first-attachment installation, rejection of obsolete responses, and the retained preview while layers load. Failure-injection checks also verify that **Retry preview** restores editing after an HTTP error or a failed image-layer request, without reopening Studio. These are local rendering checks with no paid provider requests.
 
 ## Version 0.3.2 navigation checks
 

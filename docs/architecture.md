@@ -97,7 +97,7 @@ The check covers the whole campaign. Two windows editing different products can 
 
 ## How previews stay editable
 
-Motif builds a preview from the current settings, original photograph, and logo. Pillow calculates text wrapping, font measurements, cropping, and placement. The browser also uses separate image and text layers to respond while a producer drags or resizes an element. After a first logo attachment in Studio, it loads those layers before enabling direct manipulation and keeps the existing preview visible while they load. Temporary previews show the composition without retaining a permanent finished PNG for every edit.
+Motif builds a preview from the current settings, original photograph, and logo. Pillow calculates text wrapping, font measurements, cropping, and placement. The browser also uses separate image and text layers to respond while a producer drags or resizes an element. After a first logo attachment in Studio, it loads those layers before enabling direct manipulation and keeps the existing preview visible while they load. If that preview fails, **Retry preview** reloads it without discarding the logo or its placement. Temporary previews show the composition without retaining a permanent finished PNG for every edit.
 
 Preview and download use the same Pillow composition code and packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. Selection boxes and editing handles are not included in downloaded images.
 
