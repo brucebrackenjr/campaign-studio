@@ -43,3 +43,25 @@ def test_empty_state_and_resources_are_served_without_exposing_runtime(client):
 )
 def test_local_request_boundary(client, headers, expected):
     assert client.get("/health", headers=headers).status_code == expected
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "mode", "destination", "status"),
+    [
+        ("GET", "/", "navigate", "document", 200),
+        ("GET", "/health", "navigate", "document", 200),
+        ("GET", "/api/motif/workspace", "navigate", "document", 403),
+        ("GET", "/", "navigate", "iframe", 403),
+        ("GET", "/health", "cors", "empty", 403),
+        ("POST", "/", "navigate", "document", 403),
+    ],
+)
+def test_readme_link_only_opens_documented_pages(client, method, path, mode, destination, status):
+    headers = {
+        "sec-fetch-site": "cross-site",
+        "sec-fetch-mode": mode,
+        "sec-fetch-dest": destination,
+    }
+    assert client.request(method, path, headers=headers).status_code == status
+    headers["origin"] = "https://example.org"
+    assert client.request(method, path, headers=headers).status_code == 403

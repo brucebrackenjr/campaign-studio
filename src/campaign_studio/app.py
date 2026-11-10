@@ -125,9 +125,17 @@ def create_app(
     async def local_boundary(request: Request, call_next):
         origin = request.headers.get("origin")
         expected_origin = f"http://{request.headers.get('host', '')}"
-        if (origin is not None and origin != expected_origin) or request.headers.get(
-            "sec-fetch-site"
-        ) == "cross-site":
+        # The README links to these two pages. An ordinary top-level visit can
+        # come from another site, while the page's own API calls are same-origin.
+        document_link = (
+            request.method == "GET"
+            and request.url.path in {"/", "/health"}
+            and request.headers.get("sec-fetch-mode") == "navigate"
+            and request.headers.get("sec-fetch-dest") == "document"
+        )
+        if (origin is not None and origin != expected_origin) or (
+            request.headers.get("sec-fetch-site") == "cross-site" and not document_link
+        ):
             return JSONResponse(
                 {"code": "origin", "message": "Cross-origin access is not allowed."},
                 status_code=403,

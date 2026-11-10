@@ -951,6 +951,18 @@ async function dispatchAction(data) {
     return;
   }
   const [action, index, second, third] = data.action.split(":");
+  const choosingDestination = action === "openCampaign" ||
+    (action === "storage" && ["home", "new", "preview-delete"].includes(index));
+  if (choosingDestination && studioWorkspace && storageView?.state === "campaign-context") {
+    // Save and leave the active tool with its controls available to autosave.
+    if (index === "preview-delete") deletion = null;
+    returnFromStorage();
+    if (index === "new" || index === "preview-delete") {
+      if (!await leaveStudioWorkspace()) return;
+      reviewTab = "products";
+      render();
+    }
+  }
   if (["openCampaign", "new", "import"].includes(action) && studioWorkspace && !await leaveStudioWorkspace()) return;
   if (["openCampaign", "new", "import"].includes(action) && draft && !await flushCurrentWork()) {
     if (getSaveState()?.problem?.phase !== "conflict")
@@ -989,6 +1001,7 @@ async function dispatchAction(data) {
         await dispatchStorage(index, second);
         break;
       case "campaigns":
+        if (studioWorkspace && !await resolveStudioChanges()) break;
         showCampaignChooser();
         break;
       case "library":

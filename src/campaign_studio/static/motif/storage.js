@@ -74,7 +74,7 @@ function returnFromStorage() {
   storageView = null;
   storageReturn = null;
   storageRequest++;
-  if (previous?.modal && previous.campaign === draft?.campaign_id) {
+  if (previous?.modal && previous.nodes.length && previous.campaign === draft?.campaign_id) {
     modal = previous.modal;
     modalProduct = previous.product;
     $("#overlay").replaceChildren(...previous.nodes);
@@ -82,9 +82,11 @@ function returnFromStorage() {
     if (modal === "text") return previewText();
     if (modal === "frame") return requestFramePreview();
   } else {
+    // Studio tools live on the page. Closing the dialog restores the tool
+    // and makes the page interactive again.
     closeModal();
     const restore = () => {
-      if (modal || previous?.campaign !== draft?.campaign_id) return;
+      if (!previous || previous.campaign !== draft?.campaign_id || (modal && modal !== previous.modal)) return;
       const target = previous.resolveFocus ? previous.resolveFocus() : previous.focus;
       if (target?.isConnected) target.focus();
     };

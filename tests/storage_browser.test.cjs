@@ -70,6 +70,31 @@ function harness() {
   return { run, requests, context, views, notices };
 }
 
+test("dismissing storage restores an inline Studio tool or its enclosing product dialog", () => {
+  for (const inline of [true, false]) {
+    const h = harness();
+    const previous = inline ? "text" : "product";
+    const children = inline ? [] : [{ role: "dialog" }];
+    let restoredFocus = false;
+    const overlay = { childNodes: children, replaceChildren(...nodes) { this.childNodes = nodes; } };
+    h.context.$ = () => overlay;
+    h.context.document.activeElement = { isConnected: true, focus() { restoredFocus = true; } };
+    h.context.modal = previous;
+    h.context.closeModal = () => {
+      assert.ok(inline, "a nested dialog must stay open");
+      h.context.modal = previous;
+      overlay.childNodes = [];
+    };
+    h.run('showStorage("campaign-context")');
+    assert.equal(h.context.modal, "storage");
+    overlay.childNodes = [{ role: "menu" }];
+    h.run("returnFromStorage()");
+    assert.equal(h.context.modal, previous);
+    assert.deepEqual(overlay.childNodes, children);
+    assert.ok(restoredFocus);
+  }
+});
+
 test("deletion resumes only its committed identity and ignores repeated confirmation", async () => {
   const h = harness();
   const saving = h.run("confirmDeletion()");

@@ -98,7 +98,7 @@ uv sync --locked
 uv run --locked campaign-studio serve
 ```
 
-Open **<http://127.0.0.1:8000>**. Stop the server with **Control-C**. Keep one running application instance per data workspace.
+Once the server is running, open **<http://127.0.0.1:8000>** in a browser on that same computer. Keep the terminal open while you use Motif. Press **Control-C** in that terminal to stop the server. Keep one running application instance per data workspace.
 
 For a simple server liveness check, open <http://127.0.0.1:8000/health>. It returns a small status response; it does not test provider credentials or establish that every campaign is valid.
 
