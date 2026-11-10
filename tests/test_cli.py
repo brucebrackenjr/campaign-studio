@@ -55,6 +55,32 @@ def test_module_launcher_runs_installed_smoke(tmp_path, monkeypatch):
     assert json.loads(result.stdout)["evidence"] == "synthetic-installation-check"
 
 
+def test_installed_console_script_without_editable_path_files(tmp_path):
+    # Use site-packages directly, bypassing site startup's processing of .pth files.
+    # Isolated mode also excludes PYTHONPATH and the current project directory.
+    script = """
+import sys
+import sysconfig
+from importlib.metadata import distribution
+
+sys.path.extend({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
+entry, = distribution("campaign-studio").entry_points.select(
+    group="console_scripts", name="campaign-studio"
+)
+sys.argv = ["campaign-studio", "smoke"]
+sys.exit(entry.load()())
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert json.loads(result.stdout)["evidence"] == "synthetic-installation-check"
+
+
 @pytest.mark.parametrize("pending_cleanup", [False, True])
 def test_occupied_port_refuses_before_opening_or_resuming_workspace(
     tmp_path, monkeypatch, pending_cleanup

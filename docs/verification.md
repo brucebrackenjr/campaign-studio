@@ -22,6 +22,10 @@ The check commands use separate ordinary campaign records and require no provide
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
 
+## Version 0.3.2 installation checks
+
+The launcher regression test starts a fresh Python process outside the project, skips editable path files, and runs the installed console entry point. The smoke command must find the application and complete its installation check. On macOS, the installer review also exercised an editable installation with the actual hidden file flag set and verified that the server returned the workbench, health check, and stylesheet.
+
 ## Version 0.3.2 navigation checks
 
 The focused browser checks follow the two local links from a page on a different site. They also open the campaign menu from Inspect, Text, Framing, and Logo, dismiss it, and continue editing. To check autosave during navigation, the tests change a headline, immediately switch campaigns, reopen the first campaign, and read back the saved headline.

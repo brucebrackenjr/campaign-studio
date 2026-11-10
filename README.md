@@ -77,11 +77,11 @@ The trash button on each Workbench card shows the files Motif will remove and as
 ### Requirements
 
 - **Python 3.14.4**, as pinned in [`.python-version`](.python-version). The package supports the Python 3.14 series.
-- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder. On a Mac that syncs Documents with iCloud, extract Motif to a local folder outside iCloud Drive when using uv.
+- **macOS, Linux, or Windows** with a writable folder on a local drive. On Windows, use a regular local folder under your account, such as `C:\Users\you\Motif`. If Documents is redirected into OneDrive or uses reparse points, extract to another local folder.
 - A current desktop browser. Connected verification includes Chromium journeys at 1440 × 900 and 1366 × 768; this is not a mobile or universal browser certification.
 - An OpenAI API key only if you choose to generate new imagery. It is unnecessary for local composition, corrections, exports, or the key-free checks below.
 
-Extract the supplied ZIP. The [public release download](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides the published version. In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
+Choose where you want to keep Motif before installing. You can move the ZIP and extract it there, or move the entire extracted Motif folder there first. If Safari already expanded the download, use that folder. The [public release download](https://github.com/brucebrackenjr/campaign-studio/releases/latest/download/motif-campaign-studio.zip) provides the published version. In Terminal or PowerShell, start in the directory containing the extracted Motif folder, then run:
 
 ```sh
 cd Motif
@@ -156,7 +156,7 @@ Motif/
 
 Campaign subfolders appear only when their files are needed. The `private` folder holds the shared database and application control files. SQLite stores one current editable campaign, including its text, logo, crop, and style settings, alongside source references and request records. Motif does not maintain finished PNGs or write working `draft.json`, `plan.json`, or `manifest.json` copies in the campaign folder. An imported original brief remains in `Brief/Imports/`. Finished images and their delivery manifest are created for the download.
 
-Both installation methods find this workspace from the installed environment. On macOS and Linux, to start from another directory, use `uv run --project "/path/to/Motif" --locked campaign-studio serve` or invoke `"/path/to/Motif/.venv/bin/campaign-studio" serve`. If you move Motif, recreate its .venv at the new location using either install sequence. Back up the whole Workspace folder together while the server is stopped. On macOS and Linux, keep the installation’s private .env separately if you want to retain its settings. Deleting the extracted Motif folder removes its local installation and default workspace. Explicit external workspaces and exports you saved elsewhere remain at their chosen locations.
+Both installation methods find this workspace from the installed environment. On macOS and Linux, to start from another directory, use `uv run --project "/path/to/Motif" --locked campaign-studio serve` or invoke `"/path/to/Motif/.venv/bin/campaign-studio" serve`. If you move Motif after installing, recreate its `.venv` at the new location using either install sequence. Back up the whole Workspace folder together while the server is stopped. On macOS and Linux, keep the installation’s private .env separately if you want to retain its settings. Deleting the extracted Motif folder removes its local installation and default workspace. Explicit external workspaces and exports you saved elsewhere remain at their chosen locations.
 
 To keep an evaluation separate from other work:
 
