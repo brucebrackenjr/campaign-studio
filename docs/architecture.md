@@ -1,6 +1,6 @@
 # How Motif works
 
-This document describes Motif 0.3.1. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
+This document describes Motif 0.3.2. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
 
 There are two different kinds of image creation. **OpenAI can create a missing product photograph after the producer confirms a paid request. Pillow combines an existing photograph with text and a logo to make the finished ads locally.** Editing a headline, moving a logo, and downloading a campaign do not ask OpenAI for another photograph.
 

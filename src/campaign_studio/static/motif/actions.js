@@ -261,7 +261,10 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
   if (authoring && (retain || cancel)) projectQueue?.retainContext();
   if (closingKind === "draft-wording") draftWording = null;
   returnFromWording(closingKind);
-  if (studioWorkspace) modal = studioWorkspace.mode === "framing" ? "frame" : studioWorkspace.mode;
+  if (studioWorkspace) {
+    modal = studioWorkspace.mode === "framing" ? "frame" : studioWorkspace.mode;
+    if (closingKind === "rename") resumeEditorAfterDialog();
+  }
 }
 async function finishPendingNavigation() {
   const destination = pendingNav;
@@ -1002,7 +1005,7 @@ async function dispatchAction(data) {
         break;
       case "campaigns":
         if (studioWorkspace && !await resolveStudioChanges()) break;
-        showCampaignChooser();
+        showCampaignChooser($('#app [data-action="campaigns"]'));
         break;
       case "library":
         await navigate("library");

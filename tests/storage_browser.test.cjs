@@ -70,28 +70,32 @@ function harness() {
   return { run, requests, context, views, notices };
 }
 
-test("dismissing storage restores an inline Studio tool or its enclosing product dialog", () => {
-  for (const inline of [true, false]) {
+test("dismissing the campaign chooser restores the underlying tool or dialog and its focus", () => {
+  for (const previous of ["text", "frame", "logo", "product"]) {
     const h = harness();
-    const previous = inline ? "text" : "product";
-    const children = inline ? [] : [{ role: "dialog" }];
-    let restoredFocus = false;
+    const nested = previous === "product";
+    const children = nested ? [{ role: "dialog" }] : [];
+    let focused = false, resumed = "";
     const overlay = { childNodes: children, replaceChildren(...nodes) { this.childNodes = nodes; } };
-    h.context.$ = () => overlay;
-    h.context.document.activeElement = { isConnected: true, focus() { restoredFocus = true; } };
+    const app = { inert: nested }, skip = { inert: nested };
+    h.context.$ = selector => ({ "#overlay": overlay, "#app": app, ".skip": skip })[selector];
+    h.context.trigger = { focus() { focused = true; } };
+    h.context.previewText = () => { resumed = "text"; };
+    h.context.requestFramePreview = () => { resumed = "frame"; };
+    h.context.beginStudioSave = () => { resumed = "logo"; };
+    h.context.logoEditor = { loading: false };
+    h.context.studioSave = null;
     h.context.modal = previous;
-    h.context.closeModal = () => {
-      assert.ok(inline, "a nested dialog must stay open");
-      h.context.modal = previous;
-      overlay.childNodes = [];
-    };
-    h.run('showStorage("campaign-context")');
-    assert.equal(h.context.modal, "storage");
+    h.run('showStorage("campaign-context", {}, { focus: trigger })');
     overlay.childNodes = [{ role: "menu" }];
+    app.inert = skip.inert = true;
     h.run("returnFromStorage()");
     assert.equal(h.context.modal, previous);
     assert.deepEqual(overlay.childNodes, children);
-    assert.ok(restoredFocus);
+    assert.equal(app.inert, nested);
+    assert.equal(skip.inert, nested);
+    assert.ok(focused);
+    assert.equal(resumed, nested ? "" : previous);
   }
 });
 

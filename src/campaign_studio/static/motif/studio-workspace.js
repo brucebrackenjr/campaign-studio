@@ -341,7 +341,7 @@ async function mountStudioTool(mode) {
     const load = owner.logoLoad = new AbortController();
     try {
       await openLogo(currentProduct, currentFormat, { isCurrent: current, signal: load.signal });
-      if (current()) beginStudioSave();
+      if (current() && modal === "logo" && !studioSave) beginStudioSave();
     } catch (error) {
       if (!current() || load.signal.aborted) return;
       const controls = $('[data-ws-slot="controls"]', owner.root);

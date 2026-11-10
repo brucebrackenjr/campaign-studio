@@ -1,6 +1,6 @@
 # Campaign examples and engineering fixtures
 
-For Motif **0.3.1**. These inputs exercise the same local application services as ordinary campaigns.
+For Motif **0.3.2**. These inputs exercise the same local application services as ordinary campaigns.
 
 ## Included seasonal campaigns
 

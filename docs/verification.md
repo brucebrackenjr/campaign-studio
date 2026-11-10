@@ -1,6 +1,6 @@
 # Verification
 
-Motif 0.3.1 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
+Motif 0.3.2 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
 
 ## Repeatable local checks
 
@@ -21,6 +21,10 @@ uv run --locked campaign-studio sample-run --replay --data-dir ./motif-check-dat
 The check commands use separate ordinary campaign records and require no provider key. The synthetic two-product case composes 12 outputs and corrects six. The three-product, one-market case produces nine. Saved-source replay composes 12, corrects six, reopens storage, and exports with zero new attempts. A missing or changed replay master is refused locally instead of triggering a purchase.
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
+
+## Version 0.3.2 navigation checks
+
+The focused browser checks follow the two local links from a page on a different site. They also open the campaign menu from Inspect, Text, Framing, and Logo, dismiss it, and continue editing. To check autosave during navigation, the tests change a headline, immediately switch campaigns, reopen the first campaign, and read back the saved headline.
 
 ## Version 0.3.1 correction checks
 

@@ -1,6 +1,6 @@
 # Motif – Campaign Studio
 
-**Version 0.3.1** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.3.2** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
 
 Motif is a local creative-production application built as a simulated forward-deployed AI engineering exercise. It supports the producer workflow in the supplied customer scenario: reuse available imagery, deliberately generate a missing source, compose exact supplied wording and branding, and hand off campaign PNGs across products, formats, and markets. Planning, production, correction, and delivery stay connected.
 

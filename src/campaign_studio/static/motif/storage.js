@@ -11,18 +11,20 @@ let inputRecovery = null;
 let deletionSubmitting = false;
 let deletionInventory = null;
 
-function rememberStorageReturn() {
+function rememberStorageReturn(focus = document.activeElement) {
   if (storageReturn) return;
   storageReturn = {
     modal,
     nodes: [...$("#overlay").childNodes],
-    focus: document.activeElement,
+    appInert: $("#app").inert,
+    skipInert: $(".skip").inert,
+    focus,
     product: modalProduct,
     campaign: draft?.campaign_id,
   };
 }
-function showStorage(state, data = {}, { remember = true } = {}) {
-  if (remember) rememberStorageReturn();
+function showStorage(state, data = {}, { remember = true, focus } = {}) {
+  if (remember) rememberStorageReturn(focus);
   storageView = { state, data };
   openModal("storage");
 }
@@ -67,6 +69,12 @@ function focusStorageDialog() {
   ($(selector, $("#overlay")) || $("#dialog-title"))?.focus();
   return true;
 }
+function resumeEditorAfterDialog() {
+  // A preview or the initial logo load may have finished while the dialog was open.
+  if (modal === "text") return previewText();
+  if (modal === "frame") return requestFramePreview();
+  if (modal === "logo" && logoEditor && !logoEditor.loading && !studioSave) beginStudioSave();
+}
 function returnFromStorage() {
   if (deletionSubmitting || storageView?.state === "delete-pending") return;
   deletionInventory?.abort();
@@ -74,19 +82,19 @@ function returnFromStorage() {
   storageView = null;
   storageReturn = null;
   storageRequest++;
-  if (previous?.modal && previous.nodes.length && previous.campaign === draft?.campaign_id) {
+  if (previous?.modal && previous.campaign === draft?.campaign_id) {
     modal = previous.modal;
     modalProduct = previous.product;
     $("#overlay").replaceChildren(...previous.nodes);
-    previous.focus?.focus();
-    if (modal === "text") return previewText();
-    if (modal === "frame") return requestFramePreview();
+    // The underlying view can be either an inline Studio tool or another dialog.
+    $("#app").inert = previous.appInert;
+    $(".skip").inert = previous.skipInert;
+    (previous.resolveFocus?.() || previous.focus)?.focus({ preventScroll: true });
+    return resumeEditorAfterDialog();
   } else {
-    // Studio tools live on the page. Closing the dialog restores the tool
-    // and makes the page interactive again.
     closeModal();
     const restore = () => {
-      if (!previous || previous.campaign !== draft?.campaign_id || (modal && modal !== previous.modal)) return;
+      if (modal || previous?.campaign !== draft?.campaign_id) return;
       const target = previous.resolveFocus ? previous.resolveFocus() : previous.focus;
       if (target?.isConnected) target.focus();
     };
@@ -106,7 +114,7 @@ function clearStorageContext() {
   inputRecovery = null;
   storageRequest++;
 }
-function showCampaignChooser() {
+function showCampaignChooser(trigger) {
   if (!draft) {
     openModal("campaigns");
     return;
@@ -119,7 +127,7 @@ function showCampaignChooser() {
       name: c.name,
       summary: `${c.brand ? c.brand + " · " : ""}${c.products} ${c.products === 1 ? "product" : "products"} · ${workbenchCounts(c)} · ${activityLabel(c.updated)}`,
     })),
-  });
+  }, { focus: trigger });
 }
 function deletionData(inventory) {
   return {

@@ -1,3 +1,10 @@
+# Motif v0.3.2 – Open Motif from the README and switch campaigns in Studio
+
+- After starting the server, you can click the workbench or health-check address in the README on GitHub. Both links open on the computer running Motif.
+- Inside a Studio product, you can open the campaign menu and dismiss it with Escape or the close button, then keep editing. You can also switch campaigns or return to the workbench. Motif saves pending edits before opening the menu.
+
+---
+
 # Motif v0.3.1 – Consistent wording, clearer corrections, and retained assets
 
 This update keeps Campaign and Studio wording in sync, makes corrections easier to follow, and preserves uploaded photos and logos when they are removed from a campaign.
