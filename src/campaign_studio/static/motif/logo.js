@@ -104,11 +104,14 @@ async function logoPreview(body, signal) {
     decoded.naturalHeight !== body.target.height
   )
     throw new Error("The logo preview does not match this image's dimensions.");
+  await Promise.all([decodedImage(image.layers.base_url), decodedImage(image.layers.copy_url)]);
   const bounds = image.layers.bounds;
   return {
     ...result,
     digest: result.digest,
     compositeUrl: image.url,
+    previewUrl: image.layers.base_url,
+    copyOverlayUrl: image.layers.copy_url,
     resolvedRect: {
       left: bounds[0],
       top: bounds[1],

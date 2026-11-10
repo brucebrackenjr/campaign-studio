@@ -24,6 +24,12 @@ test('all logo attachment entry points share labels and disabled state during up
     }
     for(const key of ['loading','busy','reviewing','reviewRequired','uploading'])editor[key]=false;
     editor.paint();for(const control of controls)assert.equal(control.disabled,false);
+    assert.equal(node('.mf-logo-photo').hidden,true);
+    assert.equal(node('.mf-logo-copy').hidden,true);
+    editor.o.savedDisplay={compositeUrl:'/retained.png'};editor.valid=null;
+    editor.paint();assert.equal(node('.mf-logo-composite').hidden,false);
+    assert.equal(node('.mf-logo-composite').src,'/retained.png');
+
   }
 });
 
@@ -168,16 +174,17 @@ test("logo preview does not resolve before the actual PNG decodes", async () => 
     images: [
       {
         url: "actual.png",
-        layers: { bounds: [1, 2, 31, 42], default_bounds: [1, 2, 31, 42] },
+        layers: { base_url: "base.png", copy_url: "copy.png", bounds: [1, 2, 31, 42], default_bounds: [1, 2, 31, 42] },
       },
     ],
     impact: { available_outputs: 12, expected_outputs: 12, fitted_count: 0 },
     findings: [],
   });
-  h.context.decodedImage = () =>
-    new Promise((resolve) => {
-      decode = resolve;
-    });
+  const decoded=[];
+  h.context.decodedImage = url => {
+    decoded.push(url);
+    return url === "actual.png" ? new Promise(resolve => { decode=resolve; }) : Promise.resolve({naturalWidth:1080,naturalHeight:1080});
+  };
   const pending = h.context.logoPreview(h.body).then((result) => {
     finished = true;
     return result;
@@ -185,7 +192,11 @@ test("logo preview does not resolve before the actual PNG decodes", async () => 
   await flush();
   assert.equal(finished, false);
   decode({ naturalWidth: 1080, naturalHeight: 1080 });
-  assert.equal((await pending).compositeUrl, "actual.png");
+  const result=await pending;
+  assert.equal(result.compositeUrl, "actual.png");
+  assert.equal(result.previewUrl, "base.png");
+  assert.equal(result.copyOverlayUrl, "copy.png");
+  assert.deepEqual(decoded,["actual.png","base.png","copy.png"]);
   h.context.decodedImage = async () => {
     throw Error("PNG failed");
   };
@@ -668,4 +679,18 @@ test('a missing campaign logo opens an actionable attachment prompt without a pr
  await context.openLogo(0,0);
  assert.equal(options.loading,false);assert.equal(options.savedDisplay.compositeUrl,'/current-image');
  assert.equal(typeof options.onSelectFile,'function');assert.equal(ready,1);
+});
+
+
+test('first logo preview installs drag layers, while obsolete responses cannot replace them', async()=>{
+ const context=vm.createContext({});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/logo-controls.js','utf8').replace('const api={mount:','const api={Editor,mount:'),context);
+ const nodes={'.mf-logo-photo':{},'.mf-logo-copy':{}};
+ let resolve;
+ const editor=Object.create(context.MotifLogo.Editor.prototype);
+ Object.assign(editor,{open:true,seq:0,target:{},asset:{reference:'logo'},p:{x:.1},signature:()=> 'same',paint(){},root:{querySelector:s=>nodes[s]},o:{onPreview:()=>new Promise(done=>resolve=done)}});
+ const first=editor.validate();resolve({previewUrl:'/base',copyOverlayUrl:'/copy'});await first;
+ assert.equal(nodes['.mf-logo-photo'].src,'/base');assert.equal(nodes['.mf-logo-copy'].src,'/copy');
+ const obsolete=editor.validate();editor.seq++;resolve({previewUrl:'/old-base',copyOverlayUrl:'/old-copy'});await obsolete;
+ assert.equal(nodes['.mf-logo-photo'].src,'/base');assert.equal(editor.o.copyOverlayUrl,'/copy');
 });

@@ -86,7 +86,7 @@
         element: this.root.querySelector('[data-lg-box]'),
         canvas: this.root.querySelector('.mf-logo-canvas'),
         outputSize: () => this.target,
-        enabled: () => this.open && !this.loading && !this.tearingDown && !this.busy && !this.uploading && !this.reviewing && !this.sub && !!this.asset,
+        enabled: () => this.open && !this.loading && !this.tearingDown && !this.busy && !this.uploading && !this.reviewing && !this.sub && !!this.asset && !!this.o.previewUrl && !!this.o.copyOverlayUrl,
         read: () => ({ placement: clone(this.p), fit: this.replacementFit ? clone(this.replacementFit) : null }),
         write: value => {
           if (this.tearingDown) return;
@@ -129,12 +129,14 @@
     paint() {
       if(!this.open)return;const q=s=>this.root.matches(s)?this.root:this.root.querySelector(s),a=this.asset;
       q('[data-lg-art]').hidden=!a||this.loading;q('[data-lg-box]').hidden=!a||this.loading;q('.mf-logo-empty').hidden=!!a||this.loading;
-      q('.mf-logo-photo').hidden=!!this.loading;q('.mf-logo-copy').hidden=!!this.loading;
+      q('.mf-logo-photo').hidden=!!this.loading||!this.o.previewUrl;q('.mf-logo-copy').hidden=!!this.loading||!this.o.copyOverlayUrl;
       if(a){const rect=this.valid?.resolvedRect;const d=rect?{x:rect.left/this.target.width,y:rect.top/this.target.height,width:rect.width/this.target.width,height:rect.height/this.target.height}:dimensions(this.p,this.target,a);const art=q('[data-lg-art]');art.style.left=d.x*100+'%';art.style.top=d.y*100+'%';art.style.width=d.width*100+'%';art.style.height=d.height*100+'%';
         const canvas=q('.mf-logo-canvas').getBoundingClientRect(),frame=selectionFrame({left:d.x*canvas.width,top:d.y*canvas.height,width:d.width*canvas.width,height:d.height*canvas.height},{width:canvas.width,height:canvas.height}),box=q('[data-lg-box]');
         box.style.left=frame.left+'px';box.style.top=frame.top+'px';box.style.width=frame.width+'px';box.style.height=frame.height+'px';box.classList.toggle('is-expanded',frame.expanded);
         box.classList.toggle('is-top-edge',frame.expanded&&frame.top<24);const img=q('[data-lg-art] img');if(img.getAttribute('src')!==a.url)img.src=a.url;}
-      const composite=q('.mf-logo-composite');composite.hidden=!this.valid?.compositeUrl||!!this.gesture;if(!composite.hidden&&composite.getAttribute('src')!==this.valid.compositeUrl)composite.src=this.valid.compositeUrl;
+      const composite=q('.mf-logo-composite');
+      const compositeUrl=this.valid?.compositeUrl||(!this.o.previewUrl||!this.o.copyOverlayUrl?this.o.savedDisplay?.compositeUrl:null);
+      composite.hidden=!compositeUrl||!!this.gesture;if(!composite.hidden&&composite.getAttribute('src')!==compositeUrl)composite.src=compositeUrl;
       const assetUrl=a?.url||(this.loading?this.o.logoUrl:null)||'';
       if(q('[data-lg-asset-preview]').dataset.asset!==assetUrl){q('[data-lg-asset-preview]').dataset.asset=assetUrl;q('[data-lg-asset-preview]').innerHTML=assetUrl?`<img src="${esc(assetUrl)}" alt="${esc(a?.filename||'Campaign logo')}">`:'<span>No logo attached</span>';}
       q('[data-lg-profile]').textContent=`${a?.type||'Original artwork'} · proportions kept`;
@@ -167,6 +169,13 @@
       try {const result=await this.o.onPreview({target:clone(this.target),asset:clone(this.asset),placement:clone(this.p),...(this.replacementFit?{replacementFit:clone(this.replacementFit)}:{}),mode:this.pendingAsset?'replacement':'placement'});
         if(!this.open||seq!==this.seq||signature!==this.signature())return;
         if(result.reviewRequired===true||result.code==='conflict'){this.requireReview();return;}
+        // Install decoded drag layers only for this still-current preview. The
+        // first-attachment path has no layers until this response arrives.
+        if(result.previewUrl&&result.copyOverlayUrl){
+          this.o.previewUrl=result.previewUrl;this.o.copyOverlayUrl=result.copyOverlayUrl;
+          this.root.querySelector('.mf-logo-photo').src=result.previewUrl;
+          this.root.querySelector('.mf-logo-copy').src=result.copyOverlayUrl;
+        }
         this.valid={...result,signature};if(result.defaultPlacement)this.default=clone(result.defaultPlacement);this.message=result.blocked?result.message||'Preview unavailable. Your logo edits are still here.':'';this.paint();
       }catch(error){if(this.open&&seq===this.seq){if(error?.code==='conflict'||error?.reviewRequired===true)this.requireReview();else {this.message='Preview unavailable. Your logo edits are still here.';this.paint();}}}
     }

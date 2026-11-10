@@ -1,5 +1,6 @@
-# Motif v0.3.2 – Install Motif, open the workbench, and switch campaigns in Studio
+# Motif v0.3.2 – Reliable installation and Studio editing
 
+- Fixed a white-canvas flicker when attaching the first campaign logo in Studio and then moving or resizing it. The photograph and wording stay visible while the logo is arranged.
 - Fixed a macOS startup error that could prevent a fresh installation from finding the `campaign_studio` package.
 - After starting the server, you can click the workbench or health-check address in the README on GitHub. Both links open on the computer running Motif.
 - Inside a Studio product, you can open the campaign menu and dismiss it with Escape or the close button, then keep editing. You can also switch campaigns or return to the workbench. Motif saves pending edits before opening the menu.
