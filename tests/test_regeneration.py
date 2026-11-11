@@ -554,3 +554,103 @@ def test_generic_start_retry_and_recovery_cannot_bypass_replacement_guards(gener
             time.sleep(0.01)
         assert read(ws.storage, cid)["source_assets"] == before
         assert ws.state.campaign_metrics(cid)["attempted_requests"] == attempts
+
+
+@pytest.mark.parametrize("publication_wins", [False, True])
+def test_stop_and_source_publication_have_one_atomic_http_order(
+    generated, monkeypatch, publication_wins
+):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from fastapi.testclient import TestClient
+
+    import campaign_studio.regeneration as regeneration
+    from campaign_studio.app import create_app
+    from campaign_studio.config import Settings
+
+    ws, _, cid = generated
+    before = read(ws.storage, cid)
+    reached, release, stop_entered = threading.Event(), threading.Event(), threading.Event()
+    original_check, original_write = regeneration.require_current, regeneration.write
+    original_stop = State.stop
+    action = {}
+
+    def check_before_publication(state, campaign, intent):
+        document = original_check(state, campaign, intent)
+        run = existing(ws, cid, RegenerationConfirm(**action))
+        if (
+            not publication_wins
+            and run
+            and state.attempts(run["id"])
+            and state.attempts(run["id"])[0]["state"] == "decoded"
+        ):
+            reached.set()
+            assert release.wait(5)
+        return document
+
+    def write_during_publication(storage, campaign, document, *, db=None):
+        if (
+            publication_wins
+            and document.get("regeneration_receipt", {}).get("outcome") == "replaced"
+        ):
+            reached.set()
+            assert release.wait(5)
+        return original_write(storage, campaign, document, db=db)
+
+    def stop_after_publication_started(state, run_id):
+        stop_entered.set()
+        return original_stop(state, run_id)
+
+    monkeypatch.setattr(regeneration, "require_current", check_before_publication)
+    monkeypatch.setattr(regeneration, "write", write_during_publication)
+    monkeypatch.setattr(State, "stop", stop_after_publication_started)
+    app = create_app(
+        Settings(data_dir=ws.storage.root),
+        key_available=lambda: True,
+        provider_factory=lambda: OpenAIImages(
+            "synthetic",
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json=image_response("#123456"))
+            ),
+        ),
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        client.headers.update({"X-Campaign-Token": app.state.csrf, "Origin": "http://127.0.0.1"})
+        proposed = client.post(
+            f"/api/campaigns/{cid}/regeneration/preview",
+            json={"version": before["version"], "product_id": "product-1"},
+        ).json()
+        action = {key: proposed[key] for key in ("version", "product_id", "operation_id", "digest")}
+        started = client.post(f"/api/campaigns/{cid}/regeneration/start", json=action)
+        assert started.status_code == 202, started.text
+        run_id = started.json()["run_id"]
+        try:
+            assert reached.wait(5)
+            if publication_wins:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending_stop = pool.submit(
+                        client.post, f"/api/campaigns/{cid}/stop", json={"run_id": run_id}
+                    )
+                    assert stop_entered.wait(5)
+                    release.set()
+                    stopped = pending_stop.result(timeout=5)
+                assert stopped.status_code == 409, stopped.text
+                assert stopped.json()["code"] == "not_running"
+            else:
+                stopped = client.post(f"/api/campaigns/{cid}/stop", json={"run_id": run_id})
+                assert stopped.status_code == 200, stopped.text
+        finally:
+            release.set()
+        for _ in range(200):
+            if not client.get(f"/api/campaigns/{cid}/status").json()["active"]:
+                break
+            time.sleep(0.01)
+        after = read(ws.storage, cid)
+        assert after["regeneration_receipt"]["outcome"] == (
+            "replaced" if publication_wins else "stopped"
+        )
+        assert bool(ws.state.run(run_id)["stop_requested"]) is not publication_wins
+        assert (after["source_assets"] == before["source_assets"]) is not publication_wins
+        assert ws.state.campaign_metrics(cid)["attempted_requests"] == 3

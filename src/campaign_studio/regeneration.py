@@ -226,50 +226,66 @@ def finish(state, run_id, plan):
         ),
         None,
     )
+    asset = None
+    if attempt:
+        # Decode before taking the short publication guard. The attempt and
+        # response remain durable regardless of whether this image is adopted.
+        image, _ = load_image(state.storage.path(attempt["source_ref"]))
+        try:
+            asset = Asset(
+                reference=attempt["source_ref"],
+                sha256=attempt["source_sha256"],
+                width=image.width,
+                height=image.height,
+            )
+        finally:
+            image.close()
     with state.storage.exclusive_draft(), state.storage.connect() as db:
         document = read(state.storage, campaign_id, db=db)
-        stopped = bool(state.run(run_id)["stop_requested"])
-        outcome = "stopped" if stopped else "failed"
-        if attempt and not stopped:
+        outcome = "failed"
+        if asset:
             try:
                 require_current(state, campaign_id, intent)
             except ActionError:
                 outcome = "conflict"
+                asset = None
             else:
-                image, _ = load_image(state.storage.path(attempt["source_ref"]))
-                try:
-                    asset = Asset(
-                        reference=attempt["source_ref"],
-                        sha256=attempt["source_sha256"],
-                        width=image.width,
-                        height=image.height,
+                if not state.source_is_intact(attempt):
+                    asset = None
+        # Stop is a separate database writer. Take its serialization boundary
+        # only after decoding/current-source checks, then read Stop again in the
+        # same transaction that commits the accepted image and terminal state.
+        db.execute("BEGIN IMMEDIATE")
+        stopped = bool(
+            db.execute("SELECT stop_requested FROM runs WHERE id=?", (run_id,)).fetchone()[0]
+        )
+        if stopped:
+            outcome = "stopped"
+        elif asset:
+            product = next(p for p in plan.brief.products if p.id == intent.product_id)
+            input_asset = plan.assets.get(f"products/{product.id}")
+            document.setdefault("source_assets", {})[product.id] = {
+                "asset": asset.model_dump(),
+                "imagery_key": imagery_key(plan.brief, product),
+                "run_id": run_id,
+                "input_sha256": input_asset.sha256 if input_asset else None,
+            }
+            for creative_id, metadata in document.get("creative_metadata", {}).items():
+                if (
+                    creative_id.split("/", 1)[0] == product.id
+                    and asset.sha256 != intent.source_sha256
+                ):
+                    metadata.update(
+                        version=metadata.get("version", 0) + 1, reset_reason="source_changed"
                     )
-                finally:
-                    image.close()
-                product = next(p for p in plan.brief.products if p.id == intent.product_id)
-                input_asset = plan.assets.get(f"products/{product.id}")
-                document.setdefault("source_assets", {})[product.id] = {
-                    "asset": asset.model_dump(),
-                    "imagery_key": imagery_key(plan.brief, product),
-                    "run_id": run_id,
-                    "input_sha256": input_asset.sha256 if input_asset else None,
-                }
-                for creative_id, metadata in document.get("creative_metadata", {}).items():
-                    if (
-                        creative_id.split("/", 1)[0] == product.id
-                        and asset.sha256 != intent.source_sha256
-                    ):
-                        metadata.update(
-                            version=metadata.get("version", 0) + 1, reset_reason="source_changed"
-                        )
-                document["authored_base"] = {
-                    "run_id": run_id,
-                    "revision_id": None,
-                    "metadata_snapshot_id": None,
-                }
-                document["version"] = uuid4().hex
-                document["saved_at"] = timestamp()
-                outcome = "replaced"
+            document["authored_base"] = {
+                "run_id": run_id,
+                "revision_id": None,
+                "metadata_snapshot_id": None,
+            }
+            document["version"] = uuid4().hex
+            document["saved_at"] = timestamp()
+            outcome = "replaced"
         document["regeneration_receipt"] = {
             "run_id": run_id,
             "product_id": intent.product_id,
