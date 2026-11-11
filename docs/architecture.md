@@ -1,6 +1,6 @@
 # How Motif works
 
-This document describes Motif 0.3.2. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
+This document describes the current Motif source, including its unreleased portfolio improvements. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
 
 There are two different kinds of image creation. **OpenAI can create a missing product photograph after the producer confirms a paid request. Pillow combines an existing photograph with text and a logo to make the finished ads locally.** Editing a headline, moving a logo, and downloading a campaign do not ask OpenAI for another photograph.
 
@@ -13,7 +13,7 @@ flowchart TD
         Files["Campaign folders<br/>Imported briefs, photos, and logos"]
         Pillow["Pillow image processing<br/>Editing previews and finished PNGs"]
     end
-    OpenAI["Optional OpenAI API – internet<br/>Generates a missing concept image"]
+    OpenAI["Optional OpenAI API – internet<br/>Creates or replaces a concept image"]
     Pad[" "]
     Browser <-->|"Send edits; receive saved settings, previews, and downloads"| App
     App <-->|"Read and save"| DB
@@ -124,6 +124,8 @@ Motif saves the returned response before trying to decode its image. A usable ph
 A lost connection does not tell Motif whether OpenAI completed or charged for a request. Motif therefore does not automatically repeat paid requests. **Stop** prevents requests that have not been sent; it cannot recall one already accepted by OpenAI. Product photographs are generated one request at a time.
 
 A successful request does not create every final ad. The photograph stays separate from the wording and logo. Pillow combines them locally when the producer downloads.
+
+**Regenerate image** adds a deliberate replacement request for one verified app-generated source. Its confirmation is bound to the reviewed campaign version, current source hash, and an operation ID. The current source remains accepted during the network wait. Only a successful, still-current replacement can take its place; failure, Stop, or a conflicting change retains the existing image. Old source files and dispatched-attempt records remain available. The same underlying production and accounting services handle first generation and regeneration.
 
 ## What happens during Download ZIP
 

@@ -44,7 +44,7 @@ jobs:
         run: uv run --locked pytest -vv -s --tb=short tests/test_cli.py::test_real_server_starts_on_loopback_and_shuts_down --junitxml=.checks/startup.xml
       - name: Python behavioral tests
         run: uv run --locked pytest --junitxml=.checks/pytest.xml
-      - name: Verify the evaluator dependency export
+      - name: Verify the installation dependency export
         run: |
           uv export --locked --no-dev --group build --no-emit-project --output-file requirements.txt
           git diff --exit-code -- requirements.txt

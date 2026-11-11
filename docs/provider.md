@@ -1,6 +1,6 @@
 # Image generation, cost, and recovery
 
-The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. In Motif 0.3.2, confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
+The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. Confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
 
 ## Request contract
 
@@ -27,6 +27,16 @@ The adapter saves returned material privately before decoding the image. If a re
 Missing, expired, revoked, or rejected credentials produce a useful next step. They do not remove saved campaigns or prevent compatible local correction and export, subject to ordinary source-integrity and prohibited-wording gates. After a replacement key is saved, **Resume generation** opens a short confirmation of the products, new request count, and estimate. Confirmation starts the retry; saving the key alone does not. Production keeps its current progress and action together, with prompts and request details available in a collapsed section. A local server cannot know a key is accepted until the relevant provider operation checks it; it does not make background paid requests just to test credentials.
 
 Mock-transport tests cover request serialization, duplicate starts, failure accounting, deadline cleanup, stop behavior, interrupted attempts, and saved-response recovery. Those tests establish application behavior, while the separately recorded live run establishes actual provider integration. Neither replaces inspection of the resulting images.
+
+## Regenerating a source
+
+Production offers **Regenerate image** for a current source that matches a successfully decoded generation receipt from the same campaign and product. The review shows one product, one request, its exact prompt and settings, and the estimated cost. **Confirm 1 paid request** authorizes that replacement; **Keep current image** cancels without dispatch. Uploaded finished photographs and externally supplied replay imagery do not qualify. A prepared-product brief can regenerate its app-generated background while retaining the supplied product cutout.
+
+Regeneration is an explicit replacement intent. It does not change the product description to trick source-reuse checks. A confirmation is tied to the reviewed campaign version and source hash. A repeated confirmation uses the same recorded operation; it is not authorization for another charge. If the response to confirmation is lost, **Check this confirmed request** looks up that operation rather than buying another image.
+
+Motif keeps using the accepted source while generation runs. A failure, timeout, or Stop retains it. Stop also prevents adopting a late result, though it cannot promise that the provider canceled the request or waived the charge. Once a replacement succeeds and passes the current-version and source checks, the chosen product uses it across its existing formats and markets. Wording and layout remain unchanged, and the old source file remains retained.
+
+If newer campaign changes prevent accepting a successful result, Motif retains that unused result and its recorded usage, reports that the current image was kept, and does not overwrite newer work. Attempts and available usage still contribute to cumulative campaign accounting. There is no automatic paid retry or source-history picker.
 
 ## Why one model
 
