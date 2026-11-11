@@ -35,7 +35,7 @@
   function productCards(v) {
     return `<div class="pr-products" style="--pr-count:${Math.min(v.products.length,5)}">${v.products.map(p=>`<article class="pr-product-card">
       <div class="pr-product-photo">${productArtwork(p,v.mutationsBlocked)}</div>
-      <div class="pr-product-info"><div class="pr-card-facts">${!p.image&&!v.mutationsBlocked&&p.mode!=='concept'?`<span class="pr-source-label">${esc(p.sourceLabel||'Photo needed')}</span>`:''}${p.outputSummary?`<span class="pr-output-summary">${esc(p.outputSummary)}</span>`:''}</div><h2>${esc(p.name)}</h2><p>${esc(p.description)}</p><div class="pr-card-actions">${button('Edit product','edit','pr-small',byId(p.id))}${p.image?button('View photo ↗','source','pr-small pr-quiet',byId(p.id)):''}</div></div>
+      <div class="pr-product-info"><div class="pr-card-facts">${!p.image&&!v.mutationsBlocked&&p.mode!=='concept'?`<span class="pr-source-label">${esc(p.sourceLabel||'Photo needed')}</span>`:''}${p.outputSummary?`<span class="pr-output-summary">${esc(p.outputSummary)}</span>`:''}</div><h2>${esc(p.name)}</h2><p>${esc(p.description)}</p><div class="pr-card-actions">${button('Edit product','edit','pr-small',byId(p.id))}${p.image?button('View photo ↗','source','pr-small pr-quiet',byId(p.id)):''}${p.regeneratable?button('Regenerate image','regenerate','pr-small pr-quiet',byId(p.id)):''}</div></div>
     </article>`).join('')}</div>`;
   }
   function production(v) {

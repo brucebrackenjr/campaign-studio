@@ -372,6 +372,10 @@ def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, previ
 
 def finish_sources(state, run_id, plan):
     """Commit source readiness and compact the completed request record, never render PNGs."""
+    if plan.replacement:
+        from campaign_studio.regeneration import finish
+
+        return finish(state, run_id, plan)
     campaign_id = plan.brief.campaign_id
     records = source_records(state, run_id, plan)
     complete = len(records) == len(plan.brief.products)

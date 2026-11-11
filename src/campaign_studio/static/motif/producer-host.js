@@ -90,6 +90,8 @@ function productionView(context, operationHtml = "", notices = "") {
     operationHtml,
   };
   let html = MotifProducerRepair.production(view);
+  if (model.regeneration && model.regeneration.outcome !== "pending")
+    notices += `<p role="status">${esc(model.regeneration.message)}</p>`;
   const changedSources = context.plan?.changed_source_products || [];
   if (changedSources.length && !context.active) {
     const names = changedSources.map(product => product.name).join(", ");
@@ -220,6 +222,7 @@ async function producerAction(button) {
   if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
   const mapped = {
     "add-image": `addProductImage:${id}`, "update-key": "updateKey", resumeGeneration: "resumeGeneration",
+    regenerate: `regenerate:${id}`,
     add: "addProduct", "close-cap": "close", edit: `product:${id}`, source: `productSource:${id}`,
     "review-plan": "plan", "plan-input": "planDraftInput", settings: "settings", start: "start", key: "missingKey", stop: "stop",
     studio: "nav:review", browse: "pickProduct", save: "saveProduct", cancel: "cancelEdits",

@@ -618,6 +618,11 @@ class State:
         snapshot.digest = canonical_hash(
             {
                 "brief": snapshot.brief.model_dump(mode="json"),
+                **(
+                    {"replacement": snapshot.replacement.model_dump()}
+                    if snapshot.replacement
+                    else {}
+                ),
                 "assets": {name: asset.model_dump() for name, asset in assets.items()},
                 "generation_requests": {
                     name: request.model_dump()

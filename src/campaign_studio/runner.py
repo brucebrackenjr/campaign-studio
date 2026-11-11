@@ -88,8 +88,14 @@ class Runner:
                 raise StateError(
                     "The campaign brief changed. Review a fresh production plan before starting."
                 )
-            with self.state.storage.exclusive_draft():
-                self.state.require_authored_plan(run_id)
+            try:
+                with self.state.storage.exclusive_draft():
+                    self.state.require_authored_plan(run_id)
+            except StateError:
+                from campaign_studio.regeneration import not_started
+
+                not_started(self.state, run_id)
+                raise
             plan = self.state.plan(run_id, current=False)
             self.state.require_image_cleanup(run_id)
             require_font()
@@ -131,6 +137,10 @@ class Runner:
                     with self.state.storage.exclusive_draft():
                         if not self.state.attempts(run_id):
                             self.state.require_authored_plan(run_id)
+                        if plan.replacement:
+                            from campaign_studio.regeneration import require_current
+
+                            require_current(self.state, run["campaign_id"], plan.replacement)
                         attempt = self.state.reserve(run_id, product_id)
                     try:
                         receipt = await provider.generate(
@@ -185,6 +195,10 @@ class Runner:
             except BaseException:
                 if self.state.run(run_id)["state"] != "complete":
                     self.state.set_status(run_id, "paused")
+                if plan.replacement and not self.state.attempts(run_id):
+                    from campaign_studio.regeneration import not_started
+
+                    not_started(self.state, run_id)
                 raise
 
     def recover_local(self, run_id: str, revision_id: str | None = None) -> dict:

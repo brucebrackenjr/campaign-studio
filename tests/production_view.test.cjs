@@ -430,3 +430,23 @@ test('key access stays visible during missing-source validation without duplicat
   assert.equal((html.match(/data-pr-action="key"/g)||[]).length,1);
   assert.match(html,/OpenAI key/);
 });
+
+test('regeneration action is limited to server-admitted generated sources and hidden while active',()=>{
+ const h=harness();
+ h.run("model.plan.generation_products=[];model.run.state='complete';model.composition_version='v1';model.regeneratable_products=['a'];model.source_urls={a:'old-a',b:'old-b'};model.manifest={outputs:[{id:'a/en-US/1x1',product_id:'a',url:'old-a'}]};");
+ let html=h.run('productionView(productionContext())');
+ assert.equal((html.match(/data-pr-action="regenerate"/g)||[]).length,1);
+ assert.match(html,/data-pr-action="regenerate" data-pr-id="a"/);
+ h.run("operation={run_id:'run1',active:true}");
+ html=h.run('productionView(productionContext())');assert.doesNotMatch(html,/data-pr-action="regenerate"/);
+});
+
+test('regeneration confirmation names target, paid request, preservation, and exact settings',()=>{
+ const h=harness();
+ h.run("dialog=(title,body,footer)=>title+body+footer;regenerationReview={campaign:draft.campaign_id,product_name:'Only Alpha',background_only:false,cost_estimate:{estimated_usd:.1,pricing_date:'2026-10-29'},request:{model:'saved-model',size:'1920x1920',quality:'high',deadline_seconds:120,prompt:'Actual prompt'}}");
+ const html=h.run('regenerationDialog()');
+ assert.match(html,/Regenerate image for Only Alpha/);assert.match(html,/Confirm 1 paid request/);
+ assert.match(html,/Failure, timeout, or Stop keeps the current image/);assert.match(html,/Other products stay unchanged/);
+ assert.match(html,/Actual prompt/);assert.match(html,/zero automatic paid retries/);
+ h.run('regenerationReview.confirming=true');assert.match(h.run('regenerationDialog()'),/disabled/);
+});

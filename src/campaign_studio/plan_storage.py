@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from campaign_studio.brief import Brief, CampaignID, Contract, Identifier
-from campaign_studio.generation import GenerationRequest
+from campaign_studio.generation import GenerationRequest, ReplacementIntent
 from campaign_studio.planning import Plan, expand_outputs
 
 STORAGE_FORMAT = "brief-only-v1"
@@ -26,6 +26,7 @@ class GenerationReceipt(Contract):
 
 
 class CompletedRun(Contract):
+    replacement: ReplacementIntent | None = None
     storage_format: Literal["completed-run-v1"] = COMPLETED_FORMAT
     campaign_id: CampaignID
     generation: dict[Identifier, GenerationReceipt] = Field(default_factory=dict)
@@ -82,9 +83,10 @@ def dump_completed(plan, attempted_products):
         raise ValueError("A recorded image request has no saved generation settings.")
     receipt = CompletedRun(
         campaign_id=plan.brief.campaign_id,
+        replacement=plan.replacement,
         generation={product: sources[product] for product in sorted(set(attempted_products))},
     )
-    return receipt.model_dump_json()
+    return receipt.model_dump_json(exclude_none=True)
 
 
 def _require_matching_outputs(plan: Plan) -> None:

@@ -10,7 +10,7 @@ from pydantic import Field
 
 from campaign_studio.brief import FORMATS, Brief, Contract, Copy, Framing, Market, Ratio
 from campaign_studio.costing import estimate_requests
-from campaign_studio.generation import GenerationRequest, request_for
+from campaign_studio.generation import GenerationRequest, ReplacementIntent, request_for
 from campaign_studio.imaging import (
     ImageProblem,
     crop_box,
@@ -115,6 +115,7 @@ class Asset(Contract):
 
 
 class Plan(Contract):
+    replacement: ReplacementIntent | None = None
     cost_estimate: dict | None = None
     schema_version: Literal[1] = 1
     digest: str

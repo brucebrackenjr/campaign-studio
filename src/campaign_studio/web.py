@@ -32,6 +32,7 @@ from campaign_studio.imaging import (
 )
 from campaign_studio.intake import UPLOAD_LIMIT, Intake
 from campaign_studio.plan_storage import load_plan
+from campaign_studio.regeneration import RegenerationConfirm, RegenerationReview
 from campaign_studio.rendering import blocks_output
 from campaign_studio.review import RevisionTarget
 from campaign_studio.runner import SavedSourceError
@@ -281,9 +282,16 @@ def routes() -> APIRouter:
                 and run["state"] != "complete"
                 and progress.get("stage", "").startswith("Generating")
                 and not run["stop_requested"]
-                and len(attempts) < run["allowance"]
                 and (
-                    set(source_plan.generation_products) - source_ids - {progress.get("product_id")}
+                    source_plan.replacement is not None
+                    or (
+                        len(attempts) < run["allowance"]
+                        and (
+                            set(source_plan.generation_products)
+                            - source_ids
+                            - {progress.get("product_id")}
+                        )
+                    )
                 )
             ),
             "revision_id": manifest["revision_id"] if manifest else None,
@@ -323,6 +331,11 @@ def routes() -> APIRouter:
                     "message": "A saved source image is missing or changed. Local recovery cannot "
                     "repair that input. Open Production, attach the intended source again, "
                     "and review a new production plan. No image request was sent.",
+                }
+            except (ActionError, StateError) as error:
+                request.app.state.operation_errors[run_id] = {
+                    "code": error.code,
+                    "message": str(error),
                 }
             except Exception:
                 request.app.state.operation_errors[run_id] = {
@@ -636,6 +649,53 @@ def routes() -> APIRouter:
     async def uploaded_image(request: Request, name: str):
         return FileResponse(Intake(services(request).storage).uploaded_path(name))
 
+    @router.post("/api/campaigns/{campaign_id}/regeneration/preview")
+    async def regeneration_preview(
+        request: Request, campaign_id: CampaignID, action: RegenerationReview
+    ):
+        from campaign_studio.regeneration import review
+
+        require_idle(request)
+        return await asyncio.to_thread(review, services(request), campaign_id, action)
+
+    @router.post("/api/campaigns/{campaign_id}/regeneration/start")
+    async def regeneration_start(
+        request: Request, campaign_id: CampaignID, action: RegenerationConfirm
+    ):
+        from campaign_studio.regeneration import existing, prepare
+
+        workspace = services(request)
+        prior = await asyncio.to_thread(existing, workspace, campaign_id, action)
+        if prior and (prior["state"] not in {"planned", "confirmed"} or busy(request)):
+            return JSONResponse(
+                {**status(request, campaign_id), "disposition": "already_confirmed"},
+                status_code=202,
+            )
+        require_idle(request)
+        require_font()
+        if not request.app.state.key_available():
+            raise ActionError(MISSING_KEY.code, MISSING_KEY.message)
+        run = await asyncio.to_thread(prepare, workspace, campaign_id, action)
+        if run["state"] not in {"planned", "confirmed"} or busy(request):
+            return JSONResponse(
+                {**status(request, campaign_id), "disposition": "already_confirmed"},
+                status_code=202,
+            )
+        plan = workspace.state.plan(run["id"], current=False)
+        try:
+            await asyncio.to_thread(workspace.storage.require_capacity, production_bytes(plan, 1))
+            workspace.state.confirm(run["id"], plan.digest)
+            provider = request.app.state.provider_factory()
+        except Exception:
+            from campaign_studio.regeneration import not_started
+
+            await asyncio.to_thread(not_started, workspace.state, run["id"])
+            raise
+        launch(request, run["id"], lambda: request.app.state.runner.execute(run["id"], provider))
+        return JSONResponse(
+            {**status(request, campaign_id), "disposition": "started"}, status_code=202
+        )
+
     @router.post("/api/campaigns/{campaign_id}/start")
     async def start(request: Request, campaign_id: CampaignID, action: RunAction):
         workspace = services(request)
@@ -651,6 +711,11 @@ def routes() -> APIRouter:
             return status(request, campaign_id)
         require_idle(request)
         plan = workspace.state.plan(run["id"])
+        if plan.replacement:
+            raise ActionError(
+                "regeneration_review",
+                "Review a fresh regeneration confirmation before another image request.",
+            )
         if plan.source_blocked:
             raise ActionError(
                 "blocked", "Some campaign details need correcting before production can start."

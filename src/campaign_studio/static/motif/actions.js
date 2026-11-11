@@ -214,6 +214,7 @@ function openModal(name) {
   }, 0);
 }
 function closeModal({ cancel = false, retain = true, restoreFocus = true } = {}) {
+  if (modal === "regenerate" && regenerationReview?.confirming) return;
   if (typeof handoffDescriptionSave !== "undefined" && handoffDescriptionSave) {
     if (handoffDescriptionSave.queue.dirty() || handoffDescriptionSave.queue.busy())
       return flushHandoffDescriptionSave().then(saved => { if (saved) closeModal({ cancel, retain, restoreFocus }); });
@@ -324,6 +325,10 @@ const originalModalView = modalView;
 // Add service-backed recovery dialogs to the existing presentation entry point.
 // Keep one modal renderer so shared focus and Save lifecycle hooks apply to both.
 modalView = function () {
+  if (modal === "regenerate") return regenerationDialog();
+  if (modal === "stop" && model.regeneration) return dialog("Keep the current image?",
+    `<p>Stop regeneration for this product. The current image stays in your campaign. Any replacement arriving after Stop will remain unused.</p><p>The in-flight request may finish and may still be charged. Stopping locally cannot guarantee cancellation at the provider.</p>`,
+    btn("Keep running", "close") + btn("Stop regeneration", "confirmStop", "danger"));
   if (modal === "brand-navigation") return brandNavigationDialog();
   if (modal === "storage") return storageDialog();
   if (modal === "stop")
@@ -1311,6 +1316,12 @@ async function dispatchAction(data) {
         openModal("retry-plan");
         break;
       }
+      case "regenerate":
+        await reviewRegeneration(index);
+        break;
+      case "confirmRegeneration":
+        await confirmRegeneration();
+        break;
       case "start":
         await startDisplayedPlan();
         break;

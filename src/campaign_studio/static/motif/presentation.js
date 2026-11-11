@@ -277,7 +277,7 @@ function progressView(context = productionContext()) {
   const credentials = !active ? MotifProducerRepair.credentialPanel(context) : "";
   let content;
   if (credentials) content = credentials;
-  else if (active) content = `<h2>Preparing source images…</h2><p>${esc(operation?.stage || "Generating the next product image.")}</p>${operation?.stoppable ? btn("Stop unsent work", "stop", "pr-button pr-wide") : ""}`;
+  else if (active) content = `<h2>Preparing source images…</h2><p>${esc(operation?.stage || "Generating the next product image.")}</p>${operation?.stoppable ? btn(model.regeneration ? "Stop regeneration" : "Stop unsent work", "stop", "pr-button pr-wide") : ""}`;
   else if (unknown) content = `<h2>The image request could not be confirmed.</h2><p>The request may have completed and may be charged. Nothing will be resent automatically.</p>${recoverable ? btn("Look for saved result", "recover", "pr-button pr-primary pr-wide") : context.resumeGeneration ? btn("Review a new attempt", context.resumeAction, "pr-button pr-primary pr-wide") : ""}`;
   else if (retained) content = `<h2>A provider result is already saved.</h2><p>Recover the source image without another AI request.</p>${btn("Recover saved source images · 0 calls", "recover", "pr-button pr-primary pr-wide")}`;
   else if (context.resumeGeneration) content = `<h2>${stopped ? "Production stopped." : "Generation paused."}</h2>${noticeText ? `<p>${esc(noticeText)}</p>` : ""}${btn("Resume generation", context.resumeAction, "pr-button pr-primary pr-wide")}`;

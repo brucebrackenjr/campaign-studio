@@ -376,6 +376,14 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
         result["composition_issues"] = validation_issues(error)
         return result
     plan, sources = current["plan"], current["sources"]
+    from campaign_studio.regeneration import eligible, public_status
+
+    result["regeneratable_products"] = [
+        product.id
+        for product in plan.brief.products
+        if eligible(workspace, document, product, sources.get(product.id))
+    ]
+    result["regeneration"] = public_status(document, run)
     result["composition_issues"] = current["composition_issues"]
     result["unplanned_draft"] = bool(result["composition_issues"])
     expected_images = len(value["products"]) * len(plan.brief.markets) * 3
@@ -400,7 +408,9 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
     # request. Removing a missing product can make every remaining source ready;
     # adding a concept after a completed run requires a new reviewed request.
     needs_generation = bool(plan.generation_products)
-    if not needs_generation:
+    if not needs_generation and not (
+        result.get("regeneration") and result["regeneration"]["outcome"] == "failed"
+    ):
         result["notice"] = None
     admitted = bool(
         run
