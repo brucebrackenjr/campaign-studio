@@ -56,6 +56,7 @@ async function browserNavigation(event) {
   navigationBusy = true;
   try {
     await traverseNavigation(navigationIndex);
+    history.replaceState({ ...history.state, view: navigationView() }, "", location.href);
     if (await restoreNavigation(target.view)) {
       await traverseNavigation(target.motifIndex);
       navigationIndex = target.motifIndex;

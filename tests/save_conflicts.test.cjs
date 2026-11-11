@@ -146,3 +146,14 @@ test("Studio autosave is silent and never inserts routine status into the contro
     assert.equal(h.status.textContent,'','there is no routine success indicator');
   }
 });
+
+
+test("Handoff descriptions retain the unload warning while dirty, busy, or failed",()=>{
+  const h=environment();h.context.projectQueue={isDirty:()=>false};
+  for(const [dirty,busy] of [[true,false],[false,true],[true,true]]) {
+    h.context.handoffDescriptionSave={queue:{dirty:()=>dirty,busy:()=>busy}};
+    const closing=h.event();h.windowEvents.beforeunload(closing);assert.equal(closing.prevented,true);
+  }
+  h.context.handoffDescriptionSave={queue:{dirty:()=>false,busy:()=>false}};
+  const closing=h.event();h.windowEvents.beforeunload(closing);assert.equal(closing.prevented,false);
+});

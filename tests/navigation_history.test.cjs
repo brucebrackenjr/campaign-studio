@@ -27,10 +27,11 @@ function fixture() {
 test('history records routes and restores Back/Forward view without adding entries', async () => {
   const f = fixture();
   f.run("page='campaign';recordNavigation();retainNavigationView();page='review';reviewTab='images';pageNum=1;recordNavigation()");
+  f.c.tab = 'copy';
   f.history.go(-1); await tick(); await tick();
   assert.equal(f.c.page, 'campaign'); assert.equal(f.location.pathname, '/campaigns/a/campaign');
   f.history.go(1); await tick(); await tick();
-  assert.equal(f.c.page, 'review'); assert.equal(f.c.reviewTab, 'images'); assert.equal(f.c.pageNum, 1);
+  assert.equal(f.c.page, 'review'); assert.equal(f.c.reviewTab, 'images'); assert.equal(f.c.pageNum, 1); assert.equal(f.c.tab, 'copy');
   assert.equal(f.entries.length, 3);
 });
 test('Back restores original URL while a save is pending, then traverses after success', async () => {

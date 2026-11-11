@@ -937,6 +937,8 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", (event) => {
   if (window.MotifSave?.refreshing()) return;
   if (projectQueue?.isDirty() || studioSave?.dirty() || pendingProductUpload ||
+      (typeof handoffDescriptionSave !== "undefined" &&
+        (handoffDescriptionSave?.queue.dirty() || handoffDescriptionSave?.queue.busy())) ||
       (typeof brandChangesPending === "function" && brandChangesPending()) ||
       (typeof briefLogoUploadPending === "function" && briefLogoUploadPending())) {
     event.preventDefault();
