@@ -8,7 +8,7 @@ This local candidate retains Motif's Python and plain JavaScript stack. It has n
 - Clearing a headline keeps the product visible and editable. Export remains blocked until required wording is restored.
 - Preview planning and gallery images use bounded, content-checked caches to avoid repeating image decoding and layout work. Temporary editor PNGs use faster lossless compression.
 - Image generation honors its configured overall response deadline without an earlier 60-second read-inactivity cutoff. Automatic paid retries remain disabled, and uncertain outcomes remain recorded.
-- Production offers **Regenerate image** for a verified app-generated source, with a one-request estimate and explicit confirmation. The current image remains usable while generation runs and is retained after failure, Stop, or a conflicting edit. Request and cost accounting remain cumulative.
+- Production offers **Regenerate image** for a verified app-generated source, with a one-request estimate and explicit confirmation. The current image remains usable while generation runs and is retained after failure, an accepted Stop, or a conflicting edit. Request and cost accounting remain cumulative.
 - Browser Back and Forward respect pending saves and confirmations. Returning from an image restores the selected Studio gallery view.
 - Accessible descriptions entered in Handoff persist for the selected image and appear in its downloaded report. Individual PNG names include the market code, and reports distinguish verified app-generated sources from supplied imagery.
 - The README and Motif website present the application as an independent product. A new engineering case study explains architecture, preview recovery, and measured performance.

@@ -125,7 +125,7 @@ A lost connection does not tell Motif whether OpenAI completed or charged for a 
 
 A successful request does not create every final ad. The photograph stays separate from the wording and logo. Pillow combines them locally when the producer downloads.
 
-**Regenerate image** adds a deliberate replacement request for one verified app-generated source. Its confirmation is bound to the reviewed campaign version, current source hash, and an operation ID. The current source remains accepted during the network wait. Only a successful, still-current replacement can take its place; failure, Stop, or a conflicting change retains the existing image. Old source files and dispatched-attempt records remain available. The same underlying production and accounting services handle first generation and regeneration.
+**Regenerate image** adds a deliberate replacement request for one verified app-generated source. Its confirmation is bound to the reviewed campaign version, current source hash, and an operation ID. The current source remains accepted during the network wait. Only a successful, still-current replacement can take its place; failure, an accepted Stop, or a conflicting change retains the existing image. Old source files and dispatched-attempt records remain available. The same underlying production and accounting services handle first generation and regeneration.
 
 ## What happens during Download ZIP
 
