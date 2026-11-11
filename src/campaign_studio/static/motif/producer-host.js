@@ -90,6 +90,7 @@ function productionView(context, operationHtml = "", notices = "") {
     operationHtml,
   };
   let html = MotifProducerRepair.production(view);
+  notices += unresolvedRegenerationNotice();
   if (model.regeneration && model.regeneration.outcome !== "pending")
     notices += `<p role="status">${esc(model.regeneration.message)}</p>`;
   const changedSources = context.plan?.changed_source_products || [];

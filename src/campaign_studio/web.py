@@ -174,11 +174,13 @@ def routes() -> APIRouter:
             manifest["complete"] = all(item["url"] for item in manifest["outputs"])
         return manifest
 
-    def status(request, campaign_id):
+    def status(request, campaign_id, run_id=None):
         workspace = services(request)
         from campaign_studio.motif import attempt_details, campaign_data
 
-        run = ensure_run(request, campaign_id)
+        run = workspace.state.run(run_id) if run_id else ensure_run(request, campaign_id)
+        if run["campaign_id"] != campaign_id:
+            raise ActionError("campaign_identity", "This request belongs to another campaign.")
         # Source-operation accounting remains readable while a separate tab saves
         # a newer composition. Its progress must not depend on preview freshness.
         data = None
@@ -657,6 +659,23 @@ def routes() -> APIRouter:
 
         require_idle(request)
         return await asyncio.to_thread(review, services(request), campaign_id, action)
+
+    @router.post("/api/campaigns/{campaign_id}/regeneration/status")
+    async def regeneration_status(
+        request: Request, campaign_id: CampaignID, action: RegenerationConfirm
+    ):
+        from campaign_studio.regeneration import existing
+
+        prior = await asyncio.to_thread(existing, services(request), campaign_id, action)
+        if prior is None:
+            return {
+                "found": False,
+                "active": False,
+                "message": (
+                    "No confirmed request is recorded yet. This check sent no image request."
+                ),
+            }
+        return {**status(request, campaign_id, prior["id"]), "found": True}
 
     @router.post("/api/campaigns/{campaign_id}/regeneration/start")
     async def regeneration_start(

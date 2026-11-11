@@ -449,4 +449,29 @@ test('regeneration confirmation names target, paid request, preservation, and ex
  assert.match(html,/Failure, timeout, or Stop keeps the current image/);assert.match(html,/Other products stay unchanged/);
  assert.match(html,/Actual prompt/);assert.match(html,/zero automatic paid retries/);
  h.run('regenerationReview.confirming=true');assert.match(h.run('regenerationDialog()'),/disabled/);
+ h.run('regenerationReview.confirming=false;regenerationReview.uncertain=true');
+ const uncertain=h.run('regenerationDialog()');
+ assert.match(uncertain,/>Close dialog</);
+ assert.doesNotMatch(uncertain,/>Keep current image</);
+ assert.match(uncertain,/Closing this dialog does not stop it/);
+ assert.match(uncertain,/then use Stop regeneration in Production/);
+ assert.match(uncertain,/accepted result may already be in use/);
+});
+
+
+test('uncertain confirmation checks only saved status and retains an explicit paid choice when absent',async()=>{
+ const h=harness();
+ h.run(`regenerationReview={campaign:draft.campaign_id,version:'v1',product_id:'a',product_name:'Alpha',operation_id:'same-operation',digest:'same-digest',uncertain:true,confirming:false};
+ modal='regenerate';page='production';let lookups=[];
+ api=async(path,body)=>{lookups.push({path,body});return {found:false,message:'No confirmed request is recorded yet. This check sent no image request.'};};
+ openModal=()=>{};refreshProductionStatus=()=>{};`);
+ await h.run('confirmRegeneration()');
+ assert.equal(h.run('lookups.length'),1);
+ assert.match(h.run('lookups[0].path'),/regeneration\/status$/);
+ assert.equal(h.run('lookups[0].body.operation_id'),'same-operation');
+ assert.equal(h.run('regenerationReview.notRecorded'),true);
+ const notice=h.run('unresolvedRegenerationNotice()');
+ assert.match(notice,/Check this confirmed request/);
+ assert.match(notice,/Review a new paid request/);
+ assert.match(notice,/This check sent no image request/);
 });

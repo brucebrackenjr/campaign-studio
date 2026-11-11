@@ -341,4 +341,10 @@ def public_status(document, run):
             "no request was resent."
         ),
     }
-    return {"product_id": intent.product_id, "outcome": outcome, "message": messages[outcome]}
+    return {
+        "product_id": intent.product_id,
+        "outcome": outcome,
+        "message": messages[outcome],
+        "operation_id": intent.operation_id,
+        "reviewed_version": intent.document_version,
+    }

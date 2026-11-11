@@ -275,6 +275,10 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
     modal = studioWorkspace.mode === "framing" ? "frame" : studioWorkspace.mode;
     if (closingKind === "rename") resumeEditorAfterDialog();
   }
+  if (closingKind === "regenerate" && regenerationReview?.uncertain) {
+    if (page === "production") refreshProductionStatus();
+    resolveRegenerationStatus();
+  }
 }
 async function finishPendingNavigation() {
   const destination = pendingNav;

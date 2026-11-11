@@ -265,11 +265,19 @@ def test_http_confirmation_is_idempotent_and_export_survives_provider_wait(gener
             key: proposed.json()[key] for key in ("version", "product_id", "operation_id", "digest")
         }
         assert read(ws.storage, cid) == before
+        absent = client.post(f"/api/campaigns/{cid}/regeneration/status", json=confirmation)
+        assert absent.status_code == 200 and not absent.json()["found"]
+        assert calls == []
+        assert read(ws.storage, cid) == before
         try:
             started = client.post(f"/api/campaigns/{cid}/regeneration/start", json=confirmation)
             assert started.status_code == 202, started.text
             run_id = started.json()["run_id"]
             assert dispatched.wait(5)
+            checked = client.post(f"/api/campaigns/{cid}/regeneration/status", json=confirmation)
+            assert checked.status_code == 200 and checked.json()["found"]
+            assert checked.json()["run_id"] == run_id and checked.json()["active"]
+            assert len(calls) == 1
             duplicate = client.post(f"/api/campaigns/{cid}/regeneration/start", json=confirmation)
             assert duplicate.status_code == 202, duplicate.text
             assert len(calls) == 1
@@ -296,6 +304,10 @@ def test_http_confirmation_is_idempotent_and_export_survives_provider_wait(gener
                 break
             time.sleep(0.01)
         assert not status["active"]
+        checked = client.post(f"/api/campaigns/{cid}/regeneration/status", json=confirmation)
+        assert checked.status_code == 200 and checked.json()["found"]
+        assert checked.json()["run_id"] == run_id and not checked.json()["active"]
+        assert checked.json()["state"] == ("stopped" if stop else "complete")
         assert len(calls) == 1
         duplicate = client.post(f"/api/campaigns/{cid}/regeneration/start", json=confirmation)
         assert duplicate.status_code == 202

@@ -24,7 +24,7 @@ function harness(validate, canAutosave) {
     delay: 5,
   });
   const api = {
-    queue, calls, statuses, acknowledgements, saved,
+    queue, calls, statuses, acknowledgements, saved, context,
     reply: async () => ({ version: "v2", saved_at: "now", authored_hash: "ack" }),
     get current() { return current; },
     set current(value) { current = value; },
@@ -1180,4 +1180,25 @@ test('rename and rule capture save recoverable proposals without applying them',
  captured=c.captureProject();assert.equal(captured.brief.markets['en-US'].phrase_rules[0].phrase,'Original rule');
  assert.equal(captured.form_drafts.fields['rule/en/0']['mw-rule-phrase'],'Proposed rule');
  c.clearProjectTarget();assert.equal(c.draft.markets['en-US'].phrase_rules[0].phrase,'Original rule');
+});
+
+
+test('exact regeneration receipt advances a lost-start source guard while preserving dirty typing and competing edits',async()=>{
+ for(const competing of [false,true]) {
+  const h=harness(),c=h.context;
+  c.copy=structuredClone;c.draft=h.current.brief;
+  c.queueForTest=h.queue;
+  vm.runInContext(`projectOwner='08639a3c-6df4-53cd-9cf4-e1ce27b66273';projectQueue=queueForTest;`,c);
+  h.current.brief.name='New unsaved typing';
+  const result={value:{campaign_id:'08639a3c-6df4-53cd-9cf4-e1ce27b66273'},version:'v2',run:{id:'replacement'},
+   project:{...structuredClone(h.saved),version:'v2',base:{run_id:'replacement'}},
+   regeneration:{operation_id:'confirmed-operation',reviewed_version:'v1'}};
+  if(competing)result.project.authored.brief.color='#ffffff';
+  c.receiveProject(result,{version:'v1',run:{id:'old-run'}},{sourceCompletion:'replacement',confirmedRegeneration:{operationId:'confirmed-operation',version:'v1'}});
+  assert.equal(h.queue.version(),competing?'v1':'v2');
+  assert.equal(h.current.brief.name,'New unsaved typing');
+  assert.equal(h.queue.isDirty(),true);
+  if(!competing){await h.queue.saveCurrent();assert.equal(h.calls[0].value.version,'v2');}
+  h.queue.stop();
+ }
 });
