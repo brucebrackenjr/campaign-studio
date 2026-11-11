@@ -246,7 +246,7 @@ def text_blocks(copy: Copy, ratio: Ratio, framing=None, *, validate=True):
         ("message", copy.message, 60),
         ("cta", copy.cta, 38),
     ):
-        if text is None:
+        if text is None or not text.strip():
             continue
         # Preserve the old positions of blocks that have not been arranged. An
         # arranged block is validated with its chosen font/size below, not the

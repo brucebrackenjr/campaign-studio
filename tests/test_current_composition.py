@@ -294,3 +294,318 @@ def test_nonimagery_campaign_changes_do_not_request_a_new_generated_source(tmp_p
     assert not snapshot["plan"].generation_products
     assert snapshot["plan"].cost_estimate["estimated_usd"] == 0
     assert len(state.attempts(run)) == 1
+
+
+@pytest.mark.parametrize("market", ["en-US", "es-MX"])
+@pytest.mark.parametrize("shared", [False, True])
+def test_blank_headline_preserves_editable_sources_but_blocks_every_delivery(
+    current, market, shared
+):
+    ws, cid = current
+    save_campaign(
+        ws, cid, lambda b: b["markets"].update({"es-MX": copy.deepcopy(b["markets"]["en-US"])})
+    )
+    original = campaign_data(ws, cid)
+    pid = original["output_brief"]["products"][0]["id"]
+
+    def blank(brief):
+        if shared:
+            brief["markets"][market]["copy"]["message"] = ""
+        else:
+            brief["products"][0].setdefault("copy_overrides", {}).setdefault(market, {})[
+                "message"
+            ] = ""
+
+    save_campaign(ws, cid, blank)
+    data = campaign_data(ws, cid)
+    assert data["composition_issues"]
+    assert not data["manifest"]["complete"]
+    assert data["editable_products"] == original["editable_products"]
+    assert set(data["source_urls"]) == set(original["source_urls"])
+    assert len(data["manifest"]["outputs"]) == len(original["manifest"]["outputs"])
+    for output in data["manifest"]["outputs"]:
+        before = next(o for o in original["manifest"]["outputs"] if o["id"] == output["id"])
+        if output["market"] == market and (shared or output["product_id"] == pid):
+            assert output["copy"]["message"] == ""
+        else:
+            assert output["copy"] == before["copy"]
+    app = create_app(Settings(data_dir=ws.storage.root), key_available=lambda: False)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        headers = {"X-Campaign-Token": app.state.csrf, "Origin": "http://127.0.0.1"}
+        version = data["version"]
+        # Incomplete wording remains visible and editable in both markets.
+        for language in ["en-US", "es-MX"]:
+            response = client.get(
+                f"/api/campaigns/{cid}/composition/{version}/images/{pid}/{language}/1x1"
+            )
+            assert response.status_code == 200, response.text
+        for partial in [False, True]:
+            for endpoint in ["zip", "report-preview"]:
+                response = client.post(
+                    f"/api/campaigns/{cid}/delivery/{endpoint}",
+                    json={"version": version, "allow_partial": partial},
+                    headers=headers,
+                )
+                assert response.status_code == 422, response.text
+        for language in ["en-US", "es-MX"]:
+            response = client.get(
+                f"/api/campaigns/{cid}/composition/{version}/download/{pid}/{language}/1x1"
+            )
+            assert response.status_code == 422, response.text
+    assert campaign_data(ws, cid)["editable_products"][pid]
+    # Correction retains the same source ownership and retires the incomplete issue.
+    if shared:
+        save_campaign(
+            ws, cid, lambda b: b["markets"][market]["copy"].update(message="Corrected headline")
+        )
+    else:
+        ws.save_composition(
+            cid,
+            TextEdit(
+                revision_id=data["version"],
+                product_id=pid,
+                market=market,
+                ratio="1:1",
+                values={"message": "Corrected headline"},
+                field_scopes={"message": "product"},
+            ),
+        )
+    corrected = campaign_data(ws, cid)
+    assert not corrected["composition_issues"]
+    assert corrected["manifest"]["complete"]
+    assert set(corrected["source_urls"]) == set(original["source_urls"])
+
+
+@pytest.mark.parametrize("market", ["en-US", "es-MX"])
+@pytest.mark.parametrize("shared", [False, True])
+def test_blank_headline_projection_isolates_other_incomplete_product(current, market, shared):
+    ws, cid = current
+    save_campaign(
+        ws, cid, lambda b: b["markets"].update({"es-MX": copy.deepcopy(b["markets"]["en-US"])})
+    )
+    original = campaign_data(ws, cid)
+    retained = original["output_brief"]["products"][0]["id"]
+    excluded = original["output_brief"]["products"][1]["id"]
+
+    def incomplete(brief):
+        brief["products"][1]["name"] = ""
+        if shared:
+            brief["markets"][market]["copy"]["message"] = ""
+        else:
+            brief["products"][0].setdefault("copy_overrides", {}).setdefault(market, {})[
+                "message"
+            ] = ""
+
+    save_campaign(ws, cid, incomplete)
+    data = campaign_data(ws, cid)
+    assert data["editable_products"][retained]
+    assert not data["editable_products"][excluded]
+    assert len(data["manifest"]["outputs"]) == 6
+    assert not data["manifest"]["complete"]
+    assert len(data["composition_issues"]) == 2
+    for output in data["manifest"]["outputs"]:
+        assert output["product_id"] == retained
+        if output["market"] == market:
+            assert output["copy"]["message"] == ""
+    # The projection has no authority to bypass the strict current document.
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ws.current_composition(cid)
+    assert read(ws.storage, cid)["authored"]["brief"]["products"][1]["name"] == ""
+    save_campaign(ws, cid, lambda b: b["products"][1].update(name="Restored product"))
+    recovered = campaign_data(ws, cid)
+    assert len(recovered["manifest"]["outputs"]) == 12
+    assert recovered["editable_products"][excluded]
+    assert len(recovered["composition_issues"]) == 1
+
+
+@pytest.mark.parametrize("market", ["en-US", "es-MX"])
+@pytest.mark.parametrize("scope", ["product", "all_products"])
+def test_text_post_preview_displays_empty_headline_without_saving_or_admitting_delivery(
+    current, market, scope
+):
+    from pydantic import ValidationError
+
+    ws, cid = current
+    save_campaign(
+        ws, cid, lambda b: b["markets"].update({"es-MX": copy.deepcopy(b["markets"]["en-US"])})
+    )
+    original = read(ws.storage, cid)
+    pid = original["authored"]["brief"]["products"][0]["id"]
+    body = {
+        "revision_id": original["version"],
+        "product_id": pid,
+        "market": market,
+        "ratio": "1:1",
+        "values": {"message": ""},
+        "field_scopes": {"message": scope},
+    }
+    app = create_app(Settings(data_dir=ws.storage.root), key_available=lambda: False)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        headers = {"X-Campaign-Token": app.state.csrf, "Origin": "http://127.0.0.1"}
+        response = client.post(f"/api/campaigns/{cid}/text/preview", json=body, headers=headers)
+        assert response.status_code == 200, response.text
+        proposed = response.json()
+        assert proposed["composition_issues"]
+        assert not proposed["blocked"]
+        assert "message" not in proposed["geometry"]["text_blocks"]
+        assert "cta" in proposed["geometry"]["text_blocks"]
+        assert proposed["images"]
+        selected = next(
+            image for image in proposed["images"] if image["id"] == f"{pid}/{market}/1x1"
+        )
+        assert "message" not in selected["layers"]["text_blocks"]
+        assert "cta" in selected["layers"]["text_blocks"]
+        assert client.get(selected["url"]).status_code == 200
+        assert read(ws.storage, cid) == original, (
+            "a preview must not save source or copy instructions"
+        )
+        with pytest.raises(ValidationError):
+            ws.text(cid, TextEdit(**body))
+        saved = client.post(f"/api/campaigns/{cid}/text/save", json=body, headers=headers)
+        assert saved.status_code == 200, saved.text
+        version = saved.json()["version"]
+        after = client.post(
+            f"/api/campaigns/{cid}/text/preview",
+            json={**body, "revision_id": version},
+            headers=headers,
+        )
+        assert after.status_code == 200, after.text
+        assert "message" not in after.json()["geometry"]["text_blocks"]
+        other = "es-MX" if market == "en-US" else "en-US"
+        current_data = campaign_data(ws, cid)
+        assert all(
+            output["copy"]["message"]
+            for output in current_data["manifest"]["outputs"]
+            if output["market"] == other
+        )
+        for partial in [False, True]:
+            refused = client.post(
+                f"/api/campaigns/{cid}/delivery/zip",
+                json={"version": version, "allow_partial": partial},
+                headers=headers,
+            )
+            assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.parametrize(
+    ("path", "invalid"),
+    [
+        ([], None),
+        ([], "unfinished brief"),
+        ([], []),
+        ([], {}),
+        (["markets"], None),
+        (["markets"], "unfinished markets"),
+        (["markets"], []),
+        (["markets"], {}),
+        (["markets", "en-US"], None),
+        (["markets", "en-US"], "unfinished market"),
+        (["markets", "en-US"], []),
+        (["markets", "en-US"], {}),
+        (["markets", "en-US", "copy"], None),
+        (["markets", "en-US", "copy"], "unfinished copy"),
+        (["markets", "en-US", "copy"], []),
+        (["markets", "en-US", "copy"], {}),
+        (["products"], None),
+        (["products"], "not yet a list"),
+        (["products"], {}),
+        (["products"], []),
+        (["products", 0], None),
+        (["products", 0], "unfinished product"),
+        (["products", 0], []),
+        (["products", 0], {}),
+        (["products", 0, "copy_overrides"], None),
+        (["products", 0, "copy_overrides"], "unfinished overrides"),
+        (["products", 0, "copy_overrides"], []),
+        (["products", 0, "copy_overrides", "en-US"], None),
+        (["products", 0, "copy_overrides", "en-US"], "unfinished override"),
+        (["products", 0, "copy_overrides", "en-US"], []),
+        (["products", 0, "copy_overrides", "en-US"], {"message": None}),
+    ],
+)
+def test_malformed_preview_containers_remain_validation_errors_without_image_reads(
+    current, monkeypatch, path, invalid
+):
+    from pydantic import ValidationError
+
+    from campaign_studio.compositions import preview_brief
+
+    ws, cid = current
+    document = read(ws.storage, cid)
+    value = copy.deepcopy(document["authored"]["brief"])
+    # One product makes malformed product containers unprojectable while still
+    # exercising the supported empty-headline projection alongside each shape.
+    value["products"] = value["products"][:1]
+    value["markets"]["en-US"]["copy"]["message"] = ""
+    value["products"][0]["copy_overrides"] = {"en-US": {"message": ""}}
+    if path:
+        target = value
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = copy.deepcopy(invalid)
+    else:
+        value = copy.deepcopy(invalid)
+    original = copy.deepcopy(value)
+    monkeypatch.setattr(
+        "campaign_studio.compositions.load_image",
+        lambda *args, **kwargs: pytest.fail("Malformed preview containers must not read images."),
+    )
+    monkeypatch.setattr(
+        "campaign_studio.imaging.load_image",
+        lambda *args, **kwargs: pytest.fail("Malformed preview containers must not read images."),
+    )
+    with pytest.raises(ValidationError):
+        preview_brief(value)
+    assert value == original
+    assert read(ws.storage, cid) == document
+
+
+@pytest.mark.parametrize("field", ["message", "cta"])
+@pytest.mark.parametrize("scope", ["product", "all_products"])
+@pytest.mark.parametrize("other_blank", [False, True])
+def test_preview_refuses_over_limit_target_without_isolating_it(current, field, scope, other_blank):
+    from campaign_studio.text_limits import LIMITS
+
+    ws, cid = current
+    if other_blank:
+        save_campaign(
+            ws,
+            cid,
+            lambda b: (
+                b["products"][1].setdefault("copy_overrides", {}).update({"en-US": {"message": ""}})
+            ),
+        )
+    original = read(ws.storage, cid)
+    limit = LIMITS["headline" if field == "message" else "cta"]
+    body = {
+        "revision_id": original["version"],
+        "product_id": original["authored"]["brief"]["products"][0]["id"],
+        "market": "en-US",
+        "ratio": "1:1",
+        "values": {field: "X" * (limit + 1)},
+        "field_scopes": {field: scope},
+    }
+    app = create_app(Settings(data_dir=ws.storage.root), key_available=lambda: False)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        headers = {"X-Campaign-Token": app.state.csrf, "Origin": "http://127.0.0.1"}
+        endpoint = f"/api/campaigns/{cid}/text"
+        refused = client.post(endpoint + "/preview", json=body, headers=headers)
+        assert refused.status_code == 422, refused.text
+        assert any(
+            issue["code"] == "text_too_long"
+            and issue["path"][-1] == field
+            and str(limit) in issue["message"]
+            for issue in refused.json()["field_errors"]
+        )
+        assert read(ws.storage, cid) == original
+        corrected = client.post(
+            endpoint + "/preview",
+            json={**body, "values": {field: "Corrected wording"}},
+            headers=headers,
+        )
+        assert corrected.status_code == 200, corrected.text
+        assert corrected.json()["images"]
+        assert corrected.json()["geometry"]["text_blocks"][field]
+        assert read(ws.storage, cid) == original

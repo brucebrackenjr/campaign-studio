@@ -381,15 +381,8 @@ function restoreProjectControls({ preserveModal = false } = {}) {
 function captureProject() {
   const forms = projectBuffers.form_drafts;
   if (typeof captureProductInputs === "function") captureProductInputs();
-  if (modal === "rule" && ruleIndex >= 0 && $("#mw-rule-phrase")) {
-    const rule = draft.markets[MARKET[lang]]?.phrase_rules?.[ruleIndex];
-    if (rule && rule.phrase !== $("#mw-rule-phrase").value) {
-      const previousRules = copy(draft.markets[MARKET[lang]].phrase_rules);
-      rule.phrase = $("#mw-rule-phrase").value;
-      if (typeof requeueAllowedCampaignCopy === "function") requeueAllowedCampaignCopy(previousRules);
-    }
-  }
-  if (modal === "rename" && $("#rename-name")) draft.name = $("#rename-name").value;
+  // Rename and rule dialogs keep recoverable form drafts until their explicit
+  // Save action. Autosaving that buffer must not apply a cancelled proposal.
   if (page === "campaign") {
     captureProjectFields(`brief/${tab}/${lang}`, $("#main"));
   }
@@ -486,7 +479,7 @@ function initializeProject(saved) {
     restore: restoreProject,
     send: (id, body) => api(`/api/motif/campaigns/${encodeURIComponent(id)}/authored`, body),
     changed: publishProjectState,
-    autosave: saveProject,
+    autosave: () => saveProject({ deferTyping: true }),
     canAutosave: () => !["text", "frame", "logo", "inspect"].includes(modal),
     validate: authored => MotifTextLimits.authoredIssue(authored),
     acknowledged(ack, id, submitted, current) {
@@ -604,9 +597,9 @@ function reconcileAppliedForms(previous, current) {
       }
   }
 }
-async function saveProject() {
+async function saveProject({ deferTyping = false } = {}) {
   if (!projectQueue) return false;
-  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges()) return false;
+  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges({ deferTyping })) return false;
   const owner = projectOwner;
   const saved = await projectQueue.saveCurrent();
   if (saved && owner === projectOwner) dirty = false;

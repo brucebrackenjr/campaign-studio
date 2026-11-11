@@ -757,6 +757,7 @@ def routes() -> APIRouter:
             "impact": impact,
             "images": images,
             "geometry": {"canvas_size": [selected.width, selected.height], "text_blocks": geometry},
+            "composition_issues": impact["composition_issues"],
             "blocked": bool(blocking),
             "findings": [finding.model_dump() for finding in blocking],
         }

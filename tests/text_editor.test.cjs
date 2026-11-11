@@ -10,7 +10,7 @@ function fixture() {
     MotifTextLimits: {issue: () => null, guardFields: () => true},
     document: { addEventListener() {} },
     $: () => ({ getBoundingClientRect: () => ({ left: 10, top: 20, width: 540, height: 540 }) }),
-    listeners, scheduleStudioSave(){},
+    listeners, copy: structuredClone, scheduleStudioSave(){},
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/campaign_studio/static/motif/text.js'), 'utf8'), context);
   vm.runInContext(`
@@ -263,4 +263,20 @@ test('Apply to all products is a one-shot field action with in-flight duplicate 
  assert.equal(f.run('textEditor.all.message'),false,'later typing is not a shared operation');
  const second=f.run('applyTextToAllProducts("cta")');assert.equal(captured.all.cta,true);assert.equal(captured.all.message,false);release(false);await second;
  assert.equal(f.run('textEditor.all.cta'),false,'failure cannot leave a sticky all-products scope');
+});
+
+
+test('Reset placement uses newly measured geometry for subsequent movement',()=>{
+ const f=fixture();
+ f.run(`textEditor.placements={message:null,cta:null};textEditor.geometry.text_blocks.message.placement={left:.1,top:.1,width:.8,font_size:60};`);
+ const gesture=f.run('moveTextGesture(readTextGesture(),20,10)');
+ assert.equal(gesture.placement.left,.1+20/1080);
+ assert.equal(gesture.placement.top,.1+10/1080);
+});
+
+test('style proposed for empty optional wording does not require nonexistent geometry',async()=>{
+ const f=fixture();
+ f.run(`textEditor.selected='cta';textEditor.values={message:'Keep saving',cta:''};textEditor.pendingStyles={cta:{font_id:'barlow_condensed'}};`);
+ assert.equal(await f.run('prepareTextStyleSave()'),true);
+ assert.equal(f.run('textEditor.pendingStyles.cta.font_id'),'barlow_condensed');
 });

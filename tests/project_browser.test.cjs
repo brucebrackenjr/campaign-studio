@@ -1163,3 +1163,21 @@ test('all-products Studio wording preserves canonical empty override keys withou
     vm.runInContext('projectQueue.stop()',context);
   }
 });
+
+
+test('rename and rule capture save recoverable proposals without applying them',()=>{
+ const field={id:'rename-name',type:'text',value:'Proposed name'};
+ const root={querySelectorAll:()=>[field]};
+ const c=vm.createContext({structuredClone,setTimeout,clearTimeout,copy:structuredClone,
+  draft:{campaign_id:'x',name:'Original name',markets:{'en-US':{phrase_rules:[{phrase:'Original rule'}]}},products:[]},
+  C:{products:[]},page:'review',tab:'copy',lang:'en',modal:'rename',currentFormat:0,currentProduct:0,ruleIndex:0,
+  MARKET:{en:'en-US'},imageEditorRoot:()=>root,$:()=>root});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/project.js','utf8'),c);
+ let captured=c.captureProject();assert.equal(captured.brief.name,'Original name');
+ assert.equal(captured.form_drafts.fields.rename['rename-name'],'Proposed name');
+ c.clearProjectTarget();assert.equal(c.captureProject().brief.name,'Original name');
+ c.modal='rule';field.id='mw-rule-phrase';field.value='Proposed rule';
+ captured=c.captureProject();assert.equal(captured.brief.markets['en-US'].phrase_rules[0].phrase,'Original rule');
+ assert.equal(captured.form_drafts.fields['rule/en/0']['mw-rule-phrase'],'Proposed rule');
+ c.clearProjectTarget();assert.equal(c.draft.markets['en-US'].phrase_rules[0].phrase,'Original rule');
+});

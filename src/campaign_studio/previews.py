@@ -240,11 +240,9 @@ class DraftPreviews:
                                     render_framing,
                                 )
                             with io.BytesIO() as buffer:
-                                # Temporary logo previews favor encoding speed. Saved
+                                # Temporary editor previews favor encoding speed. Saved
                                 # revisions and exports retain their PNG defaults.
-                                save_srgb(
-                                    result, buffer, compress_level=3 if logo_preview else None
-                                )
+                                save_srgb(result, buffer, compress_level=3)
                                 payload = buffer.getvalue()
                                 size += len(payload)
                                 if size > self.max_bytes:
@@ -274,7 +272,7 @@ class DraftPreviews:
                                         block["lines"], base.size, plan.brief.brand.text_color
                                     )
                                     with io.BytesIO() as buffer:
-                                        save_srgb(layer, buffer)
+                                        save_srgb(layer, buffer, compress_level=3)
                                         images[output.id + "-text-" + block["id"]] = (
                                             buffer.getvalue()
                                         )
@@ -286,7 +284,7 @@ class DraftPreviews:
                                     )
                                     layer.close()
                                 with io.BytesIO() as buffer:
-                                    save_srgb(base, buffer)
+                                    save_srgb(base, buffer, compress_level=3)
                                     images[output.id + "-base"] = buffer.getvalue()
                                 layers[output.id] = {
                                     "canvas_size": [output.width, output.height],
@@ -367,7 +365,7 @@ class DraftPreviews:
                                     )
                                 )
                                 with io.BytesIO() as buffer:
-                                    save_srgb(overlay, buffer)
+                                    save_srgb(overlay, buffer, compress_level=3)
                                     images[output.id + "-overlay"] = buffer.getvalue()
                                 overlay.close()
                         finally:

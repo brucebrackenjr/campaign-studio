@@ -136,7 +136,7 @@ def test_unchanged_open_cannot_reuse_another_tabs_superseded_revision(saved):
     assert error.value.code == "composition_conflict"
 
 
-def test_only_logo_previews_use_fast_compression(saved, monkeypatch):
+def test_temporary_editor_previews_use_fast_compression(saved, monkeypatch):
     from campaign_studio.workspace import FrameEdit
 
     state, _, cid, logo = saved
@@ -160,4 +160,4 @@ def test_only_logo_previews_use_fast_compression(saved, monkeypatch):
         framing=plan.outputs[0].framing,
     )
     DraftPreviews(state).render(cid, framing, plan, impact, framing_preview=True)
-    assert calls == [None, None]
+    assert calls == [3, 3]

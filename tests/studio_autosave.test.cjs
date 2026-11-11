@@ -129,3 +129,25 @@ test("save acknowledgement removes corrected wording and fit findings while pres
  assert.deepEqual(Array.from(next.manifest.findings,f=>f.rule),["source"]);
  assert.equal(previous.manifest.findings.length,3);
 });
+
+
+test('a secondary dialog cannot change the pending description capture target',()=>{
+ const c=vm.createContext({structuredClone,setTimeout,clearTimeout,modal:'source',
+  studioWorkspace:{mode:'inspect'},C:{products:[{id:'a'}]},currentProduct:0,currentFormat:0,
+  MARKET:{en:'en-US'},lang:'en',FMT:[{ratio:'1:1'}],$:()=>({value:'Pending description'})});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/studio-autosave.js','utf8'),c);
+ assert.deepEqual(JSON.parse(JSON.stringify(c.studioSaveCapture())),{kind:'metadata',product:'a',market:'en-US',ratio:'1:1',description:'Pending description'});
+});
+
+
+test('incomplete headline acknowledgement updates completeness before refresh and correction restores it',()=>{
+ const c=vm.createContext({structuredClone,setTimeout,clearTimeout});
+ vm.runInContext(readFileSync('src/campaign_studio/static/motif/studio-autosave.js','utf8'),c);
+ const original={version:'v1',composition_issues:[],manifest:{complete:true,findings:[],outputs:[{id:'a/en-US/1x1',product_id:'a',ratio:'1:1',url:'/composition/v1/image',eligible_for_export:true}]}};
+ const blank=c.mergeStudioAcknowledgement(original,{version:'v2',composition_slots:[{id:'a/en-US/1x1',copy:{message:''}}],composition_issues:[{code:'invalid_text'}],composition_findings:[]});
+ assert.equal(blank.manifest.complete,false);
+ assert.equal(blank.manifest.outputs[0].copy.message,'');
+ const fixed=c.mergeStudioAcknowledgement(blank,{version:'v3',composition_slots:[{id:'a/en-US/1x1',copy:{message:'Corrected'}}],composition_issues:[],composition_findings:[]});
+ assert.equal(fixed.manifest.complete,true);
+ assert.equal(original.manifest.complete,true);
+});

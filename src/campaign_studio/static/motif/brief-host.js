@@ -161,6 +161,7 @@ function destroyBriefFlow() {
   cancelBriefLogoUpload(briefHost);
   clearTimeout(briefHost.timer);
   briefHost.saveView?.destroy();
+  briefHost.root?.removeEventListener("focusout", briefHost.copyBlur);
   briefHost.view.destroy();
   briefHost = null;
 }
@@ -170,7 +171,10 @@ function mountBriefFlow() {
   if (briefFacts.campaign !== draft.campaign_id) briefFacts = { campaign: draft.campaign_id, logos: new Map() };
   const context = { owner: draft.campaign_id, productId: C.products[currentProduct]?.id, ratio: FMT[currentFormat]?.ratio || "1:1", generation: 0, upload: 0, dead: false };
   briefHost = context;
-  context.view = MotifBriefFlow.mount($("#brief-root"), {
+  context.root = $("#brief-root");
+  context.copyBlur = event => scheduleCampaignCopyBlur(context, event);
+  context.root.addEventListener("focusout", context.copyBlur);
+  context.view = MotifBriefFlow.mount(context.root, {
     onField: (key, value, meta) => changeBriefField(context, key, value, meta),
     onAction: action => briefAction(context, action).catch(error => toast(error.message)),
     onFile: file => attachBriefLogo(context, file),
@@ -398,6 +402,20 @@ function setCampaignWording(field, value, market = MARKET[lang]) {
 // Other Campaign fields may still autosave while this decision is pending.
 const campaignCopyChanges = new Map();
 let campaignCopyTimer = null, campaignCopyDecision = null, campaignCopyReview = null;
+function scheduleCampaignCopyBlur(context, event) {
+  // A background timer may have expired during a long writing pause. Genuine
+  // focus departure gives that proposal a fresh review opportunity; rendering
+  // teardown and moving on to another live field must not interrupt typing.
+  if (!ownsBrief(context) || context.rendering || !pendingCampaignCopy().length ||
+      !event.target.matches("input,textarea,select,[contenteditable=\"true\"]")) return;
+  const owner = draft;
+  clearTimeout(campaignCopyTimer);
+  campaignCopyTimer = setTimeout(() => {
+    if (draft === owner && !modal && pendingCampaignCopy().length)
+      saveProject({ deferTyping: true }).catch(() => {});
+  }, 1200);
+}
+
 function pendingCampaignCopy() {
   // Wording warnings block delivery, not editing or previewing current text.
   return [...campaignCopyChanges.values()].filter(change => change.owner === draft);
@@ -427,7 +445,7 @@ function requeueRestoredCampaignCopy() {
   if (!restored) return;
   clearTimeout(campaignCopyTimer);
   campaignCopyTimer = setTimeout(() => {
-    if (draft === owner && !modal && pendingCampaignCopy().length) saveProject().catch(() => {});
+    if (draft === owner && !modal && pendingCampaignCopy().length) saveProject({ deferTyping: true }).catch(() => {});
   }, 1200);
 }
 function requeueAllowedCampaignCopy(previousRules) {
@@ -463,7 +481,7 @@ function changeCampaignWording(field, value) {
   change.value = value;
   clearTimeout(campaignCopyTimer);
   campaignCopyTimer = setTimeout(() => {
-    if (!modal && pendingCampaignCopy().length) saveProject().catch(() => {});
+    if (!modal && pendingCampaignCopy().length) saveProject({ deferTyping: true }).catch(() => {});
   }, 1200);
 }
 function safeCampaignCopyCapture(authored) {
@@ -521,9 +539,13 @@ function finishCampaignCopy(replace) {
   }
   decision.resolve(true);
 }
-async function confirmCampaignCopyChanges() {
+async function confirmCampaignCopyChanges({ deferTyping = false } = {}) {
   clearTimeout(campaignCopyTimer);
   if (campaignCopyReview) return campaignCopyReview;
+  // A typing pause is not a decision to replace custom product copy. Wait for
+  // the producer to leave this field or activate Save before opening a dialog.
+  if (deferTyping && typeof document !== "undefined" && document.activeElement?.matches?.('input,textarea,select,[contenteditable="true"]') &&
+      pendingCampaignCopy().some(change => affectedCampaignCopy(change).length)) return false;
   campaignCopyReview = (async () => {
     while (pendingCampaignCopy().length) {
       if (modal && modal !== "campaign-copy-confirm") return false;

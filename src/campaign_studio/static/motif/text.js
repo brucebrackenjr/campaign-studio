@@ -45,7 +45,6 @@ function textBlock(editor = textEditor) {
   return editor?.geometry?.text_blocks[editor.selected];
 }
 function textPlacement(editor = textEditor) {
-  if (editor.placements[editor.selected] === null) return undefined;
   return editor.placements[editor.selected] || textBlock(editor)?.placement;
 }
 function textStyle(editor) {
@@ -76,6 +75,8 @@ function paintText() {
   const routinePreview = typeof studioWorkspace !== "undefined" && studioWorkspace && !editor.recovery &&
     [MotifEditorControls.copy.previewing, "Preparing preview…", "The preview will refresh after your changes finish saving."].includes(editor.message);
   $("#text-status").textContent = inlineConflict || routinePreview ? "" : stale ? MotifSave.conflictMessage : editor.message;
+  if (!$("#text-status").textContent && !editor.values.message.trim())
+    $("#text-status").textContent = "Add a headline before downloading. Your image and draft are kept.";
   if (inlineConflict) studioSave.conflict(Object.assign(new Error(MotifSave.conflictMessage), { status: 409 }));
   $("#text-status").classList.toggle("is-error", !!$("#text-status").textContent.trim() &&
     (!!editor.recovery || !!editor.preview?.result.blocked || editor.anchorBlocked));
@@ -270,7 +271,7 @@ function previewText() {
   return work;
 }
 async function prepareTextStyleSave(editor = textEditor) {
-  if (!editor || !Object.keys(editor.pendingStyles || {}).length) return true;
+  if (!editor || !Object.keys(editor.pendingStyles || {}).some(id => editor.values[id]?.trim())) return true;
   if (editor.styleWork) return editor.styleWork;
   const work = (async () => {
     // Only the renderer knows the unarranged block's measured placement.
@@ -280,11 +281,14 @@ async function prepareTextStyleSave(editor = textEditor) {
     if (editor.geometrySequence !== editor.sequence) await previewText();
     if (!textCurrent(editor)) return false;
     for (const [id, style] of Object.entries(editor.pendingStyles)) {
+      // Empty optional wording has no glyph geometry. Keep its style proposal
+      // for later typing without blocking this image's other saves.
+      if (!editor.values[id]?.trim()) continue;
       const placement = editor.geometrySequence === editor.sequence && editor.geometry?.text_blocks[id]?.placement;
       if (!placement) throw new Error("The text preview could not be prepared. Your font and color choices are still here. Retry the preview.");
       editor.placements[id] = { ...placement, ...style };
+      delete editor.pendingStyles[id];
     }
-    editor.pendingStyles = {};
     scheduleTextPreview();
     return true;
   })();

@@ -1,3 +1,18 @@
+# Unreleased – Portfolio maintenance
+
+This local candidate retains Motif's Python and plain JavaScript stack. It has not been published as a release.
+
+- Canceling a rename or prohibited-word dialog leaves the applied campaign values unchanged.
+- Campaign copy confirmation waits until the field loses focus or the producer explicitly saves or navigates, preserving custom wording until confirmation.
+- Studio remains usable after resetting text placement, opening source details while a description saves, or styling an empty call to action.
+- Clearing a headline keeps the product visible and editable. Export remains blocked until required wording is restored.
+- Preview planning and gallery images use bounded, content-checked caches to avoid repeating image decoding and layout work. Temporary editor PNGs use faster lossless compression.
+- Image generation honors its configured overall response deadline without an earlier 60-second read-inactivity cutoff. Automatic paid retries remain disabled, and uncertain outcomes remain recorded.
+
+See the [verification notes](verification.md) for the candidate's checks and measured performance.
+
+---
+
 # Motif v0.3.2 – Reliable installation and Studio editing
 
 - Fixed a white-canvas flicker when attaching the first campaign logo in Studio and then moving or resizing it. The photograph and wording stay visible while the logo is arranged.

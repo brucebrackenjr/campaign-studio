@@ -22,6 +22,26 @@ The check commands use separate ordinary campaign records and require no provide
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
 
+## Unreleased portfolio-maintenance candidate
+
+This local candidate keeps the existing stack and has not been published as a new release. Focused Chromium and WebKit checks cover canceled rename/rule proposals, uninterrupted typing before shared-copy confirmation, text movement after Reset, description saves while Source details is open, and optional empty CTA styling. Required headlines can temporarily be blank: the active canvas removes the old headline while retaining the photograph, logo, and CTA. Other products and markets remain editable, including a combined case with a separate incomplete product. Strict and partial ZIP, report, and individual-image delivery remain blocked until required wording is complete. These checks use disposable workspaces without a provider key.
+
+Preview-cache regressions cover source and font contents, file ownership, unchanged filenames/size/timestamps with changed image bytes, stale campaign versions, simultaneous planning requests, defensive copies, expiration, and memory bounds. Delivery performs its own strict validation. A separate comparison of 33 gallery/editor PNGs across all three formats found identical decoded RGBA pixels and dimensions. Faster temporary compression increased the combined PNG payload by about 2.37%; it did not alter source files.
+
+The table records individual local Chromium measurements using the same pristine bundled campaigns on the same computer, before and after the maintenance changes. Autumn has five supplied product photographs; Winter has two available sources and one product awaiting generation. Each action waits for the relevant tool state and image decoding. A cold gallery clears the browser cache, not the operating-system file cache; these are reproducible fixture observations rather than a cross-device benchmark or percentile guarantee.
+
+| Interaction | Autumn baseline → candidate | Winter baseline → candidate |
+| --- | ---: | ---: |
+| Initial Studio gallery | 2878 → 822ms | 1502 → 549ms |
+| Gallery reload | 2801 → 523ms | 1356 → 358ms |
+| First Text tool | 952 → 314ms | 693 → 298ms |
+| First Logo tool | 921 → 358ms | 834 → 522ms |
+| Edit to saved preview and thumbnails | 2390 → 1506ms | 1970 → 1430ms |
+
+The intentional one-second Studio autosave delay remains. A faster preview can now finish before autosave and then be refreshed after the save; the measured Autumn edit downloaded more local preview data despite finishing sooner. The change reduces repeated server work without claiming that every request disappears or every interaction is instant. HTTP responses remain `no-store`; reuse is bounded inside the application.
+
+Provider deadline checks use synthetic localhost responses and the real SDK/HTTP transport. A 65-second silent response was abandoned by the baseline at about 60 seconds and received by the candidate at about 65 seconds. Fast regressions and independent probes also cover a silent response body, overall deadline expiry, disconnects, cancellation, one dispatch, and unknown-outcome accounting. No live provider request was made for this maintenance candidate. These measurements do not establish actual provider latency or image quality.
+
 ## Version 0.3.2 installation checks
 
 The launcher regression test starts a fresh Python process outside the project, skips editable path files, and runs the installed console entry point. The smoke command must find the application and complete its installation check. On macOS, the installer review also exercised an editable installation with the actual hidden file flag set and verified that the server returned the workbench, health check, and stylesheet.

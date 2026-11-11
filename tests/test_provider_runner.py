@@ -274,6 +274,114 @@ def test_overall_deadline_waits_for_transport_cleanup_and_preserves_unknown(tmp_
     assert result["metrics"]["usage_cost_estimate"]["unreported_attempts"] == 1
 
 
+@pytest.mark.parametrize(
+    "behavior", ["silent_headers", "silent_body", "deadline", "disconnect", "connection_failure"]
+)
+def test_socket_wait_uses_overall_deadline_and_never_retries(tmp_path, monkeypatch, behavior):
+    """Real HTTP reads catch inactivity limits that MockTransport cannot exercise."""
+    import campaign_studio.planning as planning
+
+    original = planning.request_for
+    deadline = 0.08 if behavior == "deadline" else 0.8
+    monkeypatch.setattr(
+        planning,
+        "request_for",
+        lambda *args: original(*args).model_copy(update={"deadline_seconds": deadline}),
+    )
+    state, runner, run_id, body = generated_case(tmp_path)
+
+    async def scenario():
+        calls, dispatches, limits = [], [], []
+        tasks = set()
+
+        async def handle(reader, writer):
+            task = asyncio.current_task()
+            tasks.add(task)
+            try:
+                headers = await reader.readuntil(b"\r\n\r\n")
+                length = next(
+                    int(line.split(b":", 1)[1])
+                    for line in headers.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                )
+                calls.append(json.loads(await reader.readexactly(length)))
+                if behavior == "disconnect":
+                    return
+                payload = json.dumps(body).encode()
+                response_headers = (
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                    b"x-request-id: local-socket-proof\r\nContent-Length: "
+                    + str(len(payload)).encode()
+                    + b"\r\nConnection: close\r\n\r\n"
+                )
+                if behavior == "silent_body":
+                    writer.write(response_headers)
+                    await writer.drain()
+                # A short real socket wait exceeds the scaled legacy read limit.
+                await asyncio.sleep(0.15)
+                writer.write(payload if behavior == "silent_body" else response_headers + payload)
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+                tasks.discard(task)
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        if behavior == "connection_failure":
+            server.close()
+            await server.wait_closed()
+
+        class LocalTransport(httpx.AsyncHTTPTransport):
+            async def handle_async_request(self, request):
+                dispatches.append(request.url.path)
+                timeout = request.extensions["timeout"]
+                limits.append(timeout.copy())
+                # Keep regressions fast: legacy read=60 becomes 0.06 seconds.
+                if timeout["read"] is not None:
+                    timeout["read"] /= 1000
+                request.url = httpx.URL(f"http://127.0.0.1:{port}/v1/images/generations")
+                return await super().handle_async_request(request)
+
+        try:
+            result = await runner.execute(
+                run_id, OpenAIImages("synthetic-test-credential", transport=LocalTransport())
+            )
+        finally:
+            server.close()
+            await server.wait_closed()
+            pending = list(tasks)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        assert dispatches == ["/v1/images/generations"]
+        assert len(calls) == (0 if behavior == "connection_failure" else 1)
+        assert limits == [{"connect": 10, "read": None, "write": 30, "pool": 10}]
+        return result
+
+    result = asyncio.run(scenario())
+    attempt = state.attempts(run_id)[0]
+    assert result["metrics"]["attempted_requests"] == 1
+    if behavior in {"silent_headers", "silent_body"}:
+        assert result["complete"]
+        assert attempt["state"] == "decoded"
+        assert attempt["request_id"] == "local-socket-proof"
+        assert json.loads(attempt["usage_json"]) == body["usage"]
+        assert result["metrics"]["usage_cost_estimate"]["unreported_attempts"] == 0
+    else:
+        assert not result["complete"]
+        assert attempt["state"] == "unknown"
+        assert attempt["error_kind"] == (
+            "overall_deadline" if behavior == "deadline" else "APIConnectionError"
+        )
+        assert result["metrics"]["unknown_requests"] == 1
+        assert result["metrics"]["usage_cost_estimate"]["unreported_attempts"] == 1
+        assert not state.storage.path(attempt["response_ref"]).exists()
+        with pytest.raises(StateError, match="confirmation"):
+            asyncio.run(runner.execute(run_id, OpenAIImages("synthetic-test-credential")))
+        assert state.attempts(run_id) == [attempt]
+
+
 def test_duplicate_start_and_stop_prevent_second_dispatch(tmp_path):
     state, runner, run_id, body = generated_case(tmp_path, concept_count=2)
 
