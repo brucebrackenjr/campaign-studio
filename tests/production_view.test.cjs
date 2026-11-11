@@ -8,7 +8,7 @@ const vm = require('node:vm');
 function harness() {
   const context = vm.createContext({
     document: { body: { dataset: { page: 'production', cap: '5' } }, addEventListener() {} },
-    structuredClone, damagedFiles: () => false, cancelProductUpload() {}, window: {},
+    structuredClone, retainStudioGallery() {}, damagedFiles: () => false, cancelProductUpload() {}, window: {},
   });
   context.window = context;
   const run = code => vm.runInContext(code, context);

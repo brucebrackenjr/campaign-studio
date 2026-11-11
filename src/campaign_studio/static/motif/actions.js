@@ -164,6 +164,9 @@ function render({ preserveModal = false } = {}) {
   if (page === "production") queueMicrotask(ensureProductionPlan);
 }
 function openModal(name) {
+  if (typeof handoffDescriptionSave !== "undefined" && handoffDescriptionSave && name !== "inspect") {
+    return flushHandoffDescriptionSave().then(saved => { if (saved) { endHandoffDescriptionSave(); openModal(name); } });
+  }
   if (page === "review" && ["text", "frame", "inspect"].includes(name))
     return openStudioWorkspace(name === "frame" ? "framing" : name === "inspect" ? "inspect" : "text");
   captureProductInputs();
@@ -200,6 +203,7 @@ function openModal(name) {
   $(".skip").inert = true;
   restoreProjectControls();
   mountProjectViews();
+  if (name === "inspect" && page === "handoff") beginHandoffDescriptionSave();
   const openedDialog = $('#overlay [role="dialog"]');
   setTimeout(() => {
     // Initial focus belongs only to this dialog and must not steal a later
@@ -210,6 +214,11 @@ function openModal(name) {
   }, 0);
 }
 function closeModal({ cancel = false, retain = true, restoreFocus = true } = {}) {
+  if (typeof handoffDescriptionSave !== "undefined" && handoffDescriptionSave) {
+    if (handoffDescriptionSave.queue.dirty() || handoffDescriptionSave.queue.busy())
+      return flushHandoffDescriptionSave().then(saved => { if (saved) closeModal({ cancel, retain, restoreFocus }); });
+    endHandoffDescriptionSave();
+  }
   if (modal === "brand-navigation" && typeof brandUpdating !== "undefined" && brandUpdating) return;
   if (studioWorkspace && ["text", "frame", "logo", "inspect"].includes(modal)) return cancelStudioTool();
   if (modal === "remove-product" && retain) return cancelProductRemoval();
@@ -280,6 +289,7 @@ async function finishPendingNavigation() {
 }
 
 async function navigate(target) {
+  if (typeof retainNavigationView === "function") retainNavigationView();
   if (studioWorkspace && !await leaveStudioWorkspace()) return;
   if (target !== "campaign" && typeof guardBrandNavigation === "function" &&
       guardBrandNavigation({ kind: "page", target })) return;
@@ -1382,6 +1392,10 @@ async function dispatchAction(data) {
       case "download":
         await downloadImage(Number(index), second, Number(third));
         break;
+      case "retryDescription":
+        if (handoffDescriptionSave?.queue.state().error?.status === 409) MotifSave.refreshPage();
+        else await flushHandoffDescriptionSave();
+        break;
       case "saveDescription":
         await saveMetadata(currentProduct, lang, currentFormat, {
           description: $("#image-description").value || null,
@@ -1513,6 +1527,7 @@ document.addEventListener("click", event => {
     else {
       const intent = new URLSearchParams(location.search).get("action");
       render();
+      updateURL();
       if (intent === "new") {
         history.replaceState({}, "", "/");
         openModal("new");

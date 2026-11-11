@@ -93,6 +93,7 @@ def delivery_manifest(snapshot, *, allow_partial=False):
             {
                 "product_id": p.id,
                 "role": p.source.role,
+                "imagery_origin": snapshot.get("source_origins", {}).get(p.id),
                 "provenance": p.source.provenance.model_dump(mode="json"),
                 "sha256": snapshot["sources"][p.id].sha256 if p.id in snapshot["sources"] else None,
             }
@@ -314,7 +315,10 @@ def current_image(state, snapshot, output_id, *, preview=False):
         with captured_sources(state, snapshot, [output]) as (paths, destination):
             render_png(snapshot, paths, output, destination, preview=preview)
             name = delivery_component(manifest["product_names"][output.product_id], "Product")
-            return destination.read_bytes(), f"{name} - {Path(record['file']).name}"
+            return (
+                destination.read_bytes(),
+                f"{name} - {output.market} - {Path(record['file']).name}",
+            )
     except (ImageProblem, OSError) as error:
         raise StateError(
             "There was an issue creating the image. Your saved edits are unchanged. Try again.",

@@ -287,6 +287,7 @@ function campaignNeedsImage() {
       (product.source?.role === "concept" || !product.source?.path));
 }
 async function openCampaign(id, target = null) {
+  if (typeof retainNavigationView === "function") retainNavigationView();
   closeModal();
   try {
     useData(
@@ -326,14 +327,9 @@ async function openCampaign(id, target = null) {
   if (operation?.active) setTimeout(() => poll(id, runId), 700);
 }
 function updateURL() {
+  if (typeof recordNavigation === "function") return recordNavigation();
   const route = page === "review" ? "studio" : page;
-  history.replaceState(
-    {},
-    "",
-    page === "library"
-      ? "/"
-      : `/campaigns/${draft.campaign_id}/${route}`,
-  );
+  history.replaceState({}, "", page === "library" ? "/" : `/campaigns/${draft.campaign_id}/${route}`);
 }
 function campaignIdentity(name = draft?.name, brand = draft?.brand?.name || "") {
   const saved = model?.project?.authored?.brief;

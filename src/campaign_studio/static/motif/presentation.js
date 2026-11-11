@@ -557,7 +557,7 @@ ${area("Accessible image description", "image-description", C.descriptions[key] 
 </div>
 </div>`,
     (canDescribeCreative(currentProduct, lang, currentFormat)
-      ? '<span class="small muted">Close keeps pending edits. Cancel edits discards this target’s draft.</span>' + btn("Cancel edits", "cancelEdits")
+      ? '<span class="small muted" id="handoff-description-status" role="status">Changes save automatically.</span>' + btn("Try saving description again", "retryDescription", "quiet", "hidden")
       : "") + btn("Open full-size PNG ↗", "fullsize") +
       btn(
         "Download PNG ↓",

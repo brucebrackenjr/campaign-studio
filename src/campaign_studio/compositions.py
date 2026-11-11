@@ -344,10 +344,26 @@ def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, previ
                 for match in context.phrase.matches:
                     if len(match.path) > 1 and match.path[0] == "products":
                         match.path[1] = positions[brief.products[match.path[1]].id]
+    # Source classification follows the admitted bytes, never producer origin text.
+    with workspace.storage.connect() as db:
+        generated = {
+            (row[0], row[1], row[2])
+            for row in db.execute(
+                "SELECT a.product_id,a.source_ref,a.source_sha256 FROM attempts a "
+                "JOIN runs r ON r.id=a.run_id WHERE r.campaign_id=? AND a.state='decoded'",
+                (campaign_id,),
+            )
+        }
     return {
         "plan": plan,
         "version": version,
         "sources": sources,
+        "source_origins": {
+            pid: "AI-generated source photograph"
+            if (pid, asset.reference, asset.sha256) in generated
+            else "Supplied source photograph"
+            for pid, asset in sources.items()
+        },
         "metadata": metadata,
         "campaign_metrics": workspace.state.campaign_metrics(campaign_id),
         "composition_issues": issues,

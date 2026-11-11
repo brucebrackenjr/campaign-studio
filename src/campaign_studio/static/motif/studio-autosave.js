@@ -237,6 +237,7 @@ async function flushStudioSave() {
   try { return await studioSave.flush(); } catch { return false; }
 }
 async function flushCurrentWork() {
+  if (typeof flushHandoffDescriptionSave === "function" && !await flushHandoffDescriptionSave()) return false;
   if (!await flushStudioSave()) return false;
   try { return await saveProject(); } catch { return false; }
 }

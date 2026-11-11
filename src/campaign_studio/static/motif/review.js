@@ -309,3 +309,51 @@ document.addEventListener("change", event => {
     render();
   }
 });
+
+// Handoff's modal owns a current-composition description queue, just as Studio
+// Inspect does. It never saves a generated-image revision or a form-only draft.
+let handoffDescriptionSave = null;
+function beginHandoffDescriptionSave() {
+  if (page !== "handoff" || modal !== "inspect") return;
+  const field = $("#image-description"), campaign = C.id;
+  if (!canDescribeCreative(currentProduct, lang, currentFormat)) { field.readOnly = true; return; }
+  const product = C.products[currentProduct].id, market = MARKET[lang], ratio = FMT[currentFormat].ratio.replace(":", "x");
+  const owner = { field, campaign, product, market, ratio };
+  const queue = compositionSaveQueue({
+    capture: () => ({ description: field.value || null }),
+    send: async attempt => {
+      if (!await saveProject()) throw new Error("Finish saving the campaign before saving its description.");
+      if (C.id !== campaign) throw new Error("The editing target changed before saving.");
+      if (!attempt.request) {
+        attempt.path = `/api/campaigns/${campaign}/composition/${model.composition_version || model.version}/metadata/${product}/${market}/${ratio}`;
+        attempt.request = { ...attempt.captured, mode: "current", expected_version: model.metadata.creatives[`${product}/${market}/${ratio}`]?.version || 0 };
+      }
+      return api(attempt.path, attempt.request);
+    },
+    accept: async data => {
+      if (handoffDescriptionSave?.owner !== owner) return;
+      useData(mergeStudioAcknowledgement(model, data), { applied: true });
+      render({ preserveModal: true });
+    },
+    changed: state => {
+      const status = $("#handoff-description-status");
+      if (status) status.textContent = state.phase === "error" || state.phase === "conflict"
+        ? state.error?.message || "The description could not be saved. Your changes are still here."
+        : state.phase === "saving" ? "Saving description…" : "Changes save automatically.";
+      const retry = $('[data-action="retryDescription"]');
+      if (retry) {
+        retry.hidden = !["error", "conflict"].includes(state.phase);
+        retry.textContent = state.phase === "conflict" ? "Refresh" : "Try saving description again";
+      }
+    },
+  });
+  handoffDescriptionSave = { owner, queue };
+  field.addEventListener("input", () => queue.schedule());
+}
+async function flushHandoffDescriptionSave() {
+  try { return handoffDescriptionSave ? await handoffDescriptionSave.queue.flush() : true; }
+  catch { return false; }
+}
+function endHandoffDescriptionSave() {
+  handoffDescriptionSave?.queue.stop(); handoffDescriptionSave = null;
+}

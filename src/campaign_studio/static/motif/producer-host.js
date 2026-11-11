@@ -208,6 +208,7 @@ async function producerAction(button) {
     if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
     if (action === "open-output" && outputFor(p, lang, f)?.url)
       return dispatchAction({ action: `inspect:${p}:${f}:${lang}` });
+    retainStudioGallery();
     selected[0] = p;
     formats[0] = f < 0 ? 0 : f;
     reviewTab = "product";

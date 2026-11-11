@@ -38,7 +38,7 @@
 <h3>{{ name }}</h3><p class="muted">{{ language }} · {{ size }} {{ ratio }}<br>{{ output.width }} × {{ output.height }} PNG</p>
 
 <p class="desc" id="description-{{ output.product_id }}-{{ market }}-{{ ratio|replace(':','x') }}"><b>Image description:</b> {{ output.accessible_description or 'Not supplied.' }}</p>
-<p class="muted"><b>Origin:</b> {{ source.provenance.label }}</p>
+<p class="muted"><b>Origin:</b> {% if source.imagery_origin %}{{ source.imagery_origin }} · {% endif %}{{ source.provenance.label }}</p>
 {% if output.file and not campaign.preview %}<a href="{{ output.file }}" download>Download full-size PNG ↓</a>{% endif %}
 <details><summary>Wording origin</summary>
 <p>{{ sentence(output.copy_provenance.origin.label) }} {{ sentence(output.copy_provenance.origin.rights) }}</p>
@@ -90,7 +90,7 @@
 <a href="manifest.json">Open the technical manifest</a>
 </section>
 <section id="provenance"><h2>Origins stay with the images.</h2><div class="details">
-{% for source in campaign.sources %}<h3>{{ campaign.product_names[source.product_id] }}</h3><p>{{ {'finished_scene':'Supplied finished scene','prepared_product':'Prepared product','concept':'Description-only concept'}.get(source.role,'Saved source') }} · {{ sentence(source.provenance.label) }} {{ sentence(source.provenance.rights) }}</p>{% endfor %}
+{% for source in campaign.sources %}<h3>{{ campaign.product_names[source.product_id] }}</h3><p>{% if source.imagery_origin %}{{ source.imagery_origin }} · {% endif %}{{ {'finished_scene':'Supplied finished scene','prepared_product':'Prepared product','concept':'Description-only concept'}.get(source.role,'Saved source') }} · {{ sentence(source.provenance.label) }} {{ sentence(source.provenance.rights) }}</p>{% endfor %}
 {% if not logo_omitted and campaign.logo_provenance %}<h3>Logo origin</h3><p>{{ sentence(campaign.logo_provenance.label) }} {{ sentence(campaign.logo_provenance.rights) }}</p>{% endif %}
 {% if campaign.replay %}<p>{% if campaign.replay.historical_requests is number %}Example imagery was prepared earlier: {{ campaign.replay.historical_requests }} historical requests. Excluded from this campaign’s totals.{% else %}Example imagery was prepared earlier; its request count was not recorded.{% endif %}</p>{% endif %}
 <p>Supplied descriptions belong to the saved campaign shown in this report.</p>

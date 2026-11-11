@@ -3,6 +3,10 @@
 // A product visit owns one shell and one existing editor controller at a time.
 // Requests, geometry, and publication stay in those controllers.
 let studioWorkspace = null;
+let studioGalleryReturn = null;
+function retainStudioGallery() {
+  if (reviewTab !== "product") studioGalleryReturn = { reviewTab, selected: [...selected], formats: [...formats], imageMarket, pageNum, filter, lang };
+}
 // One target's verified preview work lives only for this Studio visit. A new
 // document or target releases every old image reference and preview response.
 function studioPreviewCache() {
@@ -156,6 +160,7 @@ function studioShellView(mode) {
 }
 async function openStudioWorkspace(mode = "text") {
   if (studioWorkspace) return switchStudioTarget({ mode });
+  retainStudioGallery();
   selected[0] = currentProduct;
   formats[0] = currentFormat;
   reviewTab = "product";
@@ -180,7 +185,11 @@ function mountStudioVisit(mode = "inspect") {
       if (control.dataset.wsMode) await switchStudioTarget({ mode: control.dataset.wsMode });
       else if (control.dataset.wsTarget === "format") await switchStudioTarget({ format: FMT.findIndex(f => f.ratio === control.dataset.wsFormat) });
       else if (control.dataset.wsAction === "all-products" && await leaveStudioWorkspace()) {
-        reviewTab = "products"; render();
+        if (studioGalleryReturn) {
+          ({ reviewTab, imageMarket, pageNum, filter, lang } = studioGalleryReturn);
+          selected = [...studioGalleryReturn.selected]; formats = [...studioGalleryReturn.formats];
+        } else reviewTab = "products";
+        render();
       }
     } catch (error) { toast(error.message); }
   });
