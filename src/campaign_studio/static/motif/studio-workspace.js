@@ -5,7 +5,13 @@
 let studioWorkspace = null;
 let studioGalleryReturn = null;
 function retainStudioGallery() {
-  if (reviewTab !== "product") studioGalleryReturn = { reviewTab, selected: [...selected], formats: [...formats], imageMarket, pageNum, filter, lang };
+  if (reviewTab !== "product") studioGalleryReturn = { campaign: C.id, reviewTab, selected: [...selected], formats: [...formats], imageMarket, pageNum, filter, lang };
+}
+function restoreStudioGallery() {
+  if (studioGalleryReturn?.campaign === C.id) {
+    ({ reviewTab, imageMarket, pageNum, filter, lang } = studioGalleryReturn);
+    selected = [...studioGalleryReturn.selected]; formats = [...studioGalleryReturn.formats];
+  } else reviewTab = "products";
 }
 // One target's verified preview work lives only for this Studio visit. A new
 // document or target releases every old image reference and preview response.
@@ -185,11 +191,7 @@ function mountStudioVisit(mode = "inspect") {
       if (control.dataset.wsMode) await switchStudioTarget({ mode: control.dataset.wsMode });
       else if (control.dataset.wsTarget === "format") await switchStudioTarget({ format: FMT.findIndex(f => f.ratio === control.dataset.wsFormat) });
       else if (control.dataset.wsAction === "all-products" && await leaveStudioWorkspace()) {
-        if (studioGalleryReturn) {
-          ({ reviewTab, imageMarket, pageNum, filter, lang } = studioGalleryReturn);
-          selected = [...studioGalleryReturn.selected]; formats = [...studioGalleryReturn.formats];
-        } else reviewTab = "products";
-        render();
+        restoreStudioGallery(); render();
       }
     } catch (error) { toast(error.message); }
   });
