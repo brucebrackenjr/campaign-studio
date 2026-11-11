@@ -197,3 +197,6 @@
 .ws-workspace .ws-save-recovery p { margin: 6px 0; }
 .ws-workspace .ws-save-recovery button { margin-top: 8px; }
 .ws-workspace .ws-control-footer:not(:has([role="status"]:not(:empty), button:not([hidden]))) { display: none; }
+
+/* The dialog button layout must respect the description queue's hidden state. */
+.modal-foot [data-action="retryDescription"][hidden] { display: none; }
