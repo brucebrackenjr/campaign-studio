@@ -387,7 +387,7 @@ function captureProject() {
     captureProjectFields(`brief/${tab}/${lang}`, $("#main"));
   }
   const formKey = projectFormKey();
-  if (formKey && modal !== "inspect") captureProjectFields(formKey, imageEditorRoot());
+  if (formKey && modal !== "inspect" && !(typeof studioWorkspace !== 'undefined' && studioWorkspace?.scene)) captureProjectFields(formKey, imageEditorRoot());
   if (forms.fields && !Object.keys(forms.fields).length) delete forms.fields;
   const captured = {
     brief: copy(draft),

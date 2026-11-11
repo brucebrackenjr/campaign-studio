@@ -2,6 +2,10 @@
 
 This local candidate retains Motif's Python and plain JavaScript stack. It has not been published as a release.
 
+- Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
+- Completed layout gestures update the selected format thumbnail directly from the browser canvas. Other formats retain their images unless shared wording or campaign artwork changes.
+- Production and Studio galleries use sized previews and retain decoded images across view changes. Source, wording, layout, market, and branding changes invalidate the affected visual entries.
+
 - Canceling a rename or prohibited-word dialog leaves the applied campaign values unchanged.
 - Campaign copy confirmation waits until the field loses focus or the producer explicitly saves or navigates, preserving custom wording until confirmation.
 - Studio remains usable after resetting text placement, opening source details while a description saves, or styling an empty call to action.

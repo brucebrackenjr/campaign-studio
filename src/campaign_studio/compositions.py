@@ -498,6 +498,7 @@ def fit_changed_logo(workspace, campaign_id, previous, value):
 
 def edit_value(workspace, campaign_id, value, edit):
     from campaign_studio.brief import Framing
+    from campaign_studio.scene import SceneEdit
     from campaign_studio.workspace import ActionError, FrameEdit, LogoEdit, TextEdit
 
     value = copy.deepcopy(value)
@@ -507,6 +508,14 @@ def edit_value(workspace, campaign_id, value, edit):
     framing = Framing.model_validate(
         selected.get("framing", {}).get(edit.market, {}).get(edit.ratio, {})
     ).model_dump(mode="json")
+    if isinstance(edit, SceneEdit):
+        if edit.framing is not None:
+            framing.update(edit.framing.model_dump(mode="json", exclude_unset=True))
+        if edit.replacement:
+            workspace.storage.project(campaign_id).upload_name(edit.replacement)
+            value["brand"]["logo_path"] = edit.replacement
+            if edit.provenance:
+                value["brand"]["logo_provenance"] = edit.provenance.model_dump(mode="json")
     if isinstance(edit, TextEdit):
         if set(edit.values) != set(edit.field_scopes):
             raise ActionError("copy_fields", "Choose a scope for each wording field.", 422)
@@ -539,7 +548,7 @@ def edit_value(workspace, campaign_id, value, edit):
                 edit.placement.model_dump(mode="json") if edit.placement else None
             )
     selected.setdefault("framing", {}).setdefault(edit.market, {})[edit.ratio] = framing
-    if isinstance(edit, LogoEdit) and edit.replacement:
+    if isinstance(edit, (LogoEdit, SceneEdit)) and edit.replacement:
         fit_changed_logo(workspace, campaign_id, {"brand": {"logo_path": None}}, value)
     return value
 
@@ -568,6 +577,7 @@ def candidate(workspace, campaign_id, edit, *, preview=False):
 
 
 def save(workspace, campaign_id, edit):
+    from campaign_studio.scene import SceneEdit
     from campaign_studio.workspace import ActionError
 
     request_hash = canonical_hash(
@@ -598,6 +608,22 @@ def save(workspace, campaign_id, edit):
                 "This campaign changed in another tab. Your edits are still available.",
             )
         reconcile_descriptions(document, document["authored"]["brief"], value)
+        if isinstance(edit, SceneEdit) and edit.description_edit is not None:
+            from campaign_studio.review import public_metadata
+
+            metadata = document.setdefault("creative_metadata", {})
+            description = metadata.get(edit.output_id, {"version": 0, "description": None})
+            if description["version"] != edit.description_edit.expected_version:
+                raise ActionError(
+                    "metadata_conflict", "This description changed. Reload it before saving."
+                )
+            description.update(
+                description=edit.description_edit.description,
+                version=description["version"] + 1,
+                updated_at=timestamp(),
+                reset_reason=None,
+            )
+            metadata[edit.output_id] = public_metadata(description)
         document["authored"]["brief"] = value
         # An explicit shared Studio edit also replaces that field's saved
         # Campaign control. Otherwise an old raw form value can conceal the
@@ -710,7 +736,7 @@ def acknowledgement(workspace, campaign_id):
     }
 
 
-def preview_image(workspace, campaign_id, version, product_id, market, ratio):
+def preview_image(workspace, campaign_id, version, product_id, market, ratio, edge=None):
     from campaign_studio.preview_cache import preview_cache
     from campaign_studio.workspace import ActionError
 
@@ -736,6 +762,8 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
     ):
         raise ActionError("preview_blocked", "Correct the image findings to show its preview.", 422)
     key = preview_cache.image_key(workspace.storage, campaign_id, current, output.id)
+    if edge is not None:
+        key = (*key, "thumbnail", edge)
     cached = preview_cache.image(key)
     if cached is not None:
         return cached
@@ -775,6 +803,8 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
                 output.framing,
             )
         try:
+            if edge is not None:
+                result.thumbnail((edge, edge))
             with io.BytesIO() as buffer:
                 save_srgb(result, buffer, compress_level=3)
                 payload = buffer.getvalue()

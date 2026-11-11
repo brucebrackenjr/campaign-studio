@@ -494,7 +494,8 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
             "file": output.id + ".png" if available else None,
             "eligible_for_export": output.product_id in sources and not blocked,
             "url": url,
-            "thumbnail_url": url,
+            "thumbnail_url": url.replace("/images/", "/thumbnails/") + "?edge=160" if url else None,
+            "gallery_url": url.replace("/images/", "/thumbnails/") + "?edge=640" if url else None,
             "sha256": None,
             "source_role": product.source.role,
             "synthetic": product.source.provenance.synthetic,
@@ -547,6 +548,20 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
     result["source_urls"] = {
         pid: f"/api/campaigns/{campaign_id}/composition/{version}/sources/{pid}" for pid in sources
     }
+    result["source_thumbnail_urls"] = {
+        pid: f"/api/campaigns/{campaign_id}/composition/{version}/source-thumbnails/{pid}"
+        for pid in sources
+    }
+    result["visual_sources"] = {pid: asset.sha256 for pid, asset in sources.items()}
+    result["visual_logo"] = plan.assets["logo"].sha256 if "logo" in plan.assets else None
+    result["visual_products"] = {
+        product.id: asset.sha256
+        for product in plan.brief.products
+        if (asset := plan.assets.get(f"products/{product.id}"))
+    }
+    from campaign_studio.preview_cache import PreviewCache
+
+    result["visual_fonts"] = dict(PreviewCache.font_key(plan.brief))
     result["rule_withheld_outputs"] = [
         o.id
         for o in plan.outputs

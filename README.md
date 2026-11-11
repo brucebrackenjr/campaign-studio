@@ -251,6 +251,8 @@ The current source stays available while the replacement runs. Failure, timeout,
 
 Studio displays previews built from the current sources and saved editing instructions. Open a product to keep its image in one workspace: tools are on the left, the canvas is in the center, selected-tool controls are on the right, and the three formats are below the canvas. Inspect opens first. Choose a market and format, then select a tool:
 
+You can also select directly on the image. Click a logo, headline, or call to action to open its controls; click the photograph outside those bounds for Framing. Where elements overlap, the topmost bounding box wins, including its transparent space. Choose **Inspect** explicitly to return to image details. Switching tools retains the same editing scene and does not wait for another preview.
+
 | Control | Scope and behavior |
 | --- | --- |
 | Inspect | Save an accessible description and inspect factual source provenance. These are not approval markers or a review-status workflow. |
@@ -264,7 +266,9 @@ If wording matches a campaign’s prohibited list, one consolidated warning iden
 
 Studio autosaves text, color, font, logo, crop, and description changes. A drag saves when the gesture ends; typing saves after a pause. The canvas gives immediate visual feedback while saving. There is no separate button to save an ordinary edit. **Apply to all products** only copies wording across products. Reopening the image restores the saved instructions and original source, so its text and logo remain editable.
 
-Navigation waits for pending saves. If a save fails, the proposed edits remain available and the interface offers a retry. If the campaign was updated elsewhere, Motif pauses saving and offers **Refresh** to load the latest changes, warning that this window’s unsaved edits will be discarded. A lost response is checked before retrying the same request. Temporary previews share the compositor used for export; ordinary saves do not write finished images to the campaign folder.
+The selected format thumbnail updates from the local canvas after a completed move or resize. A layout edit leaves the other two format thumbnails alone. Wording changes update that product's formats in the selected language, and replacing the campaign logo affects every format. Production and Studio galleries request smaller images and reuse decoded thumbnails when their contents are unchanged.
+
+Navigation waits for pending saves. If a save fails, the proposed edits remain available and the interface offers a retry. If the campaign was updated elsewhere, Motif pauses saving and offers **Refresh** to load the latest changes, warning that this window’s unsaved edits will be discarded. A lost response is checked before retrying the same request. Studio uses Pillow's text layers and geometry for local browser composition; ordinary saves do not write finished images to the campaign folder.
 
 Browser Back and Forward follow the main workflow pages and campaign switches while respecting those save and confirmation checks. Returning from a Studio product restores the gallery view it was opened from, including All images or Compare.
 
@@ -434,7 +438,7 @@ The local compositor handles image loading, crop geometry, text wrapping, glyph 
 
 The two packaged output families are **Noto Sans Regular** and **Barlow Condensed Semibold**. Each headline and CTA can select its own family and palette color. Default typography and color apply when no override exists. Font upload, system-font enumeration, arbitrary editor colors, rich text, and effects are outside scope.
 
-Temporary previews and exported PNGs use the same compositor, fonts, and geometry rules. The browser also uses separate layers for immediate feedback while a handle moves. Autosave records the instructions; it does not retain a finished PNG. Downloading runs the final composition and integrity checks. Selection frames, guides, and handles do not enter the exported image.
+Pillow supplies the text layers, fonts, and geometry used by Studio and composes the final PNGs. The browser draws and transforms separate layers for immediate interaction; its image resampling can differ from Pillow's final export. Autosave records the instructions; it does not retain a finished PNG. Downloading runs the final composition and integrity checks. Selection frames, guides, and handles do not enter the exported image.
 
 ## Persistence, identity, and cleanup
 
@@ -573,7 +577,7 @@ Useful focused test groups include:
 - **Local and single-user.** No cloud account, multi-user permissions, collaborative approvals, hosted deployment, ad-platform publishing, or scheduling.
 - **Supplied localization.** English (United States) and Spanish (Mexico) are separate supplied texts. The application neither translates nor determines whether text is actually written in the selected language.
 - **Bounded imagery.** Finished-image reuse and explicitly invented concept generation are supported. JSON import and the underlying service also accept a prepared transparent product cutout for composition over a generated background. This route is not offered by the product editor, has no adjustable framing, and has not been verified with a live provider request. It is not a fidelity guarantee for an existing commercial product.
-- **Preview response time.** Galleries and Studio tools still need to read and check local assets. Short-lived, bounded preview caches reduce repeated planning and rendering while checking current file ownership and content. The canvas responds while an element is moved; thumbnails follow the saved change and preview refresh, including the intentional one-second Studio autosave pause. See the [verification notes](docs/verification.md) for measured local timings and their limits.
+- **Preview response time.** A first visit still loads and decodes local imagery. Once the Studio scene is ready, tool selection is local, and completed layout gestures update its thumbnail without waiting for autosave. Changed wording and fonts require new text rasters; shared edits also refresh affected formats. Galleries reuse decoded images when their contents are unchanged. The intentional one-second typing pause governs saving, not tool selection. See the [verification notes](docs/verification.md) for measured local timings and their limits.
 - **Deliberate editing.** Headline and CTA have independent font/palette controls, but there is no arbitrary font upload, free color picker in the image editor, rich text, effects, rotation, or layer-order tool. Brand owns the palette.
 - **Simple configured legal check.** Prohibited-phrase matching is not legal advice, trademark clearance, fact-checking, or comprehensive compliance review.
 - **No approval workflow.** There are no human-review status markers, warning-center tasks, history controls, fixed version allowance, or saved image-editor draft queue.

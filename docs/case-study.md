@@ -28,13 +28,15 @@ The correction made readiness explicit. Studio keeps the existing image visible,
 
 That behavior was checked in real Chromium and WebKit sessions, including attachment, movement, failure, and recovery. Controller tests separately exercise late responses and layer ownership. A successful HTTP response alone would not have demonstrated that the canvas stayed usable.
 
+The next refinement keeps one scene and save queue across all Studio tools. The photograph, logo, headline, and CTA stay loaded while selecting an element changes its controls. Moving a layer draws locally, and its format thumbnail copies the completed canvas instead of waiting for a server-rendered replacement. Exact wording and font changes still use Pillow's text layout. A save that finishes late updates the saved baseline without overwriting a newer gesture or sentence.
+
 ## Measuring the local preview cost
 
 Local files still require work: decoding images, measuring text, planning crops, composing pixels, and encoding previews. Repeating that work for every gallery request made a small campaign feel slow.
 
 The maintenance candidate adds bounded in-memory reuse. Before using a cached plan or image, Motif checks the current instructions, file ownership, asset contents, and selected font contents. Export still performs its own strict checks. Faster lossless PNG compression reduces temporary layer encoding work.
 
-Matched local Chromium observations on the bundled five-product Autumn campaign changed as follows:
+Matched local Chromium observations on the bundled five-product Autumn campaign changed as follows in the first cache pass, before the persistent-scene work:
 
 | Interaction | Before | After |
 | --- | ---: | ---: |
@@ -45,6 +47,8 @@ Matched local Chromium observations on the bundled five-product Autumn campaign 
 | Edit to saved preview and thumbnails | 2.390s | 1.506s |
 
 These are individual matched fixture observations on one computer, not cross-device percentile guarantees. The intentional one-second typing pause before autosave remains. A separate 33-image comparison found identical decoded RGBA pixels and dimensions; the faster encoding increased combined preview bytes by about 2.37%. [Verification notes](verification.md) describe the method, Winter comparison, and limits.
+
+Gallery work then reduces both payload and repeat decoding: small format images use a 160-pixel maximum edge, larger gallery images use 640, and unchanged decoded images survive view changes. The visual identity includes the source content, wording, layout, language, and branding rather than treating every save-version change as a new picture. This reuse is for display; the server still checks current instructions and owned sources before saving or exporting.
 
 ## Verification at the boundaries
 

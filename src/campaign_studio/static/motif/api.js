@@ -160,7 +160,9 @@ function productDetails(product) {
     rights: product.source.provenance.rights,
     image: product.source.role === "concept"
       ? model?.concept_previews?.[product.id] || null
-      : assetURL(product.source.path, product.id),
+      : model?.output_brief?.products?.find(item => item.id === product.id)?.source?.path === product.source.path
+        ? model?.source_thumbnail_urls?.[product.id] || assetURL(product.source.path, product.id)
+        : assetURL(product.source.path, product.id),
     source: copy(product.source),
   };
 }

@@ -7,7 +7,7 @@ There are two different kinds of image creation. **OpenAI can create a missing p
 ```mermaid
 flowchart TD
     subgraph Computer["Your computer – files and printed campaign copy stay local"]
-        Browser["Browser<br/>Campaign forms and Studio controls"]
+        Browser["Browser<br/>Campaign forms, persistent Studio scene,<br/>and decoded thumbnail reuse"]
         App["Motif – Python and FastAPI<br/>Checks requests and coordinates the work"]
         DB[("SQLite database<br/>Current edits, campaign file references,<br/>and image request records")]
         Files["Campaign folders<br/>Imported briefs, photos, and logos"]
@@ -97,9 +97,15 @@ The check covers the whole campaign. Two windows editing different products can 
 
 ## How previews stay editable
 
-Motif builds a preview from the current settings, original photograph, and logo. Pillow calculates text wrapping, font measurements, cropping, and placement. The browser also uses separate image and text layers to respond while a producer drags or resizes an element. After a first logo attachment in Studio, it loads those layers before enabling direct manipulation and keeps the existing preview visible while they load. If that preview fails, **Retry preview** reloads it without discarding the logo or its placement. Temporary previews show the composition without retaining a permanent finished PNG for every edit.
+Motif builds a preview from the current settings, original photograph, and logo. Pillow supplies exact text raster layers, font measurements, and placement geometry. One browser scene draws the source photograph, logo, headline, and CTA in that order. Tool selection changes the controls and selection outline without replacing the canvas or requesting another preview. Clicking tests bounding boxes in reverse drawing order; empty photograph space activates Framing. Inspect is selected explicitly.
 
-Preview and download use the same Pillow composition code and packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. Selection boxes and editing handles are not included in downloaded images.
+Dragging, framing, and color changes redraw locally. Wording and font changes obtain updated Pillow text layers; resizing provides immediate scaled feedback before adopting the exact raster at its new font size. After a first logo attachment, the existing composition remains visible while the new artwork and layer packet load. **Retry preview** recovers failed layer requests without discarding proposed edits. Late responses cannot replace a newer target or input sequence. Temporary previews do not create permanent finished PNGs.
+
+The scene owns one save queue across all tools. Its request combines changed wording, layout, artwork, and description under the existing campaign version check. Acknowledgements update the saved baseline without replacing newer local input. An uncertain retry retains the exact original request. Changing format, market, or page waits for pending saves; merely selecting another tool does not.
+
+The selected thumbnail is copied from the local canvas after a gesture, excluding selection handles. It is not marked current while updated text rasters are still pending. Unchanged format thumbnails remain in place. Product wording changes invalidate that product's other formats in the selected language, while campaign-logo replacement invalidates all affected outputs.
+
+Preview and download share Pillow text layout and the packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. The browser transforms layers during interaction; the final PNG is composed and checked by Pillow at export resolution. Selection boxes and editing handles are not included in downloaded images.
 
 The shared headline and default color come from the campaign settings. Typing in Studio changes the selected product's wording across its three formats in the selected language. The **Apply to all products** button copies that field's wording to every product in the language and updates the matching Campaign field. Editing the Campaign headline or call to action also replaces that field's wording for all products, including earlier individual wording changes. Neither action changes the other text field or any visual styling. Shared color changes preserve deliberately customized colors. Position, size, font, color, crop, and logo placement can differ by product, language, and format.
 
@@ -109,9 +115,11 @@ Campaign and Studio both save wording that contains a prohibited word. Their pre
 
 Internally, `Workspace.current_composition()` turns the saved campaign into a temporary `Plan` object in memory. Five products, two markets, and three formats become 30 sets of image instructions. This is a calculation used for previewing and downloading, not another independently saved copy of the campaign.
 
-Preview planning reuses at most 16 plans for up to 60 seconds. Before reuse, it checks the current campaign instructions, registered file ownership, asset contents, and selected font contents. Identical simultaneous planning requests share the completed calculation. The gallery also retains at most 32 encoded previews, bounded to 64 MiB and 60 seconds, after current-version and resource checks. These are in-memory caches; restarting Motif clears them, and they create no workspace files. Export performs its own admission and source verification. Temporary editor layers use faster PNG compression with unchanged decoded pixels, dimensions, and color profiles.
+Preview planning reuses at most 16 plans for up to 60 seconds. Before reuse, it checks the current campaign instructions, registered file ownership, asset contents, and selected font contents. Identical simultaneous planning requests share the completed calculation. The server also retains at most 32 encoded previews, bounded to 64 MiB and 60 seconds, after current-version and resource checks. These in-memory caches create no workspace files. Export performs its own admission and source verification. Temporary editor layers use faster lossless PNG compression.
 
-A product with a temporarily blank required headline stays visible and editable. Its preview shows the photograph, logo, and other wording without the removed headline. This display projection preserves the actual draft and its validation errors. It cannot authorize source production or export; the headline must be completed first. Styling an empty optional call to action does not stop other edits from saving. That style proposal applies if wording is added during the same Text-tool visit; leaving with the field still empty discards the unused proposal.
+Format thumbnails have a maximum edge of 160 pixels; gallery and Production source thumbnails use 640. Successful versioned visual responses allow private storage but require server revalidation before HTTP reuse, because an owned file can change without a campaign save. Mutable state, errors, and credentials remain uncached. The browser reuses decoded image nodes by campaign, source content, wording, format layout, branding, and font contents, so an unrelated save does not reload the gallery. Detached visual entries are evicted above 96 entries or a 48 MiB budget that includes decoded pixels; currently displayed images and pending installations stay retained until released. Each editor visit also keeps at most six decoded scenes and eight source/artwork resources. These caches affect presentation only and never authorize a save or export.
+
+A product with a temporarily blank required headline stays visible and editable. Its preview shows the photograph, logo, and other wording without the removed headline. This display projection preserves the actual draft and its validation errors. It cannot authorize source production or export; the headline must be completed first. Styling an empty optional call to action does not stop other edits from saving. That style proposal applies if wording is added during the same format visit; leaving the format with the field still empty discards the unused proposal.
 
 ## When Motif calls OpenAI
 

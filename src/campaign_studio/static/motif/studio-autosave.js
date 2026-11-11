@@ -67,7 +67,7 @@ function mergeStudioAcknowledgement(previous, acknowledgement) {
   const version = acknowledgement.composition_version || acknowledgement.version;
   const freshURL = value => typeof value === "string"
     ? value.replace(`/composition/${oldVersion}/`, `/composition/${version}/`) : value;
-  for (const key of ["source_urls", "concept_previews"]) {
+  for (const key of ["source_urls", "concept_previews", "source_thumbnail_urls"]) {
     next[key] = Object.fromEntries(Object.entries(previous[key] || {}).map(([id, url]) => [id, freshURL(url)]));
   }
   if (previous.manifest) {
@@ -76,7 +76,7 @@ function mergeStudioAcknowledgement(previous, acknowledgement) {
       ? [...(previous.manifest.findings || []).filter(f => !f.context?.phrase && f.rule !== "text_fit"), ...acknowledgement.composition_findings]
       : previous.manifest.findings;
     const outputs = previous.manifest.outputs.map(output => ({ ...output, ...(slots.get(output.id) || {}),
-      url: freshURL(output.url), thumbnail_url: freshURL(output.thumbnail_url), download_url: freshURL(output.download_url) }));
+      url: freshURL(output.url), gallery_url: freshURL(output.gallery_url), thumbnail_url: freshURL(output.thumbnail_url), download_url: freshURL(output.download_url) }));
     for (const output of outputs) {
       const targets = new Set([output.id, output.product_id, `products/${output.product_id}`,
         `masters/${output.product_id}`, `${output.product_id}/${output.ratio}`, "logo"]);
@@ -229,6 +229,7 @@ function beginStudioSave() {
 }
 function scheduleStudioSave(immediate = false) {
   if (!studioSave || !studioWorkspace || studioWorkspace.tearingDown) return;
+  if (studioWorkspace.scene?.gesture || studioWorkspace.scene?.uploading) return;
   if (textEditor?.input?.active() || framingPan?.active() || framingDrawing || logoEditor?.gesture || logoEditor?.uploading) return;
   studioSave.schedule(immediate ? 0 : 1000);
 }

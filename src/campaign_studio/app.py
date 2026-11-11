@@ -214,7 +214,20 @@ def create_app(
                 "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; "
                 "frame-ancestors 'none'; base-uri 'none'"
             )
-        response.headers["Cache-Control"] = "no-store"
+        # Only successful, explicitly versioned visual responses opt in. Mutable
+        # state, errors, credentials, and request accounting remain uncached.
+        visual = (
+            request.method == "GET"
+            and response.status_code == 200
+            and "/composition/" in request.url.path
+            and any(
+                part in request.url.path
+                for part in ("/images/", "/thumbnails/", "/source-thumbnails/")
+            )
+            and response.headers.get("content-type", "").startswith("image/")
+        )
+        if not visual:
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ActionError)

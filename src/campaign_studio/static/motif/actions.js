@@ -154,6 +154,7 @@ function render({ preserveModal = false } = {}) {
             ? review()
             : handoff();
   $("#app").innerHTML = shell(content);
+  if (typeof MotifVisuals !== "undefined") MotifVisuals.mount($("#app"));
   if (!preserveModal && modal !== "logo") $("#overlay").innerHTML = modal ? modalView() : "";
   refreshCampaignIdentity();
   bindWorkbench();
