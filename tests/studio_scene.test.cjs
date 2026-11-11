@@ -59,7 +59,7 @@ function harness(t) {
   const acknowledge = (index, version, metadata = {}) => requests[index].resolve({
     version, output_brief: { brand: {} }, metadata: { creatives: metadata },
   });
-  return { scene, requests, phases, messages, globals, context, acknowledge };
+  return { scene, requests, phases, messages, globals, context, acknowledge, timers };
 }
 
 function keyEvent(key, { shift = false, target = "canvas", corner } = {}) {
@@ -373,4 +373,55 @@ test("Escape cancels a held layer gesture and restores its prior framing", (t) =
   assert.deepEqual(plain(scene.state.framing), original);
   assert.equal(escape.prevented, true);
   assert.equal(scene.queue.dirty(), false);
+});
+
+for (const arrival of ["before request", "during response"])
+  test(`pending text pixels resume after a held pointer ${arrival}`, async (t) => {
+    const { scene, requests, globals, timers } = harness(t);
+    scene.ready = true;
+    scene.rasterDirty = true;
+    scene.layers = { marker: "old pixels" };
+    scene.state.values.message = "New wording";
+    scene.output = { hasPointerCapture: () => false };
+    scene.resource = async () => ({ naturalWidth: 1080, naturalHeight: 1080 });
+    globals.decodedImage = async url => ({ url });
+    const packet = {
+      source: { url: "/source", key: "source-sha" }, logo: null, findings: [],
+      text_blocks: { message: { url: "/new-words", placement: { font_size: 40 } } },
+    };
+    let first;
+    if (arrival === "during response") first = scene.refresh();
+    scene.gesture = { id: "logo", pointer: 7, start: { framing: structuredClone(scene.state.framing) } };
+    if (first) requests[0].resolve(packet);
+    else first = scene.refresh();
+    await first;
+    assert.equal(scene.layers.marker, "old pixels", "do not replace pixels during the held gesture");
+    scene.pointerEnd({ pointerId: 7 });
+    assert.ok(timers.has(scene.previewTimer), "release must resume the skipped text raster");
+    const refresh = timers.get(scene.previewTimer)();
+    requests.at(-1).resolve(packet);
+    await refresh;
+    assert.equal(scene.rasterDirty, false);
+    assert.equal(scene.layers.blocks.message.image.url, "/new-words");
+    assert.equal(scene.state.values.message, "New wording");
+  });
+
+test("persistent resize handles announce the selected logo, headline, or CTA", (t) => {
+  const { scene, globals } = harness(t);
+  scene.ready = true;
+  const label = {};
+  const handles = ["nw", "ne", "sw", "se"].map(corner => ({
+    dataset: { mfCorner: corner }, setAttribute(name, value) { this[name] = value; },
+  }));
+  scene.selection = { style: {}, classList: { toggle() {} }, setAttribute(name, value) { this[name] = value; } };
+  scene.selectionFrame = () => ({ left: 20, top: 30, width: 100, height: 80 });
+  globals.$ = () => label;
+  globals.$$ = () => handles;
+  for (const [mode, selected, name] of [["logo", "message", "Logo"], ["text", "cta", "Call to action"], ["text", "message", "Headline"]]) {
+    scene.owner.mode = mode; scene.selected = selected;
+    scene.paintSelection();
+    assert.equal(label.textContent, name);
+    assert.equal(handles[0]["aria-label"], `Resize ${name} from top left. Arrow keys resize. Shift uses ten pixels.`);
+    assert.ok(handles.every(handle => handle["aria-label"].startsWith(`Resize ${name} from `)));
+  }
 });

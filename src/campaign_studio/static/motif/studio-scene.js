@@ -390,7 +390,9 @@ class StudioScene {
     this.queue.schedule(immediate ? 0 : 1000);
     this.paint();
     this.paintControlsState();
-    if (raster) this.schedulePreview();
+    // A pending raster can be skipped or discarded while a pointer is held.
+    // Resume it after the gesture, even when that gesture only moved a layer.
+    if (raster || this.rasterDirty) this.schedulePreview();
     if (!this.gesture) this.publishThumbnail({ provisional });
   }
   status(message, retry = false) {
@@ -719,12 +721,24 @@ class StudioScene {
     for (const key of ["left", "top", "width", "height"])
       this.selection.style[key] = `${frame[key]}px`;
     this.selection.classList.toggle("is-top-edge", frame.top < 24);
-    $(".mf-direct-label", this.selection).textContent =
+    const label =
       id === "logo" ? "Logo" : id === "message" ? "Headline" : "Call to action";
+    $(".mf-direct-label", this.selection).textContent = label;
     this.selection.setAttribute(
       "aria-label",
-      `${id === "logo" ? "Logo" : id === "message" ? "Headline" : "Call to action"}. Arrow keys move; Shift moves ten pixels.`,
+      `${label}. Arrow keys move; Shift moves ten pixels.`,
     );
+    const corners = {
+      nw: "top left",
+      ne: "top right",
+      sw: "bottom left",
+      se: "bottom right",
+    };
+    for (const button of $$("[data-mf-corner]", this.selection))
+      button.setAttribute(
+        "aria-label",
+        `Resize ${label} from ${corners[button.dataset.mfCorner]}. Arrow keys resize. Shift uses ten pixels.`,
+      );
   }
   point(event) {
     const r = this.output.getBoundingClientRect();

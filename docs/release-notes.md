@@ -4,6 +4,7 @@ This local candidate retains Motif's Python and plain JavaScript stack. It has n
 
 - Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
 - Completed layout gestures update the selected format thumbnail directly from the browser canvas. Other formats retain their images unless shared wording or campaign artwork changes.
+- Pending text previews resume after a drag, including a response that arrived while the pointer was held. Resize handles identify the currently selected logo, headline, or call to action for assistive technology.
 - Production and Studio galleries use sized previews and retain decoded images across view changes. Source, wording, layout, market, and branding changes invalidate the affected visual entries.
 
 - Canceling a rename or prohibited-word dialog leaves the applied campaign values unchanged.
