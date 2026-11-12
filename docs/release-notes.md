@@ -1,19 +1,17 @@
 # Motif v0.4.0 – Direct editing and flexible delivery
 
-- Reset logo placement becomes available as soon as the logo loads after refresh or a first visit to a format, without requiring another tool switch or edit.
-- Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
-- Live format thumbnails remain contained within their cards, including tall Story images. The intentional green surround around the main image is unchanged.
-
 Motif 0.4.0 keeps its local Python and plain JavaScript architecture while making editing more immediate, campaign creation easier, and delivery more flexible.
 
 - A newly created campaign remains recoverable if opening it or refreshing the Workbench fails. Retry opens the saved campaign without creating another one.
 - **New campaign** combines manual entry and JSON import in one dialog. Switching routes preserves unfinished entries, and **Download example JSON** supplies a valid, adaptable brief.
 - Handoff starts with all available output images selected. One **Download ZIP** action exports the checked images across pages, markets, and formats. Clearing selection disables it. Subset ZIPs contain only the selected PNGs and a matching offline report; campaign-wide export checks and failed-image retry remain in force.
 - Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
+- Reset logo placement becomes available as soon as the logo loads after refresh or a first visit to a format, without requiring another tool switch or edit.
+- Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
 - Completed layout gestures update the selected format thumbnail directly from the browser canvas. Other formats retain their images unless shared wording or campaign artwork changes.
+- Live format thumbnails remain contained within their cards, including tall Story images.
 - Pending text previews resume after a drag, including a response that arrived while the pointer was held. Resize handles identify the currently selected logo, headline, or call to action for assistive technology.
 - Production and Studio galleries use sized previews and retain decoded images across view changes. Source, wording, layout, market, and branding changes invalidate the affected visual entries.
-
 - Canceling a rename or prohibited-word dialog leaves the applied campaign values unchanged.
 - Campaign copy confirmation waits until the field loses focus or the producer explicitly saves or navigates, preserving custom wording until confirmation.
 - Studio remains usable after resetting text placement, opening source details while a description saves, or styling an empty call to action.

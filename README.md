@@ -12,11 +12,13 @@ Bruce Bracken built the initial working version in three and a half days, direct
 
 The central decision is to **generate source imagery only when needed, then compose exact supplied copy and branding locally**. One product source can support two markets and three formats. A wording, crop, logo, or text-style correction reuses that source instead of buying another image generation.
 
-![Motif Studio with combined text controls, the campaign image, and Square, Story, and Landscape formats.](docs/images/motif-studio.png)
+![Motif Studio with a selected headline in the persistent layered editor, text controls, and Square, Story, and Landscape thumbnails.](docs/images/motif-studio.png)
 
 ## Explore Motif
 
 [The Motif website](https://motif.brucebracken.com/) shows the application in action. The [engineering case study](docs/case-study.md) explains the decisions, difficult problems, and measured improvements behind it. This README provides setup instructions and the detailed behavior reference.
+
+The [presentation](https://motif.brucebracken.com/presentation) includes the original visual story and its engineering appendix.
 
 The application includes two seasonal campaigns: Autumn Winds provides a completed key-free example; Bridle & Bough provides a deliberate missing-image generation journey. The [example and import guide](examples/README.md) distinguishes these campaigns from engineering fixtures.
 
