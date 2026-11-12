@@ -75,6 +75,29 @@ function keyEvent(key, { shift = false, target = "canvas", corner } = {}) {
   };
 }
 
+test("a loaded logo updates Reset in the existing controls, including when no logo is returned", async (t) => {
+  for (const hasLogo of [true, false]) {
+    const { scene, context, globals, requests } = harness(t);
+    const reset = { disabled: hasLogo };
+    scene.owner.mode = "logo";
+    scene.paintControlsState = context.Scene.prototype.paintControlsState;
+    globals.model.output_brief.markets = { "en-US": {} };
+    globals.$ = selector => selector === '[data-scene-action="reset-logo"]' ? reset : null;
+    scene.resource = async () => ({});
+    const loading = scene.refresh(); await tick();
+    assert.equal(reset.disabled, hasLogo, "control remains unchanged while the packet is pending");
+    requests[0].resolve({
+      source: { url: "/source.png", key: "source" },
+      logo: hasLogo ? { url: "/logo.png", key: "logo" } : null,
+      text_blocks: {}, findings: [],
+    });
+    await loading;
+    assert.equal(scene.ready, true);
+    assert.equal(reset.disabled, !hasLogo, "the already-mounted button follows loaded logo availability");
+    assert.equal(requests.length, 1, "updating Reset does not save or request another preview");
+  }
+});
+
 test("an in-flight logo save preserves later text and framing changes across tool selection", async (t) => {
   const { scene, requests, acknowledge } = harness(t);
   scene.owner.mode = "logo";

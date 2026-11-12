@@ -494,6 +494,8 @@ class StudioScene {
   }
   paintControlsState() {
     if (!this.current()) return;
+    const resetLogo = $('[data-scene-action="reset-logo"]', this.owner.root);
+    if (resetLogo) resetLogo.disabled = !this.logo;
     const framingTools = $(".framing-tools", this.owner.root);
     if (framingTools && this.layers && !this.prepared) {
       const f = this.state.framing,

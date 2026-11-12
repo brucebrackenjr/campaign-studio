@@ -1,5 +1,6 @@
 # Unreleased – Portfolio maintenance
 
+- Reset logo placement becomes available as soon as the logo loads after refresh or a first visit to a format, without requiring another tool switch or edit.
 - Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
 - Live format thumbnails remain contained within their cards, including tall Story images. The intentional green surround around the main image is unchanged.
 
