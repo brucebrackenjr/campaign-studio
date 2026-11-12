@@ -124,23 +124,43 @@ def test_warm_preview_cannot_bypass_broken_or_unowned_source(editing, damage):
     _, ws, cid, _ = editing
     render(ws, cid)
     path = source_path(ws, cid)
-    reference = str(path.relative_to(ws.storage.root))
+    reference = path.relative_to(ws.storage.root).as_posix()
     if damage == "missing":
         path.unlink()
     elif damage == "corrupt":
         path.write_bytes(b"This is no longer an image.")
     else:
         with ws.storage.connect() as db:
+            assert (
+                db.execute(
+                    "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+                ).fetchone()[0]
+                == cid
+            )
             if damage == "unregistered":
-                db.execute("DELETE FROM file_owners WHERE reference=?", (reference,))
+                changed = db.execute("DELETE FROM file_owners WHERE reference=?", (reference,))
+                assert changed.rowcount == 1
+                assert (
+                    db.execute(
+                        "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+                    ).fetchone()
+                    is None
+                )
             else:
                 db.execute(
                     "INSERT INTO campaigns(id,folder) VALUES (?,?)",
                     ("foreign-campaign", "foreign-campaign"),
                 )
-                db.execute(
+                changed = db.execute(
                     "UPDATE file_owners SET campaign_id=? WHERE reference=?",
                     ("foreign-campaign", reference),
+                )
+                assert changed.rowcount == 1
+                assert (
+                    db.execute(
+                        "SELECT campaign_id FROM file_owners WHERE reference=?", (reference,)
+                    ).fetchone()[0]
+                    == "foreign-campaign"
                 )
     with pytest.raises(ActionError):
         render(ws, cid)

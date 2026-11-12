@@ -283,6 +283,10 @@ def test_socket_wait_uses_overall_deadline_and_never_retries(tmp_path, monkeypat
 
     original = planning.request_for
     deadline = 0.08 if behavior == "deadline" else 0.8
+    if behavior == "connection_failure":
+        # Windows can report a refused localhost connection after 0.8 seconds.
+        # Let the transport's 10-second connect limit win in this classification case.
+        deadline = 15
     monkeypatch.setattr(
         planning,
         "request_for",

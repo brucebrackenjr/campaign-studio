@@ -94,6 +94,8 @@ jobs:
           enable-cache: false
       - name: Install from the lock
         run: uv sync --locked
+      - name: Check Windows preview ownership and provider deadlines
+        run: uv run --locked pytest tests/test_preview_cache.py tests/test_provider_runner.py::test_socket_wait_uses_overall_deadline_and_never_retries
       - name: Python behavioral tests on Windows
         run: uv run --locked pytest --junitxml=.checks/windows-pytest.xml
       - name: Check installed smoke command
