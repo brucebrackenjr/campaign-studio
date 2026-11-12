@@ -1230,3 +1230,53 @@ test('Add sends file and product once; failure retains both and success adopts t
     }
   }
 });
+
+
+test("manual creation survives catalog failure and opens the committed campaign without another POST", async () => {
+  const h = harness(); h.context.calls = [];
+  h.get("#new-name").value="New campaign";h.get("#new-brand").value="Brand";h.get("#new-audience").value="Audience";
+  h.run(`page="library";modal="new";draft=null;
+    api=async(path,body)=>{calls.push(["post",path,body]);return {campaign_id:"saved-new"}};
+    openCampaign=async id=>calls.push(["open",id]);
+    refreshCatalog=async()=>{throw Error("Controlled catalog failure")};`);
+  await h.run("dispatchAction({action:'create'})");
+  assert.equal(h.context.calls[1][0],"open");
+  assert.equal(h.context.calls[1][1],"saved-new");
+  assert.match(h.notices[0],/campaign was created/);
+  await h.run("dispatchAction({action:'create'})");
+  assert.equal(h.context.calls.filter(c=>c[0]==="post").length,1);
+});
+
+test("manual creation retries a failed opening by saved identity and a deliberate New starts afresh", async () => {
+  const h = harness(); h.context.calls = [];
+  h.run(`page="library";modal="new";draft=null;
+    api=async path=>{calls.push(["post",path]);return {campaign_id:"saved-new"}};
+    openCampaign=async id=>{calls.push(["open",id]);throw Error("Temporary page error")};
+    refreshCatalog=async()=>calls.push(["refresh"]);
+    openModal=name=>modal=name;`);
+  await h.run("dispatchAction({action:'create'})");
+  assert.equal(h.run("modal"),"creation-open-failed");
+  h.run("openCampaign=async id=>calls.push(['open',id])");
+  await h.run("dispatchAction({action:'openCreated'})");
+  assert.equal(h.context.calls.filter(c=>c[0]==="post").length,1);
+  assert.equal(h.context.calls.filter(c=>c[0]==="open").length,2);
+  await h.run("dispatchAction({action:'new'})");
+  assert.equal(h.run("createdCampaignId"),null);
+  await h.run("dispatchAction({action:'create'})");
+  assert.equal(h.context.calls.filter(c=>c[0]==="post").length,2);
+});
+
+
+test("the campaign menu starts a fresh creation session after a prior committed create or import", async () => {
+  const h = harness();
+  h.run(`createdCampaignId="previous-created";importedCampaignId="previous-import";
+    importFile={name:"previous.json"};newCampaignDraft={name:"Previous",brand:"Brand",audience:"Audience"};
+    guardBrandNavigation=()=>false;flushCurrentWork=async()=>true;clearStorageContext=()=>{};
+    openModal=name=>modal=name;`);
+  await h.run("dispatchStorage('new')");
+  assert.equal(h.run("createdCampaignId"),null);
+  assert.equal(h.run("importedCampaignId"),null);
+  assert.equal(h.run("importFile"),null);
+  assert.equal(h.run("newCampaignDraft.name"),"");
+  assert.equal(h.run("modal"),"new");
+});

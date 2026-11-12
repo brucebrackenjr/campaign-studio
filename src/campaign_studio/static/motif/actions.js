@@ -4,7 +4,18 @@ let stopTarget = null;
 let importFile = null;
 let importErrorMessage = "";
 let importedCampaignId = null;
+let createdCampaignId = null;
+let creationOpenError = "";
 let creationSubmitting = false;
+function beginCampaignCreation() {
+  createdCampaignId = null;
+  creationOpenError = "";
+  newCampaignDraft = { name: "", brand: "", audience: "" };
+  importFile = null;
+  importedCampaignId = null;
+  importErrorMessage = "";
+  openModal("new");
+}
 function captureCampaignCreation() {
   if (modal === "new" && $("#new-name")) newCampaignDraft = {
     name: $("#new-name").value, brand: $("#new-brand").value, audience: $("#new-audience").value,
@@ -46,6 +57,22 @@ async function savePendingNavigation() {
     navigationError = error.message;
   }
   if (pendingNav && modal === "unsaved") openModal("unsaved");
+}
+
+async function openCreatedCampaign() {
+  // Keep the returned identity through read failures; never create it again.
+  try {
+    await openCampaign(createdCampaignId, "campaign");
+  } catch (error) {
+    creationOpenError = error.message;
+    openModal("creation-open-failed");
+    return;
+  }
+  try {
+    await refreshCatalog();
+  } catch {
+    toast("Your campaign was created. The Workbench could not refresh; try opening it again later.");
+  }
 }
 
 async function openImportedCampaign() {
@@ -366,6 +393,12 @@ modalView = function () {
       `${campaignCreationRoutes("import")}<div id="creation-panel" role="tabpanel" aria-labelledby="creation-import"><p class="muted">Import a JSON brief file. You can attach images later.</p><div class="import-file"><div class="import-file-details" aria-live="polite"><span id="import-file-label" class="small muted">JSON brief</span><strong id="import-file-name">Choose a JSON brief</strong></div><label class="btn import-file-picker"><span id="import-file-change">Choose JSON file</span><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></label></div><p class="small muted">JSON · up to 128 KiB</p><div class="brief-example"><a href="/static/motif/example-brief.json" download="Motif-example-brief.json">Download example JSON ↓</a><p class="small muted">Use this example with AI to create your JSON brief.</p></div><div id="import-error" role="alert"></div></div>`,
       `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import JSON →", "doImport", "primary", importFile ? "" : "disabled")}`,
       false, "New campaign",
+    );
+  if (modal === "creation-open-failed")
+    return dialog(
+      "Your campaign was created.",
+      `<p>It is saved, but could not open yet.</p>${notice(creationOpenError, "", "block")}`,
+      btn("Close", "close") + btn("Open campaign", "openCreated", "primary"),
     );
   if (modal === "import-open-failed")
     return dialog(
@@ -1058,11 +1091,7 @@ async function dispatchAction(data) {
         render();
         break;
       case "new":
-        newCampaignDraft = { name: "", brand: "", audience: "" };
-        importFile = null;
-        importedCampaignId = null;
-        importErrorMessage = "";
-        openModal("new");
+        beginCampaignCreation();
         break;
       case "campaignRoute":
         openModal(index === "import" ? "import" : "new");
@@ -1158,7 +1187,14 @@ async function dispatchAction(data) {
       case "applyDraftWording":
         await applyDraftWording();
         break;
+      case "openCreated":
+        await openCreatedCampaign();
+        break;
       case "create": {
+        if (createdCampaignId) {
+          await openCreatedCampaign();
+          break;
+        }
         creationSubmitting = true;
         $('[data-action="create"]').textContent = "Creating campaign…";
         const created = await api("/api/motif/campaigns", {
@@ -1167,8 +1203,8 @@ async function dispatchAction(data) {
           audience: $("#new-audience").value,
         });
         creationSubmitting = false;
-        await refreshCatalog();
-        await openCampaign(created.campaign_id);
+        createdCampaignId = created.campaign_id;
+        await openCreatedCampaign();
         break;
       }
       case "openCampaign":
@@ -1619,7 +1655,7 @@ document.addEventListener("keydown", event => {
       updateURL();
       if (intent === "new") {
         history.replaceState({}, "", "/");
-        openModal("new");
+        beginCampaignCreation();
       }
     }
   } catch (error) {

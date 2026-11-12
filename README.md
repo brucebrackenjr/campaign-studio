@@ -1,10 +1,14 @@
 # Motif – Campaign Studio
 
-**Version 0.3.2** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+**Version 0.4.0** · Native Windows, macOS, and Linux support · [Release notes](docs/release-notes.md)
+
+**AI-native building. Full-stack engineering. A working prototype in three and a half days.**
+
+Motif showcases Bruce Bracken’s AI-native building and engineering expertise: rapid prototyping, technical breadth and depth, and a carefully designed creative workflow.
 
 Motif takes a campaign from its first brief to a finished set of images. Bring your product photographs, words, and brand assets; generate a missing concept when needed; then shape the composition and download the campaign across products, formats, and languages.
 
-Bruce Bracken built the initial working version in three and a half days, directing product design, architecture, implementation, and testing in collaboration with AI. Continued development strengthens the editing experience, performance, and failure recovery. The result brings a visual editor, Python image processing, a transactional database, and paid API integration together in one local application.
+Bruce Bracken built the initial working version in three and a half days, directing product design, architecture, implementation, and testing in collaboration with AI. Continued development strengthens the editing experience, performance, and failure recovery. The result brings a persistent layered editor, Python image processing, a transactional database, and paid API integration together in one local application.
 
 The central decision is to **generate source imagery only when needed, then compose exact supplied copy and branding locally**. One product source can support two markets and three formats. A wording, crop, logo, or text-style correction reuses that source instead of buying another image generation.
 
@@ -44,13 +48,13 @@ Motif covers a campaign’s input, production, correction, and delivery stages. 
 
 | Capability | What it does |
 | --- | --- |
-| Campaign brief | Forms and JSON import capture one to five products, audience, creative direction, brand assets, and supplied wording for one or both supported markets. |
+| Campaign brief | One New campaign dialog offers forms or JSON import, with a downloadable example, for one to five products, audience, creative direction, brand assets, and supplied wording for one or both supported markets. |
 | Source imagery | Reuse finished PNG or JPEG photographs, or review and confirm generation for a missing concept. A damaged attachment never silently becomes a paid request. |
 | Three aspect ratios | Create Square **1080 × 1080 (1:1)**, Story **1080 × 1920 (9:16)**, and Landscape **1920 × 1080 (16:9)** PNGs. |
 | Exact wording | Compose the supplied English (United States) and Spanish (Mexico) text locally. Motif does not translate or ask the image model to draw the campaign copy. |
-| Visual editing | Move and resize text and logos, select fonts and brand colors, and adjust framing while retaining editable source elements. |
+| Visual editing | Select and arrange the photograph, logo, headline, and CTA in one persistent scene. Switch tools locally, with live format thumbnails. |
 | Content checks | Check text bounds, configured prohibited phrases, palette colors, and rendered files. Handoff notes a missing optional logo. |
-| Organized delivery | Download a ZIP organized by product and language, with finished PNGs, an offline HTML overview, and a manifest. |
+| Organized delivery | Download all available images or an exact selection, organized by product and language, with finished PNGs, an offline HTML overview, and a matching manifest. |
 | Request accounting | Retain attempts, outcomes, reported usage, and cost estimates across generation runs. Reports include source provenance and supplied accessible descriptions. |
 | Local execution | Run one Python application with a browser interface, SQLite database, and ordinary local asset files. No hosted application is required. |
 
@@ -362,7 +366,7 @@ If a local image render fails during ZIP creation, Motif continues creating the 
 
 ## Architecture and data flow
 
-Motif runs on the producer’s computer. The producer works in a browser, and a Python application running on that same computer saves changes, checks inputs, and makes images. OpenAI is contacted only when the producer asks Motif to generate a missing product photograph and confirms the request.
+Motif runs on the producer’s computer. The producer works in a browser, and a Python application running on that same computer saves changes, checks inputs, and makes images. OpenAI is contacted when the producer reviews and confirms a request to create a missing source image or regenerate an existing generated source.
 
 ```mermaid
 flowchart TD

@@ -1,6 +1,6 @@
 # Motif: from a brief to a finished campaign
 
-Motif brings creative direction and software engineering into the same workflow. A producer can import a brief, reuse photographs, generate a missing concept, arrange exact words and branding, and download a coordinated campaign. Five products, two supplied languages, and three formats produce 30 finished images.
+Motif is a showcase of Bruce Bracken’s AI-native building and engineering expertise: rapid prototyping backed by full-stack technical breadth and depth. It brings creative direction and software engineering into the same workflow. A producer can import a brief, reuse photographs, generate a missing concept, arrange exact words and branding, and download a coordinated campaign. Five products, two supplied languages, and three formats produce 30 finished images.
 
 Bruce Bracken directed the product, design, architecture, and development with AI collaboration. The initial working version took three and a half days. Subsequent work has strengthened editing reliability, preview performance, and recovery. This case study describes the engineering choices behind that progression.
 
@@ -28,13 +28,13 @@ The correction made readiness explicit. Studio keeps the existing image visible,
 
 That behavior was checked in real Chromium and WebKit sessions, including attachment, movement, failure, and recovery. Controller tests separately exercise late responses and layer ownership. A successful HTTP response alone would not have demonstrated that the canvas stayed usable.
 
-The next refinement keeps one scene and save queue across all Studio tools. The photograph, logo, headline, and CTA stay loaded while selecting an element changes its controls. Moving a layer draws locally, and its format thumbnail copies the completed canvas instead of waiting for a server-rendered replacement. Exact wording and font changes still use Pillow's text layout. A save that finishes late updates the saved baseline without overwriting a newer gesture or sentence.
+The unified editor keeps one scene and save queue across all Studio tools. The photograph, logo, headline, and CTA stay loaded while selecting an element changes its controls. Moving a layer draws locally, and its format thumbnail copies the completed canvas instead of waiting for a server-rendered replacement. Exact wording and font changes still use Pillow's text layout. A save that finishes late updates the saved baseline without overwriting a newer gesture or sentence.
 
 ## Measuring the local preview cost
 
 Local files still require work: decoding images, measuring text, planning crops, composing pixels, and encoding previews. Repeating that work for every gallery request made a small campaign feel slow.
 
-The maintenance candidate adds bounded in-memory reuse. Before using a cached plan or image, Motif checks the current instructions, file ownership, asset contents, and selected font contents. Export still performs its own strict checks. Faster lossless PNG compression reduces temporary layer encoding work.
+Motif uses bounded in-memory reuse. Before using a cached plan or image, Motif checks the current instructions, file ownership, asset contents, and selected font contents. Export still performs its own strict checks. Faster lossless PNG compression reduces temporary layer encoding work.
 
 Matched local Chromium observations on the bundled five-product Autumn campaign changed as follows in the first cache pass, before the persistent-scene work:
 

@@ -1,11 +1,12 @@
-# Unreleased – Portfolio maintenance
+# Motif v0.4.0 – Direct editing and flexible delivery
 
 - Reset logo placement becomes available as soon as the logo loads after refresh or a first visit to a format, without requiring another tool switch or edit.
 - Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
 - Live format thumbnails remain contained within their cards, including tall Story images. The intentional green surround around the main image is unchanged.
 
-This local candidate retains Motif's Python and plain JavaScript stack. It has not been published as a release.
+Motif 0.4.0 keeps its local Python and plain JavaScript architecture while making editing more immediate, campaign creation easier, and delivery more flexible.
 
+- A newly created campaign remains recoverable if opening it or refreshing the Workbench fails. Retry opens the saved campaign without creating another one.
 - **New campaign** combines manual entry and JSON import in one dialog. Switching routes preserves unfinished entries, and **Download example JSON** supplies a valid, adaptable brief.
 - Handoff starts with all available output images selected. One **Download ZIP** action exports the checked images across pages, markets, and formats. Clearing selection disables it. Subset ZIPs contain only the selected PNGs and a matching offline report; campaign-wide export checks and failed-image retry remain in force.
 - Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
@@ -24,7 +25,7 @@ This local candidate retains Motif's Python and plain JavaScript stack. It has n
 - Accessible descriptions entered in Handoff persist for the selected image and appear in its downloaded report. Individual PNG names include the market code, and reports distinguish verified app-generated sources from supplied imagery.
 - The README and Motif website present the application as an independent product. A new engineering case study explains architecture, preview recovery, and measured performance.
 
-See the [verification notes](verification.md) for the candidate's checks and measured performance.
+See the [verification notes](verification.md) for release checks and measured performance.
 
 ---
 

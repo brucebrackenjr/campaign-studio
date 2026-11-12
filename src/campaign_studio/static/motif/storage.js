@@ -434,7 +434,7 @@ async function dispatchStorage(action, identity) {
         return;
       if (await flushCurrentWork()) {
         clearStorageContext();
-        openModal("new");
+        beginCampaignCreation();
       }
       return;
     case "view-campaigns":
