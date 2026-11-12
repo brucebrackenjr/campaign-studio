@@ -96,12 +96,6 @@ jobs:
         run: uv sync --locked
       - name: Check Windows preview ownership and provider deadlines
         run: uv run --locked pytest tests/test_preview_cache.py tests/test_provider_runner.py::test_socket_wait_uses_overall_deadline_and_never_retries
-      - name: Python behavioral tests on Windows
-        run: uv run --locked pytest --junitxml=.checks/windows-pytest.xml
-      - name: Check installed smoke command
-        run: .\.venv\Scripts\campaign-studio.exe smoke --data-dir .checks/smoke
-      - name: Check installed synthetic images and export
-        run: .\.venv\Scripts\campaign-studio.exe sample-run --data-dir .checks/sample
       - name: Install and start the packaged ZIP on Windows
         shell: pwsh
         run: |
@@ -120,20 +114,29 @@ jobs:
             $server = Start-Process uv -ArgumentList 'run','--locked','campaign-studio','serve' -WorkingDirectory $install -PassThru -RedirectStandardOutput server.stdout.txt -RedirectStandardError server.stderr.txt
             try {
               $ready = $false
+              $motifLastProbeError = 'No response received.'
               for ($attempt = 0; $attempt -lt 120; $attempt++) {
                 if ($server.HasExited) { throw 'Packaged server exited before becoming ready.' }
                 try {
-                  $health = Invoke-WebRequest 'http://127.0.0.1:8338/health' -TimeoutSec 2
-                  $home = Invoke-WebRequest 'http://127.0.0.1:8338/' -TimeoutSec 2
-                  if ($health.StatusCode -eq 200 -and $home.StatusCode -eq 200 -and $home.Content -match 'Motif') { $ready = $true; break }
-                } catch { Start-Sleep -Milliseconds 500 }
+                  $motifHealthResponse = Invoke-WebRequest 'http://127.0.0.1:8338/health' -TimeoutSec 2
+                  $motifWorkbenchResponse = Invoke-WebRequest 'http://127.0.0.1:8338/' -TimeoutSec 2
+                  if ($motifHealthResponse.StatusCode -eq 200 -and $motifWorkbenchResponse.StatusCode -eq 200 -and $motifWorkbenchResponse.Content -match 'Motif') { $ready = $true; break }
+                  $motifLastProbeError = 'Unexpected response status or missing Motif page content.'
+                } catch { $motifLastProbeError = $_.Exception.Message }
+                Start-Sleep -Milliseconds 500
               }
-              if (-not $ready) { throw 'Packaged server did not serve Workbench and health.' }
+              if (-not $ready) { throw "Packaged server did not serve Workbench and health: $motifLastProbeError" }
             } finally {
               taskkill /PID $server.Id /T /F | Out-Null
               Remove-Item Env:CAMPAIGN_STUDIO_PORT
             }
           } finally { Pop-Location }
+      - name: Python behavioral tests on Windows
+        run: uv run --locked pytest --junitxml=.checks/windows-pytest.xml
+      - name: Check installed smoke command
+        run: .\.venv\Scripts\campaign-studio.exe smoke --data-dir .checks/smoke
+      - name: Check installed synthetic images and export
+        run: .\.venv\Scripts\campaign-studio.exe sample-run --data-dir .checks/sample
       - name: Preserve Windows check reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
