@@ -1,10 +1,12 @@
 # Image generation, cost, and recovery
 
-The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. In Motif 0.3.2, confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
+The application uses the official OpenAI Python SDK through the small `OpenAIImages` adapter. The SDK is the client library for making API requests; it does not own campaign planning, editing instructions, costs, or the local workflow. Confirmed Production prepares source images; finished campaign PNGs are composed locally only for download.
 
 ## Request contract
 
 The configured model snapshot is `gpt-image-2.5-flare-2026-09-08`. The saved request specifies one 1920 × 1920 opaque PNG at high quality, zero automatic retries, and a 120-second overall deadline. Exact parameters and instructions participate in the saved plan digest, so a confirmed plan cannot silently send different request settings.
+
+The overall deadline also bounds a silent wait for response headers or image bytes; there is no earlier read-inactivity cutoff. Separate connection, write, and connection-pool limits remain 10, 30, and 10 seconds, respectively. A deadline expiry or disconnected response remains an uncertain attempt, with no automatic retry.
 
 For the demonstrated missing-image concept, the app sends text describing the subject, intended audience, and scene direction. Supplied finished photographs, logos, and exact advertising copy stay in local processing for this path. Generated imagery is an invented concept, not a claim of fidelity to an existing photographed product. The composition instructions ask for the complete product inside the central area shared by the Square, Story, and Landscape crops, with surrounding scenery. The 1920-square source provides room for moderate local zoom; cropping and enlargement do not create new detail. Inspect all three formats because prompt compliance and product framing still require human judgment.
 
@@ -25,6 +27,16 @@ The adapter saves returned material privately before decoding the image. If a re
 Missing, expired, revoked, or rejected credentials produce a useful next step. They do not remove saved campaigns or prevent compatible local correction and export, subject to ordinary source-integrity and prohibited-wording gates. After a replacement key is saved, **Resume generation** opens a short confirmation of the products, new request count, and estimate. Confirmation starts the retry; saving the key alone does not. Production keeps its current progress and action together, with prompts and request details available in a collapsed section. A local server cannot know a key is accepted until the relevant provider operation checks it; it does not make background paid requests just to test credentials.
 
 Mock-transport tests cover request serialization, duplicate starts, failure accounting, deadline cleanup, stop behavior, interrupted attempts, and saved-response recovery. Those tests establish application behavior, while the separately recorded live run establishes actual provider integration. Neither replaces inspection of the resulting images.
+
+## Regenerating a source
+
+Production offers **Regenerate image** for a current source that matches a successfully decoded generation receipt from the same campaign and product. The review shows one product, one request, its exact prompt and settings, and the estimated cost. **Confirm 1 paid request** authorizes that replacement; **Keep current image** cancels without dispatch. Uploaded finished photographs and externally supplied replay imagery do not qualify. A prepared-product brief can regenerate its app-generated background while retaining the supplied product cutout.
+
+Regeneration is an explicit replacement intent. It does not change the product description to trick source-reuse checks. A confirmation is tied to the reviewed campaign version and source hash. A repeated confirmation uses the same recorded operation; it is not authorization for another charge. If the response to confirmation is lost, **Check this confirmed request** only looks up that operation. It cannot dispatch an image request, even if no confirmed operation is found. Closing that uncertain dialog does not cancel a request that may already be running; Production retains a way to check its status and reach Stop. Another paid request requires a separate review and explicit confirmation.
+
+Motif keeps using the accepted source while generation runs. A failure, timeout, or accepted Stop retains it. Stop and source acceptance share a short database write boundary: if Stop wins, a late result stays unused; if acceptance finishes first, Motif reports that regeneration is no longer running. Stop cannot promise that the provider canceled the request or waived the charge. Once a replacement succeeds and passes the current-version and source checks, the chosen product uses it across its existing formats and markets. Wording and layout remain unchanged, and the old source file remains retained.
+
+If newer campaign changes prevent accepting a successful result, Motif retains that unused result and its recorded usage, reports that the current image was kept, and does not overwrite newer work. Attempts and available usage still contribute to cumulative campaign accounting. There is no automatic paid retry or source-history picker.
 
 ## Why one model
 

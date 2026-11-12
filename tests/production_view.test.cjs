@@ -8,7 +8,7 @@ const vm = require('node:vm');
 function harness() {
   const context = vm.createContext({
     document: { body: { dataset: { page: 'production', cap: '5' } }, addEventListener() {} },
-    structuredClone, damagedFiles: () => false, cancelProductUpload() {}, window: {},
+    structuredClone, retainStudioGallery() {}, damagedFiles: () => false, cancelProductUpload() {}, window: {},
   });
   context.window = context;
   const run = code => vm.runInContext(code, context);
@@ -429,4 +429,49 @@ test('key access stays visible during missing-source validation without duplicat
   assert.match(html,/Add product images/);
   assert.equal((html.match(/data-pr-action="key"/g)||[]).length,1);
   assert.match(html,/OpenAI key/);
+});
+
+test('regeneration action is limited to server-admitted generated sources and hidden while active',()=>{
+ const h=harness();
+ h.run("model.plan.generation_products=[];model.run.state='complete';model.composition_version='v1';model.regeneratable_products=['a'];model.source_urls={a:'old-a',b:'old-b'};model.manifest={outputs:[{id:'a/en-US/1x1',product_id:'a',url:'old-a'}]};");
+ let html=h.run('productionView(productionContext())');
+ assert.equal((html.match(/data-pr-action="regenerate"/g)||[]).length,1);
+ assert.match(html,/data-pr-action="regenerate" data-pr-id="a"/);
+ h.run("operation={run_id:'run1',active:true}");
+ html=h.run('productionView(productionContext())');assert.doesNotMatch(html,/data-pr-action="regenerate"/);
+});
+
+test('regeneration confirmation names target, paid request, preservation, and exact settings',()=>{
+ const h=harness();
+ h.run("dialog=(title,body,footer)=>title+body+footer;regenerationReview={campaign:draft.campaign_id,product_name:'Only Alpha',background_only:false,cost_estimate:{estimated_usd:.1,pricing_date:'2026-10-29'},request:{model:'saved-model',size:'1920x1920',quality:'high',deadline_seconds:120,prompt:'Actual prompt'}}");
+ const html=h.run('regenerationDialog()');
+ assert.match(html,/Regenerate image for Only Alpha/);assert.match(html,/Confirm 1 paid request/);
+ assert.match(html,/Failure, timeout, or Stop keeps the current image/);assert.match(html,/Other products stay unchanged/);
+ assert.match(html,/Actual prompt/);assert.match(html,/zero automatic paid retries/);
+ h.run('regenerationReview.confirming=true');assert.match(h.run('regenerationDialog()'),/disabled/);
+ h.run('regenerationReview.confirming=false;regenerationReview.uncertain=true');
+ const uncertain=h.run('regenerationDialog()');
+ assert.match(uncertain,/>Close dialog</);
+ assert.doesNotMatch(uncertain,/>Keep current image</);
+ assert.match(uncertain,/Closing this dialog does not stop it/);
+ assert.match(uncertain,/then use Stop regeneration in Production/);
+ assert.match(uncertain,/accepted result may already be in use/);
+});
+
+
+test('uncertain confirmation checks only saved status and retains an explicit paid choice when absent',async()=>{
+ const h=harness();
+ h.run(`regenerationReview={campaign:draft.campaign_id,version:'v1',product_id:'a',product_name:'Alpha',operation_id:'same-operation',digest:'same-digest',uncertain:true,confirming:false};
+ modal='regenerate';page='production';let lookups=[];
+ api=async(path,body)=>{lookups.push({path,body});return {found:false,message:'No confirmed request is recorded yet. This check sent no image request.'};};
+ openModal=()=>{};refreshProductionStatus=()=>{};`);
+ await h.run('confirmRegeneration()');
+ assert.equal(h.run('lookups.length'),1);
+ assert.match(h.run('lookups[0].path'),/regeneration\/status$/);
+ assert.equal(h.run('lookups[0].body.operation_id'),'same-operation');
+ assert.equal(h.run('regenerationReview.notRecorded'),true);
+ const notice=h.run('unresolvedRegenerationNotice()');
+ assert.match(notice,/Check this confirmed request/);
+ assert.match(notice,/Review a new paid request/);
+ assert.match(notice,/This check sent no image request/);
 });

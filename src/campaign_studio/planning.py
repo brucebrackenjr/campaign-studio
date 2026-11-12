@@ -10,7 +10,7 @@ from pydantic import Field
 
 from campaign_studio.brief import FORMATS, Brief, Contract, Copy, Framing, Market, Ratio
 from campaign_studio.costing import estimate_requests
-from campaign_studio.generation import GenerationRequest, request_for
+from campaign_studio.generation import GenerationRequest, ReplacementIntent, request_for
 from campaign_studio.imaging import (
     ImageProblem,
     crop_box,
@@ -75,6 +75,9 @@ class Output(Contract):
 def expand_outputs(brief: Brief) -> list[Output]:
     """Resolve the output matrix from its brief without reading assets or creating requests."""
     outputs = []
+    # Only the private display projection supplies this factory. Strict briefs
+    # always construct the normal validated output used by production/delivery.
+    output_factory = getattr(brief, "_incomplete_headline_output", Output)
     for product in brief.products:
         for market in brief.markets:
             copy = brief.effective_copy(product, market)
@@ -90,7 +93,7 @@ def expand_outputs(brief: Brief) -> list[Output]:
                 ):
                     framing.subject_box = product.source.subject_box.model_copy(deep=True)
                 outputs.append(
-                    Output(
+                    output_factory(
                         id=f"{product.id}/{market}/{ratio.replace(':', 'x')}",
                         product_id=product.id,
                         market=market,
@@ -112,6 +115,7 @@ class Asset(Contract):
 
 
 class Plan(Contract):
+    replacement: ReplacementIntent | None = None
     cost_estimate: dict | None = None
     schema_version: Literal[1] = 1
     digest: str

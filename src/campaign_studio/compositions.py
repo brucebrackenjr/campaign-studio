@@ -26,6 +26,7 @@ from campaign_studio.plan_storage import completed_run, dump_completed
 from campaign_studio.planning import (
     Asset,
     Finding,
+    Output,
     canonical_hash,
     compare_plans,
     contextualize_findings,
@@ -87,6 +88,77 @@ def source_records(state, run_id, plan):
     return records
 
 
+class _IncompleteHeadlinePreview(Brief):
+    """A display projection only; strict Brief validation still admits delivery."""
+
+    def _incomplete_headline_output(self, **values):
+        text = values["copy"]
+        if isinstance(text.message, str) and not text.message.strip():
+            # Validate every other output field using the previously validated
+            # copy, then restore the exact empty draft before it leaves here.
+            output = Output(
+                **{**values, "copy": text.model_copy(update={"message": "Preview validation"})}
+            )
+            return output.model_copy(update={"text": text})
+        return Output(**values)
+
+    def effective_copy(self, product, market):
+        values = self.markets[market].text.model_dump()
+        if override := product.copy_overrides.get(market):
+            values.update(override.model_dump(exclude_unset=True))
+        # Only blank headlines are relaxed after all other fields validate.
+        if isinstance(values.get("message"), str) and not values["message"].strip():
+            return self.markets[market].text.model_copy(update=values)
+        return super().effective_copy(product, market)
+
+
+def _headline_preview(value):
+    """Validate a temporary copy, then restore exact blank text for display."""
+    projected = copy.deepcopy(value)
+    if not isinstance(projected, dict):
+        return Brief.model_validate(value)
+    blanks = []
+    markets = projected.get("markets")
+    if isinstance(markets, dict):
+        for market, content in markets.items():
+            content = content.get("copy") if isinstance(content, dict) else None
+            if (
+                isinstance(content, dict)
+                and isinstance(content.get("message"), str)
+                and not content["message"].strip()
+            ):
+                blanks.append((None, market, content["message"]))
+                content["message"] = "Preview validation"
+    products = projected.get("products")
+    if isinstance(products, list):
+        for index, product in enumerate(products):
+            overrides = product.get("copy_overrides") if isinstance(product, dict) else None
+            if not isinstance(overrides, dict):
+                continue
+            for market, content in overrides.items():
+                if (
+                    isinstance(content, dict)
+                    and isinstance(content.get("message"), str)
+                    and not content["message"].strip()
+                ):
+                    blanks.append((index, market, content["message"]))
+                    content["message"] = "Preview validation"
+    if not blanks:
+        return Brief.model_validate(value)
+    brief = _IncompleteHeadlinePreview.model_validate(projected)
+    for index, market, message in blanks:
+        if index is None:
+            brief.markets[market].text = brief.markets[market].text.model_copy(
+                update={"message": message}
+            )
+        else:
+            product = brief.products[index]
+            product.copy_overrides[market] = product.copy_overrides[market].model_copy(
+                update={"message": message}
+            )
+    return brief
+
+
 def preview_brief(value):
     """Isolate unfinished products for display, without changing the stored brief."""
     from campaign_studio.validation import validation_issues
@@ -94,7 +166,12 @@ def preview_brief(value):
     try:
         return Brief.model_validate(value), []
     except ValidationError as error:
-        errors = error.errors(include_url=False)
+        try:
+            return _headline_preview(value), validation_issues(error)
+        except ValidationError as remaining_error:
+            # Blank headlines are a supported display draft. Isolate only the
+            # unrelated product errors remaining after that narrow projection.
+            errors = remaining_error.errors(include_url=False)
         # Shared campaign errors still apply to every preview. Only field errors
         # inside individual products may be isolated from their unaffected peers.
         if any(
@@ -121,7 +198,7 @@ def preview_brief(value):
                 projected["replay"] = None
         # Run the full remaining contract again, including cross-field rules.
         # A projection cannot authorize production, download, or persistence.
-        return Brief.model_validate(projected), validation_issues(error)
+        return _headline_preview(projected), validation_issues(error)
 
 
 def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, preview=False):
@@ -166,7 +243,12 @@ def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, previ
                     else None
                 }
             )
-    plan = make_plan(brief, workspace.storage)
+    if preview:
+        from campaign_studio.preview_cache import preview_cache
+
+        plan = preview_cache.plan(workspace.storage, brief)
+    else:
+        plan = make_plan(brief, workspace.storage)
     sources = {}
     for product in brief.products:
         asset = (
@@ -262,10 +344,26 @@ def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, previ
                 for match in context.phrase.matches:
                     if len(match.path) > 1 and match.path[0] == "products":
                         match.path[1] = positions[brief.products[match.path[1]].id]
+    # Source classification follows the admitted bytes, never producer origin text.
+    with workspace.storage.connect() as db:
+        generated = {
+            (row[0], row[1], row[2])
+            for row in db.execute(
+                "SELECT a.product_id,a.source_ref,a.source_sha256 FROM attempts a "
+                "JOIN runs r ON r.id=a.run_id WHERE r.campaign_id=? AND a.state='decoded'",
+                (campaign_id,),
+            )
+        }
     return {
         "plan": plan,
         "version": version,
         "sources": sources,
+        "source_origins": {
+            pid: "AI-generated source photograph"
+            if (pid, asset.reference, asset.sha256) in generated
+            else "Supplied source photograph"
+            for pid, asset in sources.items()
+        },
         "metadata": metadata,
         "campaign_metrics": workspace.state.campaign_metrics(campaign_id),
         "composition_issues": issues,
@@ -274,6 +372,10 @@ def snapshot(workspace, campaign_id, expected_version=None, *, brief=None, previ
 
 def finish_sources(state, run_id, plan):
     """Commit source readiness and compact the completed request record, never render PNGs."""
+    if plan.replacement:
+        from campaign_studio.regeneration import finish
+
+        return finish(state, run_id, plan)
     campaign_id = plan.brief.campaign_id
     records = source_records(state, run_id, plan)
     complete = len(records) == len(plan.brief.products)
@@ -396,6 +498,7 @@ def fit_changed_logo(workspace, campaign_id, previous, value):
 
 def edit_value(workspace, campaign_id, value, edit):
     from campaign_studio.brief import Framing
+    from campaign_studio.scene import SceneEdit
     from campaign_studio.workspace import ActionError, FrameEdit, LogoEdit, TextEdit
 
     value = copy.deepcopy(value)
@@ -405,6 +508,14 @@ def edit_value(workspace, campaign_id, value, edit):
     framing = Framing.model_validate(
         selected.get("framing", {}).get(edit.market, {}).get(edit.ratio, {})
     ).model_dump(mode="json")
+    if isinstance(edit, SceneEdit):
+        if edit.framing is not None:
+            framing.update(edit.framing.model_dump(mode="json", exclude_unset=True))
+        if edit.replacement:
+            workspace.storage.project(campaign_id).upload_name(edit.replacement)
+            value["brand"]["logo_path"] = edit.replacement
+            if edit.provenance:
+                value["brand"]["logo_provenance"] = edit.provenance.model_dump(mode="json")
     if isinstance(edit, TextEdit):
         if set(edit.values) != set(edit.field_scopes):
             raise ActionError("copy_fields", "Choose a scope for each wording field.", 422)
@@ -437,24 +548,36 @@ def edit_value(workspace, campaign_id, value, edit):
                 edit.placement.model_dump(mode="json") if edit.placement else None
             )
     selected.setdefault("framing", {}).setdefault(edit.market, {})[edit.ratio] = framing
-    if isinstance(edit, LogoEdit) and edit.replacement:
+    if isinstance(edit, (LogoEdit, SceneEdit)) and edit.replacement:
         fit_changed_logo(workspace, campaign_id, {"brand": {"logo_path": None}}, value)
     return value
 
 
-def candidate(workspace, campaign_id, edit):
+def candidate(workspace, campaign_id, edit, *, preview=False):
     current = snapshot(workspace, campaign_id, edit.revision_id, preview=True)
     old = current["plan"]
-    brief = Brief.model_validate(
-        edit_value(workspace, campaign_id, old.brief.model_dump(mode="json"), edit)
-    )
+    value = edit_value(workspace, campaign_id, old.brief.model_dump(mode="json"), edit)
+    if preview:
+        from campaign_studio.validation import validation_issues
+
+        try:
+            brief, issues = Brief.model_validate(value), []
+        except ValidationError as error:
+            # A proposed edit may clear required wording for display, but it
+            # must not isolate away its own invalid target (for example, an
+            # over-limit headline) and leave the renderer without that output.
+            brief, issues = _headline_preview(value), validation_issues(error)
+    else:
+        brief, issues = Brief.model_validate(value), []
     new = snapshot(workspace, campaign_id, edit.revision_id, brief=brief, preview=True)["plan"]
     impact = compare_plans(old, new).model_dump()
     impact["logo_available"] = "logo" in new.assets
+    impact["composition_issues"] = issues
     return brief, new, impact
 
 
 def save(workspace, campaign_id, edit):
+    from campaign_studio.scene import SceneEdit
     from campaign_studio.workspace import ActionError
 
     request_hash = canonical_hash(
@@ -485,6 +608,22 @@ def save(workspace, campaign_id, edit):
                 "This campaign changed in another tab. Your edits are still available.",
             )
         reconcile_descriptions(document, document["authored"]["brief"], value)
+        if isinstance(edit, SceneEdit) and edit.description_edit is not None:
+            from campaign_studio.review import public_metadata
+
+            metadata = document.setdefault("creative_metadata", {})
+            description = metadata.get(edit.output_id, {"version": 0, "description": None})
+            if description["version"] != edit.description_edit.expected_version:
+                raise ActionError(
+                    "metadata_conflict", "This description changed. Reload it before saving."
+                )
+            description.update(
+                description=edit.description_edit.description,
+                version=description["version"] + 1,
+                updated_at=timestamp(),
+                reset_reason=None,
+            )
+            metadata[edit.output_id] = public_metadata(description)
         document["authored"]["brief"] = value
         # An explicit shared Studio edit also replaces that field's saved
         # Campaign control. Otherwise an old raw form value can conceal the
@@ -597,7 +736,8 @@ def acknowledgement(workspace, campaign_id):
     }
 
 
-def preview_image(workspace, campaign_id, version, product_id, market, ratio):
+def preview_image(workspace, campaign_id, version, product_id, market, ratio, edge=None):
+    from campaign_studio.preview_cache import preview_cache
     from campaign_studio.workspace import ActionError
 
     current = snapshot(workspace, campaign_id, version, preview=True)
@@ -621,16 +761,30 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
         for finding in plan.findings
     ):
         raise ActionError("preview_blocked", "Correct the image findings to show its preview.", 422)
-    scene, _ = load_image(workspace.storage.path(current["sources"][product_id].reference))
+    key = preview_cache.image_key(workspace.storage, campaign_id, current, output.id)
+    if edge is not None:
+        key = (*key, "thumbnail", edge)
+    cached = preview_cache.image(key)
+    if cached is not None:
+        return cached
+
+    def load_input(asset):
+        reference = workspace.storage.project(campaign_id).require(asset.reference)
+        payload = workspace.storage.path(reference).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != asset.sha256:
+            raise ActionError(
+                "preview_source_changed", "The source image changed. Retry its preview."
+            )
+        return load_image(io.BytesIO(payload))[0]
+
+    scene = load_input(current["sources"][product_id])
     logo = cutout = None
     try:
         if "logo" in plan.assets:
-            logo, _ = load_image(workspace.storage.path(plan.assets["logo"].reference))
+            logo = load_input(plan.assets["logo"])
         product = next(p for p in plan.brief.products if p.id == product_id)
         if product.source.role == "prepared_product":
-            cutout, _ = load_image(
-                workspace.storage.path(plan.assets[f"products/{product_id}"].reference)
-            )
+            cutout = load_input(plan.assets[f"products/{product_id}"])
         if any(f.rule == "text_fit" and blocks_output(f, output) for f in plan.findings):
             from campaign_studio.previews import diagnostic_overlay
 
@@ -649,9 +803,13 @@ def preview_image(workspace, campaign_id, version, product_id, market, ratio):
                 output.framing,
             )
         try:
+            if edge is not None:
+                result.thumbnail((edge, edge))
             with io.BytesIO() as buffer:
                 save_srgb(result, buffer, compress_level=3)
-                return buffer.getvalue()
+                payload = buffer.getvalue()
+                preview_cache.keep_image(key, payload)
+                return payload
         finally:
             result.close()
     finally:

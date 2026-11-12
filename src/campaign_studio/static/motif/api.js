@@ -160,7 +160,9 @@ function productDetails(product) {
     rights: product.source.provenance.rights,
     image: product.source.role === "concept"
       ? model?.concept_previews?.[product.id] || null
-      : assetURL(product.source.path, product.id),
+      : model?.output_brief?.products?.find(item => item.id === product.id)?.source?.path === product.source.path
+        ? model?.source_thumbnail_urls?.[product.id] || assetURL(product.source.path, product.id)
+        : assetURL(product.source.path, product.id),
     source: copy(product.source),
   };
 }
@@ -253,6 +255,7 @@ function useData(data, projectOptions = {}) {
     operation = null;
   }
   if (draft?.campaign_id !== data.value.campaign_id) {
+    if (typeof resetHandoffSelection === "function") resetHandoffSelection();
     selected = [0, 1];
     imageMarket = "all";
     pageNum = 0;
@@ -287,6 +290,7 @@ function campaignNeedsImage() {
       (product.source?.role === "concept" || !product.source?.path));
 }
 async function openCampaign(id, target = null) {
+  if (typeof retainNavigationView === "function") retainNavigationView();
   closeModal();
   try {
     useData(
@@ -326,14 +330,9 @@ async function openCampaign(id, target = null) {
   if (operation?.active) setTimeout(() => poll(id, runId), 700);
 }
 function updateURL() {
+  if (typeof recordNavigation === "function") return recordNavigation();
   const route = page === "review" ? "studio" : page;
-  history.replaceState(
-    {},
-    "",
-    page === "library"
-      ? "/"
-      : `/campaigns/${draft.campaign_id}/${route}`,
-  );
+  history.replaceState({}, "", page === "library" ? "/" : `/campaigns/${draft.campaign_id}/${route}`);
 }
 function campaignIdentity(name = draft?.name, brand = draft?.brand?.name || "") {
   const saved = model?.project?.authored?.brief;

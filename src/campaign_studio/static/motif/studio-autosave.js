@@ -67,7 +67,7 @@ function mergeStudioAcknowledgement(previous, acknowledgement) {
   const version = acknowledgement.composition_version || acknowledgement.version;
   const freshURL = value => typeof value === "string"
     ? value.replace(`/composition/${oldVersion}/`, `/composition/${version}/`) : value;
-  for (const key of ["source_urls", "concept_previews"]) {
+  for (const key of ["source_urls", "concept_previews", "source_thumbnail_urls"]) {
     next[key] = Object.fromEntries(Object.entries(previous[key] || {}).map(([id, url]) => [id, freshURL(url)]));
   }
   if (previous.manifest) {
@@ -75,29 +75,37 @@ function mergeStudioAcknowledgement(previous, acknowledgement) {
     const findings = acknowledgement.composition_findings
       ? [...(previous.manifest.findings || []).filter(f => !f.context?.phrase && f.rule !== "text_fit"), ...acknowledgement.composition_findings]
       : previous.manifest.findings;
-    next.manifest = { ...previous.manifest, revision_id: version, findings,
-      outputs: previous.manifest.outputs.map(output => ({ ...output, ...(slots.get(output.id) || {}),
-        url: freshURL(output.url), thumbnail_url: freshURL(output.thumbnail_url), download_url: freshURL(output.download_url) })) };
+    const outputs = previous.manifest.outputs.map(output => ({ ...output, ...(slots.get(output.id) || {}),
+      url: freshURL(output.url), gallery_url: freshURL(output.gallery_url), thumbnail_url: freshURL(output.thumbnail_url), download_url: freshURL(output.download_url) }));
+    for (const output of outputs) {
+      const targets = new Set([output.id, output.product_id, `products/${output.product_id}`,
+        `masters/${output.product_id}`, `${output.product_id}/${output.ratio}`, "logo"]);
+      output.eligible_for_export = !!output.url && !(findings || []).some(f => f.severity === "blocking" && targets.has(f.item));
+    }
+    next.manifest = { ...previous.manifest, revision_id: version, findings, outputs,
+      complete: !next.composition_issues?.length && outputs.length > 0 && outputs.every(output => output.eligible_for_export) };
   }
   return next;
 }
 
 let studioSave = null;
 function studioSaveCapture() {
-  if (modal === "inspect") return { kind: "metadata", product: C.products[currentProduct].id,
+  // A secondary dialog does not change the Studio save queue's editing owner.
+  const kind = studioWorkspace?.mode === "framing" ? "frame" : studioWorkspace?.mode || modal;
+  if (kind === "inspect") return { kind: "metadata", product: C.products[currentProduct].id,
     market: MARKET[lang], ratio: FMT[currentFormat].ratio,
     description: $("#image-description")?.value || null };
-  if (modal === "text" && textEditor) {
+  if (kind === "text" && textEditor) {
     const body = textBody();
     delete body.run_id; delete body.revision_id;
     return { kind: "text", body, values: copy(textEditor.values), all: copy(textEditor.all), pendingStyles: copy(textEditor.pendingStyles || {}) };
   }
-  if (modal === "frame" && framingContext) {
+  if (kind === "frame" && framingContext) {
     const body = frameBody();
     delete body.run_id; delete body.revision_id; delete body.campaign;
     return { kind: "framing", body, framing: copy(framingDraft) };
   }
-  if (modal === "logo" && logoEditor) {
+  if (kind === "logo" && logoEditor) {
     return { kind: "logo", placement: copy(logoEditor.p),
       asset: copy(logoEditor.asset), replacementFit: copy(logoEditor.replacementFit),
       pendingAsset: logoEditor.pendingAsset };
@@ -165,7 +173,7 @@ function beginStudioSave() {
           throw Object.assign(new Error(MotifSave.conflictMessage), { status: 409 });
         throw new Error("The campaign fields could not be saved. Your image edits are still here.");
       }
-      if (studioWorkspace !== owner || modal !== kind) throw new Error("The editing target changed before saving.");
+      if (studioWorkspace !== owner || (owner.mode === "framing" ? "frame" : owner.mode) !== kind) throw new Error("The editing target changed before saving.");
       if (!attempt.request) {
         const edit = attempt.captured;
         if (edit.kind === "metadata") {
@@ -181,7 +189,7 @@ function beginStudioSave() {
       return api(attempt.path || `/api/campaigns/${owner.campaign}/${attempt.captured.kind}/save`, attempt.request);
     },
     accept: async (data, submitted) => {
-      if (studioWorkspace !== owner || modal !== kind) return;
+      if (studioWorkspace !== owner || (owner.mode === "framing" ? "frame" : owner.mode) !== kind) return;
       // Reconcile campaign fields without restoring an older sent placement
       // over a gesture or sentence entered while the save was running.
       data = mergeStudioAcknowledgement(model, data);
@@ -221,6 +229,7 @@ function beginStudioSave() {
 }
 function scheduleStudioSave(immediate = false) {
   if (!studioSave || !studioWorkspace || studioWorkspace.tearingDown) return;
+  if (studioWorkspace.scene?.gesture || studioWorkspace.scene?.uploading) return;
   if (textEditor?.input?.active() || framingPan?.active() || framingDrawing || logoEditor?.gesture || logoEditor?.uploading) return;
   studioSave.schedule(immediate ? 0 : 1000);
 }
@@ -229,6 +238,7 @@ async function flushStudioSave() {
   try { return await studioSave.flush(); } catch { return false; }
 }
 async function flushCurrentWork() {
+  if (typeof flushHandoffDescriptionSave === "function" && !await flushHandoffDescriptionSave()) return false;
   if (!await flushStudioSave()) return false;
   try { return await saveProject(); } catch { return false; }
 }

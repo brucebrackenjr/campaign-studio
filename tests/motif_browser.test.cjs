@@ -1276,3 +1276,42 @@ test("Text saved style appears immediately without replacing its existing geomet
   assert.equal(h.run('textEditor.placements.message.font_size'),88);
   assert.equal(h.run('textEditor.placements.message.color'),null);
 });
+
+
+test("a save flush cannot silently widen a captured whole-campaign selection", async () => {
+  const h = zipHarness();
+  h.context.model.manifest.outputs = [{id:"one", url:"/one"}];
+  h.context.selectableExportImage = output => !!output?.url;
+  h.context.fetch = () => assert.fail("Changed inventory must be reviewed, not downloaded");
+  h.context.flushCurrentWork = async () => {
+    h.context.model.manifest.outputs.push({id:"two", url:"/two"}); return true;
+  };
+  await assert.rejects(h.run('downloadZIP(false, null, null, ["one"])'), /available images changed/);
+});
+test("an empty explicit export selection cannot become a whole-campaign request", async () => {
+  const h=zipHarness(); h.context.model.manifest.outputs=[{id:"one",url:"/one"}];
+  h.context.selectableExportImage=output=>!!output?.url;
+  h.context.fetch=()=>assert.fail("No request may be sent for an empty selection");
+  await assert.rejects(h.run('downloadZIP(false, null, [], [])'), /Review your selected images/);
+});
+test("subset retry preserves copied IDs even when the caller changes its selection", async () => {
+  const h=harness(); h.context.model.manifest.metrics={completed_images:2};
+  h.context.model.manifest.outputs=[{id:"one",url:"/one"},{id:"two",url:"/two"}];
+  h.context.selectableExportImage=output=>!!output?.url; h.context.damagedFiles=()=>false;
+  h.context.ids=["one"];
+  const first=h.run('downloadZIP(false,null,ids,ids)'); await flush();
+  const original=h.pending.shift();
+  h.context.ids.push("two"); original.reject(new Error("Controlled failure")); await first;
+  assert.equal(JSON.stringify(h.run('exportRecovery.outputIds')), '["one"]');
+  const retry=h.run('retryExport()'); await flush();
+  const next=h.pending.shift(); assert.deepEqual(next.body,original.body);
+  assert.equal(JSON.stringify(next.body.output_ids),'["one"]');
+  next.reject(new Error("Controlled retry failure")); await retry;
+});
+test("a selected export receipt uses its captured count and singular grammar", () => {
+  const h=harness();
+  h.run('exportReceipt={count:1,selected:true,missing:0}');
+  assert.match(h.run('exportReceiptSummary()'),/^1 selected image,/);
+  h.context.model.manifest.metrics={completed_images:30};
+  assert.match(h.run('exportReceiptSummary()'),/^1 selected image,/);
+});

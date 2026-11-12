@@ -32,9 +32,11 @@ from campaign_studio.imaging import (
 )
 from campaign_studio.intake import UPLOAD_LIMIT, Intake
 from campaign_studio.plan_storage import load_plan
+from campaign_studio.regeneration import RegenerationConfirm, RegenerationReview
 from campaign_studio.rendering import blocks_output
 from campaign_studio.review import RevisionTarget
 from campaign_studio.runner import SavedSourceError
+from campaign_studio.scene import SceneEdit, render_scene
 from campaign_studio.state import StateError
 from campaign_studio.storage import CapacityError, StorageError
 from campaign_studio.workspace import (
@@ -173,11 +175,13 @@ def routes() -> APIRouter:
             manifest["complete"] = all(item["url"] for item in manifest["outputs"])
         return manifest
 
-    def status(request, campaign_id):
+    def status(request, campaign_id, run_id=None):
         workspace = services(request)
         from campaign_studio.motif import attempt_details, campaign_data
 
-        run = ensure_run(request, campaign_id)
+        run = workspace.state.run(run_id) if run_id else ensure_run(request, campaign_id)
+        if run["campaign_id"] != campaign_id:
+            raise ActionError("campaign_identity", "This request belongs to another campaign.")
         # Source-operation accounting remains readable while a separate tab saves
         # a newer composition. Its progress must not depend on preview freshness.
         data = None
@@ -281,9 +285,16 @@ def routes() -> APIRouter:
                 and run["state"] != "complete"
                 and progress.get("stage", "").startswith("Generating")
                 and not run["stop_requested"]
-                and len(attempts) < run["allowance"]
                 and (
-                    set(source_plan.generation_products) - source_ids - {progress.get("product_id")}
+                    source_plan.replacement is not None
+                    or (
+                        len(attempts) < run["allowance"]
+                        and (
+                            set(source_plan.generation_products)
+                            - source_ids
+                            - {progress.get("product_id")}
+                        )
+                    )
                 )
             ),
             "revision_id": manifest["revision_id"] if manifest else None,
@@ -323,6 +334,11 @@ def routes() -> APIRouter:
                     "message": "A saved source image is missing or changed. Local recovery cannot "
                     "repair that input. Open Production, attach the intended source again, "
                     "and review a new production plan. No image request was sent.",
+                }
+            except (ActionError, StateError) as error:
+                request.app.state.operation_errors[run_id] = {
+                    "code": error.code,
+                    "message": str(error),
                 }
             except Exception:
                 request.app.state.operation_errors[run_id] = {
@@ -573,19 +589,102 @@ def routes() -> APIRouter:
             ratio.replace("x", ":"),
         )
         return Response(
-            payload, media_type="image/png", headers={"Cache-Control": "private, max-age=300"}
+            payload, media_type="image/png", headers={"Cache-Control": "private, no-cache"}
         )
 
     @router.get("/api/campaigns/{campaign_id}/composition/{version}/sources/{product_id}")
     async def current_source(
+        request: Request,
+        campaign_id: CampaignID,
+        version: str,
+        product_id: str,
+        asset: str | None = None,
+    ):
+        def read_source():
+            ws = services(request)
+            current = ws.preview_composition(campaign_id, version)
+            source = current["sources"].get(product_id)
+            if not source:
+                raise ActionError("source", "Prepare this source image in Production.", 404)
+            reference = ws.storage.project(campaign_id).require(source.reference)
+            payload = ws.storage.path(reference).read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            if digest != source.sha256 or (asset is not None and digest != asset):
+                raise ActionError(
+                    "preview_source_changed", "The source changed. Reload this image."
+                )
+            return payload
+
+        payload = await asyncio.to_thread(read_source)
+        return Response(
+            payload, media_type="image/png" if payload.startswith(b"\x89PNG") else "image/jpeg"
+        )
+
+    @router.get(
+        "/api/campaigns/{campaign_id}/composition/{version}/thumbnails/{product_id}/{market}/{ratio}"
+    )
+    async def current_thumbnail(
+        request: Request,
+        campaign_id: CampaignID,
+        version: str,
+        product_id: str,
+        market: str,
+        ratio: str,
+        edge: int = 640,
+    ):
+        from campaign_studio.compositions import preview_image
+
+        if edge not in {160, 640}:
+            raise ActionError("thumbnail_size", "Choose a supported thumbnail size.", 422)
+
+        payload = await asyncio.to_thread(
+            preview_image,
+            services(request),
+            campaign_id,
+            version,
+            product_id,
+            market,
+            ratio.replace("x", ":"),
+            edge,
+        )
+        return Response(
+            payload, media_type="image/png", headers={"Cache-Control": "private, no-cache"}
+        )
+
+    @router.get("/api/campaigns/{campaign_id}/composition/{version}/source-thumbnails/{product_id}")
+    async def current_source_thumbnail(
         request: Request, campaign_id: CampaignID, version: str, product_id: str
     ):
-        ws = services(request)
-        current = await asyncio.to_thread(ws.preview_composition, campaign_id, version)
-        source = current["sources"].get(product_id)
-        if not source:
-            raise ActionError("source", "Prepare this source image in Production.", 404)
-        return FileResponse(ws.storage.path(source.reference))
+        def thumbnail():
+            ws = services(request)
+            current = ws.preview_composition(campaign_id, version)
+            source = current["sources"].get(product_id)
+            if source is None:
+                raise ActionError("source", "Prepare this source image in Production.", 404)
+            from campaign_studio.preview_cache import preview_cache
+
+            key = (str(ws.storage.root), campaign_id, "source-thumbnail", source.sha256)
+            cached = preview_cache.image(key)
+            if cached is not None:
+                return cached
+            reference = ws.storage.project(campaign_id).require(source.reference)
+            verified = ws.storage.path(reference).read_bytes()
+            if hashlib.sha256(verified).hexdigest() != source.sha256:
+                raise ActionError(
+                    "preview_source_changed", "The source image changed. Retry its preview."
+                )
+            with load_image(io.BytesIO(verified))[0] as image:
+                image.thumbnail((640, 640))
+                with io.BytesIO() as buffer:
+                    save_srgb(image, buffer, compress_level=3)
+                    payload = buffer.getvalue()
+            preview_cache.keep_image(key, payload)
+            return payload
+
+        payload = await asyncio.to_thread(thumbnail)
+        return Response(
+            payload, media_type="image/png", headers={"Cache-Control": "private, no-cache"}
+        )
 
     @router.get(
         "/api/campaigns/{campaign_id}/composition/{version}/download/{product_id}/{market}/{ratio}"
@@ -636,6 +735,70 @@ def routes() -> APIRouter:
     async def uploaded_image(request: Request, name: str):
         return FileResponse(Intake(services(request).storage).uploaded_path(name))
 
+    @router.post("/api/campaigns/{campaign_id}/regeneration/preview")
+    async def regeneration_preview(
+        request: Request, campaign_id: CampaignID, action: RegenerationReview
+    ):
+        from campaign_studio.regeneration import review
+
+        require_idle(request)
+        return await asyncio.to_thread(review, services(request), campaign_id, action)
+
+    @router.post("/api/campaigns/{campaign_id}/regeneration/status")
+    async def regeneration_status(
+        request: Request, campaign_id: CampaignID, action: RegenerationConfirm
+    ):
+        from campaign_studio.regeneration import existing
+
+        prior = await asyncio.to_thread(existing, services(request), campaign_id, action)
+        if prior is None:
+            return {
+                "found": False,
+                "active": False,
+                "message": (
+                    "No confirmed request is recorded yet. This check sent no image request."
+                ),
+            }
+        return {**status(request, campaign_id, prior["id"]), "found": True}
+
+    @router.post("/api/campaigns/{campaign_id}/regeneration/start")
+    async def regeneration_start(
+        request: Request, campaign_id: CampaignID, action: RegenerationConfirm
+    ):
+        from campaign_studio.regeneration import existing, prepare
+
+        workspace = services(request)
+        prior = await asyncio.to_thread(existing, workspace, campaign_id, action)
+        if prior and (prior["state"] not in {"planned", "confirmed"} or busy(request)):
+            return JSONResponse(
+                {**status(request, campaign_id), "disposition": "already_confirmed"},
+                status_code=202,
+            )
+        require_idle(request)
+        require_font()
+        if not request.app.state.key_available():
+            raise ActionError(MISSING_KEY.code, MISSING_KEY.message)
+        run = await asyncio.to_thread(prepare, workspace, campaign_id, action)
+        if run["state"] not in {"planned", "confirmed"} or busy(request):
+            return JSONResponse(
+                {**status(request, campaign_id), "disposition": "already_confirmed"},
+                status_code=202,
+            )
+        plan = workspace.state.plan(run["id"], current=False)
+        try:
+            await asyncio.to_thread(workspace.storage.require_capacity, production_bytes(plan, 1))
+            workspace.state.confirm(run["id"], plan.digest)
+            provider = request.app.state.provider_factory()
+        except Exception:
+            from campaign_studio.regeneration import not_started
+
+            await asyncio.to_thread(not_started, workspace.state, run["id"])
+            raise
+        launch(request, run["id"], lambda: request.app.state.runner.execute(run["id"], provider))
+        return JSONResponse(
+            {**status(request, campaign_id), "disposition": "started"}, status_code=202
+        )
+
     @router.post("/api/campaigns/{campaign_id}/start")
     async def start(request: Request, campaign_id: CampaignID, action: RunAction):
         workspace = services(request)
@@ -651,6 +814,11 @@ def routes() -> APIRouter:
             return status(request, campaign_id)
         require_idle(request)
         plan = workspace.state.plan(run["id"])
+        if plan.replacement:
+            raise ActionError(
+                "regeneration_review",
+                "Review a fresh regeneration confirmation before another image request.",
+            )
         if plan.source_blocked:
             raise ActionError(
                 "blocked", "Some campaign details need correcting before production can start."
@@ -720,6 +888,21 @@ def routes() -> APIRouter:
         )
         return JSONResponse(status(request, campaign_id), status_code=202)
 
+    @router.post("/api/campaigns/{campaign_id}/scene/preview")
+    async def scene_preview(request: Request, campaign_id: CampaignID, edit: SceneEdit):
+        require_idle(request)
+        return await asyncio.to_thread(
+            render_scene, request.app.state.previews, services(request), campaign_id, edit
+        )
+
+    @router.post("/api/campaigns/{campaign_id}/scene/save")
+    async def scene_save(request: Request, campaign_id: CampaignID, edit: SceneEdit):
+        from campaign_studio.compositions import acknowledgement
+
+        ws = services(request)
+        await asyncio.to_thread(ws.save_composition, campaign_id, edit)
+        return await asyncio.to_thread(acknowledgement, ws, campaign_id)
+
     @router.post("/api/campaigns/{campaign_id}/text/preview")
     async def text_preview(request: Request, campaign_id: CampaignID, edit: TextEdit):
         require_idle(request)
@@ -757,6 +940,7 @@ def routes() -> APIRouter:
             "impact": impact,
             "images": images,
             "geometry": {"canvas_size": [selected.width, selected.height], "text_blocks": geometry},
+            "composition_issues": impact["composition_issues"],
             "blocked": bool(blocking),
             "findings": [finding.model_dump() for finding in blocking],
         }

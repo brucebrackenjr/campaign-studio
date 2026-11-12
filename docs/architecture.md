@@ -1,19 +1,19 @@
 # How Motif works
 
-This document describes Motif 0.3.2. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
+This document describes Motif 0.4.0. Motif runs on the producer’s computer and opens in a browser. The browser displays the campaign and editing controls. A Python application on the same computer saves changes, reads photographs and logos, and creates image previews and downloads.
 
 There are two different kinds of image creation. **OpenAI can create a missing product photograph after the producer confirms a paid request. Pillow combines an existing photograph with text and a logo to make the finished ads locally.** Editing a headline, moving a logo, and downloading a campaign do not ask OpenAI for another photograph.
 
 ```mermaid
 flowchart TD
     subgraph Computer["Your computer – files and printed campaign copy stay local"]
-        Browser["Browser<br/>Campaign forms and Studio controls"]
+        Browser["Browser<br/>Campaign forms, persistent Studio scene,<br/>and decoded thumbnail reuse"]
         App["Motif – Python and FastAPI<br/>Checks requests and coordinates the work"]
         DB[("SQLite database<br/>Current edits, campaign file references,<br/>and image request records")]
         Files["Campaign folders<br/>Imported briefs, photos, and logos"]
         Pillow["Pillow image processing<br/>Editing previews and finished PNGs"]
     end
-    OpenAI["Optional OpenAI API – internet<br/>Generates a missing concept image"]
+    OpenAI["Optional OpenAI API – internet<br/>Creates or replaces a concept image"]
     Pad[" "]
     Browser <-->|"Send edits; receive saved settings, previews, and downloads"| App
     App <-->|"Read and save"| DB
@@ -97,17 +97,31 @@ The check covers the whole campaign. Two windows editing different products can 
 
 ## How previews stay editable
 
-Motif builds a preview from the current settings, original photograph, and logo. Pillow calculates text wrapping, font measurements, cropping, and placement. The browser also uses separate image and text layers to respond while a producer drags or resizes an element. After a first logo attachment in Studio, it loads those layers before enabling direct manipulation and keeps the existing preview visible while they load. If that preview fails, **Retry preview** reloads it without discarding the logo or its placement. Temporary previews show the composition without retaining a permanent finished PNG for every edit.
+Motif builds a preview from the current settings, original photograph, and logo. Pillow supplies exact text raster layers, font measurements, and placement geometry. One browser scene draws the source photograph, logo, headline, and CTA in that order. Tool selection changes the controls and selection outline without replacing the canvas or requesting another preview. Clicking tests bounding boxes in reverse drawing order; empty photograph space activates Framing. Inspect is selected explicitly.
 
-Preview and download use the same Pillow composition code and packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. Selection boxes and editing handles are not included in downloaded images.
+Dragging, framing, and color changes redraw locally. Wording and font changes obtain updated Pillow text layers; resizing provides immediate scaled feedback before adopting the exact raster at its new font size. After a first logo attachment, the existing composition remains visible while the new artwork and layer packet load. **Retry preview** recovers failed layer requests without discarding proposed edits. Late responses cannot replace a newer target or input sequence. Temporary previews do not create permanent finished PNGs.
+
+The scene owns one save queue across all tools. Its request combines changed wording, layout, artwork, and description under the existing campaign version check. Acknowledgements update the saved baseline without replacing newer local input. An uncertain retry retains the exact original request. Changing format, market, or page waits for pending saves; merely selecting another tool does not.
+
+The browser history entry also retains the active product ID, language, format, tool, and text block. Refresh loads the campaign from the server, validates that this navigation target still exists and is editable, and restores the editor. This tab-specific location contains no draft edits or version marker and causes no campaign write. Leaving the editor clears it.
+
+The selected thumbnail is copied from the local canvas after a gesture, excluding selection handles. It is not marked current while updated text rasters are still pending. Unchanged format thumbnails remain in place. Product wording changes invalidate that product's other formats in the selected language, while campaign-logo replacement invalidates all affected outputs.
+
+Preview and download share Pillow text layout and the packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. The browser transforms layers during interaction; the final PNG is composed and checked by Pillow at export resolution. Selection boxes and editing handles are not included in downloaded images.
 
 The shared headline and default color come from the campaign settings. Typing in Studio changes the selected product's wording across its three formats in the selected language. The **Apply to all products** button copies that field's wording to every product in the language and updates the matching Campaign field. Editing the Campaign headline or call to action also replaces that field's wording for all products, including earlier individual wording changes. Neither action changes the other text field or any visual styling. Shared color changes preserve deliberately customized colors. Position, size, font, color, crop, and logo placement can differ by product, language, and format.
 
-Campaign text editing asks for confirmation before replacing custom wording. Until the producer confirms, the existing individual wording stays saved. Cancelling restores the previous Campaign field. The Studio button already states that it applies the wording to all products, so it performs that one-time action directly.
+Campaign text editing asks for confirmation before replacing custom wording. The confirmation waits until the producer leaves the field or explicitly saves or navigates, so a pause while typing cannot move keyboard focus into a dialog. Until the producer confirms, the existing individual wording stays saved. Cancelling restores the previous Campaign field. The Studio button already states that it applies the wording to all products, so it performs that one-time action directly.
 
 Campaign and Studio both save wording that contains a prohibited word. Their previews show that current wording, and the warning identifies what must be corrected before export. Removing one of several prohibited words updates the preview and leaves only the remaining warnings. These checks do not prevent Production from preparing source photographs.
 
 Internally, `Workspace.current_composition()` turns the saved campaign into a temporary `Plan` object in memory. Five products, two markets, and three formats become 30 sets of image instructions. This is a calculation used for previewing and downloading, not another independently saved copy of the campaign.
+
+Preview planning reuses at most 16 plans for up to 60 seconds. Before reuse, it checks the current campaign instructions, registered file ownership, asset contents, and selected font contents. Identical simultaneous planning requests share the completed calculation. The server also retains at most 32 encoded previews, bounded to 64 MiB and 60 seconds, after current-version and resource checks. These in-memory caches create no workspace files. Export performs its own admission and source verification. Temporary editor layers use faster lossless PNG compression.
+
+Format thumbnails have a maximum edge of 160 pixels; gallery and Production source thumbnails use 640. Successful versioned visual responses allow private storage but require server revalidation before HTTP reuse, because an owned file can change without a campaign save. Mutable state, errors, and credentials remain uncached. The browser reuses decoded image nodes by campaign, source content, wording, format layout, branding, and font contents, so an unrelated save does not reload the gallery. Detached visual entries are evicted above 96 entries or a 48 MiB budget that includes decoded pixels; currently displayed images and pending installations stay retained until released. Each editor visit also keeps at most six decoded scenes and eight source/artwork resources. These caches affect presentation only and never authorize a save or export.
+
+A product with a temporarily blank required headline stays visible and editable. Its preview shows the photograph, logo, and other wording without the removed headline. This display projection preserves the actual draft and its validation errors. It cannot authorize source production or export; the headline must be completed first. Styling an empty optional call to action does not stop other edits from saving. That style proposal applies if wording is added during the same format visit; leaving the format with the field still empty discards the unused proposal.
 
 ## When Motif calls OpenAI
 
@@ -121,14 +135,18 @@ A lost connection does not tell Motif whether OpenAI completed or charged for a 
 
 A successful request does not create every final ad. The photograph stays separate from the wording and logo. Pillow combines them locally when the producer downloads.
 
+**Regenerate image** adds a deliberate replacement request for one verified app-generated source. Its confirmation is bound to the reviewed campaign version, current source hash, and an operation ID. The current source remains accepted during the network wait. Only a successful, still-current replacement can take its place; failure, an accepted Stop, or a conflicting change retains the existing image. Old source files and dispatched-attempt records remain available. The same underlying production and accounting services handle first generation and regeneration.
+
 ## What happens during Download ZIP
 
-Handoff shows previews based on the current saved settings. Download ZIP then performs these steps:
+Handoff shows previews based on the current saved settings. A campaign-scoped browser selection stores stable product/market/format output IDs, initially selecting every available image. An intentionally empty selection disables ZIP delivery. Pagination, filters, and Studio round trips retain the selection; switching campaigns or reloading initializes it again. Removed or unavailable selected IDs remain visible in the count until explicitly removed.
+
+Download ZIP freezes the selected IDs before waiting for saves. A nonempty selection matching all available outputs resolves to campaign scope, retaining partial-campaign confirmation for missing imagery. A smaller selection sends `output_ids` to the existing delivery service. Empty, duplicate, unknown, or unavailable selections are refused. The selection changes the output inventory, never campaign-wide validation. Download ZIP then performs these steps:
 
 1. **Finish saving edits.** The browser waits for its pending autosaves. The server checks that the requested campaign version is still current.
 2. **Keep consistent inputs for this download.** Motif takes the current instructions and temporary copies of the required photographs and logos. It checks that each file belongs to the campaign and has not changed while being copied. An edit in another window cannot alter only some images halfway through the download.
 3. **Create and check each PNG.** Pillow combines each photograph, text, and any attached logo. Motif checks dimensions, the color profile, text placement, and the rendered artwork. Prohibited wording stops the download. A logo is optional; Handoff reminds the producer when none is attached, but the images can still be downloaded.
-4. **Package the files.** The ZIP contains the PNGs, an `index.html` report, and a `manifest.json` listing the delivered files. Motif checks the archive before sending it to the browser.
+4. **Package the files.** The ZIP contains the selected PNGs, an `index.html` report, and a `manifest.json` listing the delivered files. A subset records `export_scope` with its selected IDs and campaign image count; its report identifies the selection and keeps campaign-wide spend separate. Motif checks the archive before sending it to the browser.
 5. **Release temporary files.** When the response finishes or closes, Motif removes its temporary working files. The browser saves the downloaded ZIP wherever the producer chooses.
 
 A checksum is a value calculated from a file’s contents. Motif uses it to notice when a file has changed or been damaged. The downloaded manifest lists the PNGs with their products, markets, formats, dimensions, wording, and checksums. It describes the delivery; it is not the editable campaign document that Studio reads.
@@ -137,7 +155,7 @@ A checksum is a value calculated from a file’s contents. Motif uses it to noti
 
 Each PNG is created separately. If images 3, 10, and 12 fail, Motif continues with the others and then tries those failed images once more. The counter reports the number successfully created and checked, for example **Creating images: 14 of 30**.
 
-If problems remain, **Retry failed images** works only on the failures. Successful PNGs stay temporarily available. A problem packaging the ZIP also keeps the completed PNGs available, so they do not need to be created again.
+If problems remain, **Retry failed images** works only on the failures. Successful PNGs stay temporarily available. A retry keeps the same selection, composition version, and partial-delivery choice; reusing a job ID with a different selection is refused. A problem packaging the ZIP also keeps the completed PNGs available, so they do not need to be created again.
 
 Motif keeps at most one temporary export job. Its files may use operating-system temporary storage outside the campaign folder. They are released after delivery, cancellation, application exit, or ten minutes without activity while waiting for a retry. Starting another export replaces an idle failed job. On Windows, temporary files may be visible in the system temporary directory until they close; they are not permanent campaign files.
 
@@ -147,9 +165,9 @@ An explicitly selected partial download can omit product photographs already kno
 
 ## The browser report and the downloaded report
 
-**Preview offline report** opens a preview of the current campaign. Motif is still serving temporary preview images, so the application must remain running. If the campaign changes, the producer needs to reopen the report to see the latest work.
+**Preview campaign report** opens a preview of the whole current campaign, independently of the Handoff selection. Motif is still serving temporary preview images, so the application must remain running. If the campaign changes, the producer needs to reopen the report to see the latest work.
 
-The report inside the ZIP uses the full-size PNGs included in that ZIP. After extraction, a recipient can open `index.html` without Motif, an API key, or an internet connection. The image links keep working when the extracted folder is moved as a whole.
+The report inside the ZIP uses only the full-size PNGs included in that ZIP. Intentionally unselected outputs are not omissions. PNGs are not retained for reuse across separate successful exports; the temporary cache serves recovery within one failed export. After extraction, a recipient can open `index.html` without Motif, an API key, or an internet connection. The image links keep working when the extracted folder is moved as a whole.
 
 ## Why these technologies
 

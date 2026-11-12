@@ -19,9 +19,9 @@ const context = {
 context.window=context;
 context.outputFor=(p,l,f)=>context.model.manifest.outputs.find(o=>o.product_id===context.C.products[p].id && o.market===context.MARKET[l] && o.ratio===context.FMT[f].ratio);
 vm.createContext(context);
-for(const file of ['wording.js','wording-host.js','presentation.js']) vm.runInContext(fs.readFileSync(path.join(source,file),'utf8'),context,{filename:file});
+for(const file of ['wording.js','wording-host.js','presentation.js','review.js']) vm.runInContext(fs.readFileSync(path.join(source,file),'utf8'),context,{filename:file});
 function reset() {
-  context.pageNum=0; context.filter='all';
+  context.pageNum=0; context.filter='all'; context.resetHandoffSelection();
   context.model={manifest:{complete:true,findings:[],outputs:context.FMT.flatMap(f=>context.C.products.map(p=>({id:`${p.id}/en-US/${f.ratio.replace(':','x')}`,product_id:p.id,market:'en-US',ratio:f.ratio,url:'/actual-preview',eligible_for_export:true}))),metrics:{completed_images:9}},wording_issue:null,editable_products:{sled:true,blanket:true,bells:true},rule_withheld_outputs:[]};
 }
 function phrase(output, term='guaranteed', field='message') {
@@ -34,7 +34,7 @@ function setFindings(findings) {
 }
 const nodeTest = require('node:test');
 function test(name, fn) { nodeTest(name, () => { reset(); fn(); }); }
-const cards=html=>[...html.matchAll(/<article class="overview-item">([\s\S]*?)<\/article>/g)].map(m=>m[1]);
+const cards=html=>[...html.matchAll(/<article class="overview-item[^\"]*">([\s\S]*?)<\/article>/g)].map(m=>m[1]);
 test('Only the affected output shows a correction, and its real preview stays visible',()=>{
   setFindings([phrase(context.model.manifest.outputs[0])]);
   const rendered=cards(context.overviewView(true));
@@ -52,26 +52,26 @@ test('First and third affected products have warnings, while the middle product 
 test('Wording-blocked campaign says Changes needed instead of Partial handoff',()=>{
   setFindings([phrase(context.model.manifest.outputs[0])]);
   const html=context.handoff();
-  assert.match(html,/CHANGES NEEDED CAMPAIGN PACKAGE/);assert.match(html,/>Changes needed<\/span>/);
-  assert.doesNotMatch(html,/Partial handoff|PARTIAL CAMPAIGN PACKAGE/);
+  assert.match(html,/CHANGES NEEDED CAMPAIGN/);assert.match(html,/>Changes needed<\/span>/);
+  assert.doesNotMatch(html,/Partial handoff|PARTIAL CAMPAIGN/);
   assert.match(html,/data-action="exportZip"[^>]*disabled/);
 });
 test('A real layout finding appears on its card and blocks the campaign status',()=>{
   const output=context.model.manifest.outputs[2];
   setFindings([{item:output.id,rule:'text_fit',severity:'blocking',evidence:'The headline extends beyond the image edge.',context:{product_id:output.product_id,market:output.market,ratio:output.ratio}}]);
   assert.match(cards(context.overviewView(true))[2],/The headline extends beyond the image edge/);
-  assert.match(context.handoff(),/CHANGES NEEDED CAMPAIGN PACKAGE/);
+  assert.match(context.handoff(),/CHANGES NEEDED CAMPAIGN/);
 });
 test('Missing source without rule or layout finding is labeled Images missing',()=>{
   context.model.manifest.outputs[1].url=null;context.model.manifest.outputs[1].omission='Prepare the source image in Production.';
   context.model.manifest.complete=false;context.model.manifest.metrics.completed_images=8;
   const html=context.handoff();
-  assert.match(html,/PARTIAL CAMPAIGN PACKAGE/);assert.match(html,/Images missing/);assert.doesNotMatch(html,/Partial handoff/);
-  assert.doesNotMatch(html,/CHANGES NEEDED CAMPAIGN PACKAGE|overview-issue/);
+  assert.match(html,/PARTIAL CAMPAIGN/);assert.match(html,/Images missing/);assert.doesNotMatch(html,/Partial handoff/);
+  assert.doesNotMatch(html,/CHANGES NEEDED CAMPAIGN|overview-issue/);
 });
 test('Correcting the finding removes the warning on the next render',()=>{
   setFindings([phrase(context.model.manifest.outputs[0])]);assert.match(context.overviewView(true),/overview-issue/);
-  setFindings([]);const html=context.handoff();assert.doesNotMatch(html,/overview-issue|Changes needed|Partial handoff|Images missing/);assert.match(html,/All formats included/);
+  setFindings([]);const html=context.handoff();assert.doesNotMatch(html,/overview-issue|Changes needed|Partial handoff|Images missing/);assert.match(html,/All campaign images ready/);
 });
 test('Rule phrases and layout evidence are HTML-escaped',()=>{
   const attack='<img src=x onerror="alert(1)">';
@@ -86,4 +86,45 @@ test('Exact output context is supported without leaking to another ratio or mark
   const finding=phrase(context.model.manifest.outputs[0]);finding.item='external-finding-id';
   setFindings([finding]);const rendered=cards(context.overviewView(true));assert.equal(rendered.filter(c=>c.includes('overview-issue')).length,1);
   finding.context.market='es-MX';assert.doesNotMatch(context.overviewView(true),/overview-issue/);
+});
+
+
+test('All available images start selected and there is exactly one ZIP action',()=>{
+  const html=context.handoff();
+  assert.equal(context.selectedExportImages().length,9);
+  assert.equal((html.match(/data-action="exportZip"/g)||[]).length,1);
+  assert.doesNotMatch(html,/data-action="exportSelected"/);
+  assert.equal((html.match(/data-export-select=/g)||[]).length,6);
+  assert.match(html,/9 images selected · 3 outside this view/);
+  assert.equal(context.currentExportSelection(),null);
+});
+test('Clearing selection disables ZIP and never means the entire campaign',()=>{
+  context.handoff();vm.runInContext('handoffSelection = new Set()',context);
+  const html=context.handoff();
+  assert.match(html,/data-action="exportZip"[^>]*disabled/);
+  assert.match(html,/0 images selected/);
+  assert.equal(context.currentExportSelection().length,0);
+  assert.equal(context.selectedExportImages().length,0);
+});
+test('An exact subset survives pagination and a filter that hides every chosen image',()=>{
+  context.handoff();vm.runInContext('handoffSelection = new Set([model.manifest.outputs[0].id, model.manifest.outputs[8].id])',context);
+  const ids=context.selectedExportImages().map(o=>o.id);
+  context.pageNum=1;assert.match(context.handoff(),/2 images selected · 1 outside this view/);
+  context.filter='missing';assert.match(context.handoff(),/2 images selected · 2 outside this view/);
+  assert.deepEqual(context.currentExportSelection().slice(),ids);
+});
+test('A now-unavailable selected card stays visible as selected and blocks ZIP',()=>{
+  context.handoff();context.model.manifest.outputs[0].url=null;
+  const html=context.handoff();
+  assert.equal(context.selectedExportImages().length,9);
+  assert.match(html,/1 selected image needs attention/);
+  assert.match(html,/data-action="exportZip"[^>]*disabled/);
+  assert.match(html,/data-export-select="sled\/en-US\/1x1"[^>]*checked/);
+});
+test('Removed outputs stay selected until explicit removal; a campaign reset defaults to available',()=>{
+  context.handoff();context.model.manifest.outputs.splice(0,3);
+  assert.equal(context.selectedExportImages().length,9);
+  assert.match(context.handoff(),/3 selected images need attention/);
+  vm.runInContext('handoffSelection = new Set()',context);
+  context.resetHandoffSelection();assert.equal(context.selectedExportImages().length,6);
 });

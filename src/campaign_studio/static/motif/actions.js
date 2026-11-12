@@ -4,6 +4,24 @@ let stopTarget = null;
 let importFile = null;
 let importErrorMessage = "";
 let importedCampaignId = null;
+let createdCampaignId = null;
+let creationOpenError = "";
+let creationSubmitting = false;
+function beginCampaignCreation() {
+  createdCampaignId = null;
+  creationOpenError = "";
+  newCampaignDraft = { name: "", brand: "", audience: "" };
+  importFile = null;
+  importedCampaignId = null;
+  importErrorMessage = "";
+  openModal("new");
+}
+function captureCampaignCreation() {
+  if (modal === "new" && $("#new-name")) newCampaignDraft = {
+    name: $("#new-name").value, brand: $("#new-brand").value, audience: $("#new-audience").value,
+  };
+  if (modal === "import" && $("#json-file")) importFile = $("#json-file").files?.[0] || importFile;
+}
 let navigationError = "";
 let productUploadSequence = 0;
 let pendingProductUpload = null;
@@ -39,6 +57,22 @@ async function savePendingNavigation() {
     navigationError = error.message;
   }
   if (pendingNav && modal === "unsaved") openModal("unsaved");
+}
+
+async function openCreatedCampaign() {
+  // Keep the returned identity through read failures; never create it again.
+  try {
+    await openCampaign(createdCampaignId, "campaign");
+  } catch (error) {
+    creationOpenError = error.message;
+    openModal("creation-open-failed");
+    return;
+  }
+  try {
+    await refreshCatalog();
+  } catch {
+    toast("Your campaign was created. The Workbench could not refresh; try opening it again later.");
+  }
 }
 
 async function openImportedCampaign() {
@@ -154,6 +188,7 @@ function render({ preserveModal = false } = {}) {
             ? review()
             : handoff();
   $("#app").innerHTML = shell(content);
+  if (typeof MotifVisuals !== "undefined") MotifVisuals.mount($("#app"));
   if (!preserveModal && modal !== "logo") $("#overlay").innerHTML = modal ? modalView() : "";
   refreshCampaignIdentity();
   bindWorkbench();
@@ -164,6 +199,10 @@ function render({ preserveModal = false } = {}) {
   if (page === "production") queueMicrotask(ensureProductionPlan);
 }
 function openModal(name) {
+  captureCampaignCreation();
+  if (typeof handoffDescriptionSave !== "undefined" && handoffDescriptionSave && name !== "inspect") {
+    return flushHandoffDescriptionSave().then(saved => { if (saved) { endHandoffDescriptionSave(); openModal(name); } });
+  }
   if (page === "review" && ["text", "frame", "inspect"].includes(name))
     return openStudioWorkspace(name === "frame" ? "framing" : name === "inspect" ? "inspect" : "text");
   captureProductInputs();
@@ -189,9 +228,12 @@ function openModal(name) {
     }
     const showFile = () => {
       const file = input.files[0];
+      importFile = file || null;
+      importErrorMessage = "";
       $("#import-file-label").textContent = file ? "Selected brief" : "JSON brief";
       $("#import-file-name").textContent = file ? file.name : "Choose a JSON brief";
-      $("#import-file-change").textContent = file ? "Change file" : "Choose file";
+      $("#import-file-change").textContent = file ? "Change file" : "Choose JSON file";
+      $('[data-action="doImport"]').disabled = !file;
     };
     input.addEventListener("change", showFile);
     showFile();
@@ -200,6 +242,7 @@ function openModal(name) {
   $(".skip").inert = true;
   restoreProjectControls();
   mountProjectViews();
+  if (name === "inspect" && page === "handoff") beginHandoffDescriptionSave();
   const openedDialog = $('#overlay [role="dialog"]');
   setTimeout(() => {
     // Initial focus belongs only to this dialog and must not steal a later
@@ -210,6 +253,13 @@ function openModal(name) {
   }, 0);
 }
 function closeModal({ cancel = false, retain = true, restoreFocus = true } = {}) {
+  if (creationSubmitting && ["new", "import"].includes(modal)) return;
+  if (modal === "regenerate" && regenerationReview?.confirming) return;
+  if (typeof handoffDescriptionSave !== "undefined" && handoffDescriptionSave) {
+    if (handoffDescriptionSave.queue.dirty() || handoffDescriptionSave.queue.busy())
+      return flushHandoffDescriptionSave().then(saved => { if (saved) closeModal({ cancel, retain, restoreFocus }); });
+    endHandoffDescriptionSave();
+  }
   if (modal === "brand-navigation" && typeof brandUpdating !== "undefined" && brandUpdating) return;
   if (studioWorkspace && ["text", "frame", "logo", "inspect"].includes(modal)) return cancelStudioTool();
   if (modal === "remove-product" && retain) return cancelProductRemoval();
@@ -231,6 +281,11 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
   destroyProjectViews();
   clearStorageContext();
   modal = "";
+  if (["new", "import", "import-busy", "invalid-import"].includes(closingKind)) {
+    newCampaignDraft = { name: "", brand: "", audience: "" };
+    importFile = null;
+    importErrorMessage = "";
+  }
   stopTarget = null;
   modalProduct = null;
   productRemovalFromEditor = false;
@@ -265,6 +320,10 @@ function closeModal({ cancel = false, retain = true, restoreFocus = true } = {})
     modal = studioWorkspace.mode === "framing" ? "frame" : studioWorkspace.mode;
     if (closingKind === "rename") resumeEditorAfterDialog();
   }
+  if (closingKind === "regenerate" && regenerationReview?.uncertain) {
+    if (page === "production") refreshProductionStatus();
+    resolveRegenerationStatus();
+  }
 }
 async function finishPendingNavigation() {
   const destination = pendingNav;
@@ -280,6 +339,7 @@ async function finishPendingNavigation() {
 }
 
 async function navigate(target) {
+  if (typeof retainNavigationView === "function") retainNavigationView();
   if (studioWorkspace && !await leaveStudioWorkspace()) return;
   if (target !== "campaign" && typeof guardBrandNavigation === "function" &&
       guardBrandNavigation({ kind: "page", target })) return;
@@ -314,6 +374,10 @@ const originalModalView = modalView;
 // Add service-backed recovery dialogs to the existing presentation entry point.
 // Keep one modal renderer so shared focus and Save lifecycle hooks apply to both.
 modalView = function () {
+  if (modal === "regenerate") return regenerationDialog();
+  if (modal === "stop" && model.regeneration) return dialog("Keep the current image?",
+    `<p>Stop regeneration for this product. The current image stays in your campaign. Any replacement arriving after Stop will remain unused.</p><p>The in-flight request may finish and may still be charged. Stopping locally cannot guarantee cancellation at the provider.</p>`,
+    btn("Keep running", "close") + btn("Stop regeneration", "confirmStop", "danger"));
   if (modal === "brand-navigation") return brandNavigationDialog();
   if (modal === "storage") return storageDialog();
   if (modal === "stop")
@@ -325,9 +389,16 @@ modalView = function () {
     );
   if (modal === "import")
     return dialog(
-      "Bring your brief.",
-      `<p class="muted" style="margin-bottom:18px">Import a JSON brief. You can attach images later.</p><div class="import-file"><div class="import-file-details" aria-live="polite"><span id="import-file-label" class="small muted">JSON brief</span><strong id="import-file-name">Choose a JSON brief</strong></div><label class="btn import-file-picker"><span id="import-file-change">Choose file</span><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></label></div><div id="import-error" role="alert"></div>`,
-      `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import", "doImport", "primary")}`,
+      "What are we making?",
+      `${campaignCreationRoutes("import")}<div id="creation-panel" role="tabpanel" aria-labelledby="creation-import"><p class="muted">Import a JSON brief file. You can attach images later.</p><div class="import-file"><div class="import-file-details" aria-live="polite"><span id="import-file-label" class="small muted">JSON brief</span><strong id="import-file-name">Choose a JSON brief</strong></div><label class="btn import-file-picker"><span id="import-file-change">Choose JSON file</span><input type="file" id="json-file" accept=".json,application/json" aria-label="Choose a JSON brief"></label></div><p class="small muted">JSON · up to 128 KiB</p><div class="brief-example"><a href="/static/motif/example-brief.json" download="Motif-example-brief.json">Download example JSON ↓</a><p class="small muted">Use this example with AI to create your JSON brief.</p></div><div id="import-error" role="alert"></div></div>`,
+      `<span class="small muted">English, Spanish, or both · 1–${productLimit} products · all three formats</span>${btn("Import JSON →", "doImport", "primary", importFile ? "" : "disabled")}`,
+      false, "New campaign",
+    );
+  if (modal === "creation-open-failed")
+    return dialog(
+      "Your campaign was created.",
+      `<p>It is saved, but could not open yet.</p>${notice(creationOpenError, "", "block")}`,
+      btn("Close", "close") + btn("Open campaign", "openCreated", "primary"),
     );
   if (modal === "import-open-failed")
     return dialog(
@@ -417,8 +488,8 @@ modalView = function () {
   if (modal === "attempts") return attemptsModal();
   if (modal === "partial-export")
     return dialog(
-      "Hand off the available images?",
-      `<p>${partialExportOmissions()} The package will identify every omission and include every available file.</p>`,
+      pendingExport === "zip" ? "Download the available campaign images?" : "Hand off the available images?",
+      pendingExport === "zip" ? `<p>${pendingExportIds.length} of ${model.manifest.metrics.requested_images} campaign images are available and selected. ${partialExportOmissions()} The ZIP will include the selected images and identify the missing images in its report.</p>` : `<p>${partialExportOmissions()} The package will identify every omission and include every available file.</p>`,
       btn("Keep reviewing", "close") +
         btn(
           pendingExport === "zip"
@@ -437,9 +508,8 @@ modalView = function () {
   if (modal === "export-success")
     return dialog(
       "ZIP sent to your browser.",
-      `<div class="empty-symbol">↗</div><h3 style="font-size:24px;margin:12px 0;overflow-wrap:anywhere">${esc(exportReceipt?.filename || "Motif.zip")}</h3><p class="muted">${model.manifest.metrics.completed_images} full-size PNGs, the offline overview, and the delivery details were created from your saved campaign settings.</p><div class="rule"></div><p class="small muted">Extract the ZIP anywhere. Open index.html to review without this application, an API key, or a network.</p>`,
-      btn("Preview offline overview", "report") +
-        btn("Back to campaign", "close", "primary"),
+      `<div class="empty-symbol">↗</div><h3 style="font-size:24px;margin:12px 0;overflow-wrap:anywhere">${esc(exportReceipt?.filename || "Motif.zip")}</h3><p class="muted">${esc(exportReceiptSummary())}</p><div class="rule"></div><p class="small muted">Extract the ZIP anywhere. Open index.html to review without this application, an API key, or a network.</p>`,
+      btn("Back to Handoff", "close", "primary"),
     );
   return originalModalView();
 };
@@ -927,6 +997,8 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", (event) => {
   if (window.MotifSave?.refreshing()) return;
   if (projectQueue?.isDirty() || studioSave?.dirty() || pendingProductUpload ||
+      (typeof handoffDescriptionSave !== "undefined" &&
+        (handoffDescriptionSave?.queue.dirty() || handoffDescriptionSave?.queue.busy())) ||
       (typeof brandChangesPending === "function" && brandChangesPending()) ||
       (typeof briefLogoUploadPending === "function" && briefLogoUploadPending())) {
     event.preventDefault();
@@ -993,6 +1065,7 @@ async function dispatchAction(data) {
   if (guardImageCleanup(data.action)) return;
   try {
     busy = true;
+    if (["exportZip", "confirmPartial", "retryExport"].includes(action) && typeof freezeHandoffSelection === "function") freezeHandoffSelection(true);
     switch (action) {
       case "brandContinue":
         await finishBrandNavigation();
@@ -1018,6 +1091,12 @@ async function dispatchAction(data) {
         render();
         break;
       case "new":
+        beginCampaignCreation();
+        break;
+      case "campaignRoute":
+        openModal(index === "import" ? "import" : "new");
+        $(`[data-action="campaignRoute:${index}"]`)?.focus();
+        break;
       case "rename":
       case "settings":
       case "attempts":
@@ -1108,14 +1187,24 @@ async function dispatchAction(data) {
       case "applyDraftWording":
         await applyDraftWording();
         break;
+      case "openCreated":
+        await openCreatedCampaign();
+        break;
       case "create": {
+        if (createdCampaignId) {
+          await openCreatedCampaign();
+          break;
+        }
+        creationSubmitting = true;
+        $('[data-action="create"]').textContent = "Creating campaign…";
         const created = await api("/api/motif/campaigns", {
           name: $("#new-name").value,
           brand: $("#new-brand").value,
           audience: $("#new-audience").value,
         });
-        await refreshCatalog();
-        await openCampaign(created.campaign_id);
+        creationSubmitting = false;
+        createdCampaignId = created.campaign_id;
+        await openCreatedCampaign();
         break;
       }
       case "openCampaign":
@@ -1144,7 +1233,10 @@ async function dispatchAction(data) {
             "This file is not valid JSON. Your existing campaign is unchanged.",
           );
         }
+        creationSubmitting = true;
+        $('[data-action="doImport"]').textContent = "Importing JSON…";
         const result = await api("/api/motif/import", value, { body: file });
+        creationSubmitting = false;
         importedCampaignId = result.campaign_id;
         importFile = null;
         await openImportedCampaign();
@@ -1299,6 +1391,12 @@ async function dispatchAction(data) {
         openModal("retry-plan");
         break;
       }
+      case "regenerate":
+        await reviewRegeneration(index);
+        break;
+      case "confirmRegeneration":
+        await confirmRegeneration();
+        break;
       case "start":
         await startDisplayedPlan();
         break;
@@ -1382,6 +1480,10 @@ async function dispatchAction(data) {
       case "download":
         await downloadImage(Number(index), second, Number(third));
         break;
+      case "retryDescription":
+        if (handoffDescriptionSave?.queue.state().error?.status === 409) MotifSave.refreshPage();
+        else await flushHandoffDescriptionSave();
+        break;
       case "saveDescription":
         await saveMetadata(currentProduct, lang, currentFormat, {
           description: $("#image-description").value || null,
@@ -1406,16 +1508,36 @@ async function dispatchAction(data) {
       case "nextPage":
         pageNum++;
         render();
+        if (page === "handoff") $('[data-action="nextPage"]:not(:disabled), [data-action="prevPage"]:not(:disabled)')?.focus({ preventScroll: true });
         break;
       case "prevPage":
         pageNum = Math.max(0, pageNum - 1);
         render();
+        if (page === "handoff") $('[data-action="prevPage"]:not(:disabled), [data-action="nextPage"]:not(:disabled)')?.focus({ preventScroll: true });
         break;
       case "exportZip":
         requireIntactExport();
+        if (!selectedExportImages().length) throw new Error("Select at least one image to download.");
         pendingExport = "zip";
-        if (!model.manifest.complete) openModal("partial-export");
-        else await downloadZIP(false);
+        pendingExportIds = selectedExportImages().map(output => output.id);
+        pendingExportSelection = currentExportSelection();
+        if (!model.manifest.complete && pendingExportSelection === null) openModal("partial-export");
+        else await downloadZIP(false, null, pendingExportSelection, pendingExportIds);
+        break;
+      case "selectExportAll":
+        model.manifest.outputs.filter(selectableExportImage).forEach(output => handoffSelection.add(output.id));
+        render();
+        focusHandoffSelection();
+        break;
+      case "removeUnavailableSelection":
+        handoffSelection = new Set(selectedExportImages().filter(selectableExportImage).map(output => output.id));
+        render();
+        focusHandoffSelection();
+        break;
+      case "clearExportSelection":
+        handoffSelection = new Set();
+        render();
+        focusHandoffSelection();
         break;
       case "cancelExport":
         await cancelExport();
@@ -1437,7 +1559,7 @@ async function dispatchAction(data) {
         break;
       }
       case "confirmPartial":
-        if (pendingExport === "zip") await downloadZIP(true);
+        if (pendingExport === "zip") await downloadZIP(true, null, pendingExportSelection, pendingExportIds);
         else await previewReport(true);
         break;
       case "report":
@@ -1487,6 +1609,10 @@ async function dispatchAction(data) {
       toast(error.message);
     }
   } finally {
+    if (["exportZip", "confirmPartial", "retryExport"].includes(action) && typeof freezeHandoffSelection === "function") freezeHandoffSelection(false);
+    creationSubmitting = false;
+    if (modal === "new" && $('[data-action="create"]')) $('[data-action="create"]').textContent = "Create campaign →";
+    if (modal === "import" && $('[data-action="doImport"]')) $('[data-action="doImport"]').textContent = "Import JSON →";
     busy = false;
     projectChanged();
     if (page === "production") {
@@ -1501,21 +1627,35 @@ document.addEventListener("click", event => {
   event.preventDefault();
   return dispatchAction(button.dataset);
 });
+document.addEventListener("keydown", event => {
+  if (!event.target.matches?.('.campaign-creation-routes [role="tab"]')) return;
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const route = event.key === "Home" ? "manual" : event.key === "End" ? "import"
+    : event.target.id === "creation-manual" ? "import" : "manual";
+  dispatchAction({ action: `campaignRoute:${route}` });
+});
 
 (async () => {
+  // Opening the server's current campaign records fresh history. Capture this
+  // entry's editor location first so refresh can restore it afterward.
+  const studioLocation = typeof history === "undefined" ? null : history.state?.studio;
   try {
     await refreshCatalog();
-    if (document.body.dataset.campaign)
+    if (document.body.dataset.campaign) {
       await openCampaign(
         document.body.dataset.campaign,
         document.body.dataset.page,
       );
-    else {
+      await restoreStudioNavigation(studioLocation);
+    } else {
       const intent = new URLSearchParams(location.search).get("action");
       render();
+      updateURL();
       if (intent === "new") {
         history.replaceState({}, "", "/");
-        openModal("new");
+        beginCampaignCreation();
       }
     }
   } catch (error) {

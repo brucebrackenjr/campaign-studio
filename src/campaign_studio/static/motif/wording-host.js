@@ -189,6 +189,11 @@ async function openWordingCase(item, control) {
     }
     if (studioWorkspace.product === item.target.productId && MARKET[lang] === item.target.market) {
       if (studioWorkspace.mode !== "text") await switchStudioTarget({ mode: "text" });
+      if (studioWorkspace.scene) {
+        studioWorkspace.scene.setMode('text', item.target.field);
+        focusMatchedWording($(`#mf-word-${item.target.field}`), item.terms);
+        return;
+      }
       if (!textEditor) return;
       textEditor.selected = item.target.field;
       paintText();
@@ -204,6 +209,11 @@ async function openWordingCase(item, control) {
   lang = item.target.market === "es-MX" ? "es" : "en";
   page = "review"; reviewTab = "product"; updateURL(); render();
   await openStudioWorkspace("text");
+  if (studioWorkspace?.scene) {
+    studioWorkspace.scene.setMode('text', item.target.field);
+    focusMatchedWording($(`#mf-word-${item.target.field}`), item.terms);
+    return;
+  }
   if (!textEditor || C.id !== wordingReturn?.campaign) return;
   textEditor.selected = item.target.field;
   paintText();

@@ -26,6 +26,58 @@ function fixture() {
   return{context,run};
 }
 
+test('Studio location retains stable IDs and the selected tool without an authored save',()=>{
+ const f=fixture(),states=[];
+ f.context.history={state:{motifIndex:3,view:{page:'review'}},replaceState(state,_,url){this.state=state;states.push({state,url})}};
+ f.context.location={href:'/campaigns/campaign/studio'};
+ f.context.currentFormat=1;f.context.lang='es';
+ f.run("studioWorkspace.mode='text';studioWorkspace.scene={selected:'cta'};retainStudioNavigation()");
+ assert.deepEqual(JSON.parse(JSON.stringify(f.context.history.state.studio)),{
+   campaign:'campaign',product:'product',language:'es',format:1,mode:'text',block:'cta',
+ });
+ assert.equal(f.context.history.state.motifIndex,3);
+ assert.equal(states[0].url,'/campaigns/campaign/studio');
+ assert.equal(f.run('publications'),0);
+ f.run('finishStudioVisit()');
+ assert.equal(f.context.history.state.studio,undefined);
+ assert.equal(f.context.history.state.motifIndex,3);
+});
+
+test('refresh restores product by ID after reordering, with format, language, tool, and text block',async()=>{
+ const f=fixture(),opened=[];
+ f.context.C={id:'campaign',markets:['en','es'],products:[{id:'other'},{id:'product'}]};
+ f.context.outputFor=(product,language,format)=>{
+   assert.equal(product,1);assert.equal(language,'es');assert.equal(format,1);return {url:'/current.png'};
+ };
+ f.context.openStudioWorkspace=async mode=>{
+   opened.push({mode,product:f.context.currentProduct,format:f.context.currentFormat,language:f.context.lang});
+   f.run("studioWorkspace={scene:{setMode(mode,block){restoredBlock=block;restoredMode=mode;}}}");
+ };
+ f.run('var restoredBlock,restoredMode;');
+ assert.equal(await f.run("restoreStudioNavigation({campaign:'campaign',product:'product',language:'es',format:1,mode:'text',block:'cta'})"),true);
+ assert.deepEqual(opened,[{mode:'text',product:1,format:1,language:'es'}]);
+ assert.equal(f.run('restoredMode'),'text');assert.equal(f.run('restoredBlock'),'cta');
+ assert.equal(f.run('publications'),0);
+});
+
+test('refresh refuses a deleted product, different campaign, invalid selection, or unavailable output',async()=>{
+ const f=fixture();f.context.C.markets=['en'];f.context.outputFor=()=>({url:'/current.png'});
+ f.context.canEditProduct=()=>false;
+ let opened=0;f.context.openStudioWorkspace=async()=>opened++;
+ const valid={campaign:'campaign',product:'product',language:'en',format:0,mode:'logo',block:'message'};
+ for(const change of [{campaign:'other'},{product:'deleted'},{language:'es'},{format:-1},{format:1.5},{format:3},{mode:'unknown'},{block:'unknown'}]){
+   f.context.savedLocation={...valid,...change};
+   assert.equal(await f.run('restoreStudioNavigation(savedLocation)'),false);
+ }
+ f.context.savedLocation=valid;f.context.page='handoff';
+ assert.equal(await f.run('restoreStudioNavigation(savedLocation)'),false);
+ f.context.page='review';f.context.outputFor=()=>({url:null});
+ assert.equal(await f.run('restoreStudioNavigation(savedLocation)'),false);
+ f.context.outputFor=()=>null;
+ assert.equal(await f.run('restoreStudioNavigation(savedLocation)'),false);
+ assert.equal(opened,0);
+});
+
 test('autosave flush before navigation exits to All products exactly once without origin return',async()=>{
  const f=fixture();assert.equal(await f.run('leaveStudioWorkspace()'),true);
  assert.equal(f.run('publications'),1);assert.equal(f.run('originReturns'),0);

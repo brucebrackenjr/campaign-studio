@@ -1081,7 +1081,7 @@ test('rule edits leave still-invalid and unrelated restored copy buffers unappli
  assert.equal(h.c.projectBuffers.form_drafts.fields['brief/copy/en']['copy-headline'],'guaranteed forever');
 });
 
-test('capturing an edited rule queues a newly valid restored copy proposal before autosave',async()=>{
+test('only committing an edited rule queues a newly valid restored copy proposal',async()=>{
  const h=harness();h.c.tab='copy';h.c.modal='rule';h.c.ruleIndex=0;
  h.c.draft.markets['en-US'].phrase_rules=[{phrase:'guaranteed'}];
  h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom'}};
@@ -1091,9 +1091,12 @@ test('capturing an edited rule queues a newly valid restored copy proposal befor
  const project=readFileSync('src/campaign_studio/static/motif/project.js','utf8');
  h.run(project.slice(project.indexOf('function captureProject()'),project.indexOf('function isImageEditor')));
  const capture=h.run('captureProject()');
+ assert.equal(h.run('pendingCampaignCopy().length'),0,'a recoverable form draft does not apply the rule');
+ assert.equal(h.c.draft.markets['en-US'].phrase_rules[0].phrase,'guaranteed');
+ h.run("const previousRules=copy(draft.markets['en-US'].phrase_rules);draft.markets['en-US'].phrase_rules[0].phrase='unrelated';requeueAllowedCampaignCopy(previousRules)");
  assert.equal(h.run('pendingCampaignCopy().length'),1);
  assert.equal(capture.brief.markets['en-US'].copy.message,'English');
- assert.equal(capture.form_drafts.fields['brief/copy/en']['copy-headline'],'English');
+ assert.equal(capture.form_drafts.fields['brief/copy/en']['copy-headline'],'guaranteed');
  assert.equal(await h.run('confirmCampaignCopyChanges()'),false,'the rule dialog must close before asking about custom wording');
  h.c.modal=null;h.c.$=()=>null;h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
  const review=h.run('confirmCampaignCopyChanges()');assert.equal(h.c.modal,'campaign-copy-confirm');
@@ -1178,4 +1181,46 @@ test('opening a saved project queues restored copy after the save queue restores
  const project=readFileSync('src/campaign_studio/static/motif/project.js','utf8');
  h.run(project.slice(project.indexOf('function initializeProject('),project.indexOf('function forgetProject(')));
  h.run('initializeProject({authored:{}})');assert.equal(recovered,true);
+});
+
+
+test('shared copy confirmation waits until typing focus leaves the wording field',async()=>{
+ const h=harness();h.c.tab='copy';h.c.modal=null;
+ h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom'}};
+ h.c.document={activeElement:{matches:()=>true}};
+ h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+ h.run('changeCampaignWording("message","A sentence");changeCampaignWording("message","A sentence with spaces")');
+ assert.equal(await h.run('confirmCampaignCopyChanges({deferTyping:true})'),false);
+ assert.equal(h.c.modal,null);
+ assert.equal(h.run('pendingCampaignCopy()[0].value'),'A sentence with spaces');
+ h.c.document.activeElement={matches:()=>false};
+ const review=h.run('confirmCampaignCopyChanges()');assert.equal(h.c.modal,'campaign-copy-confirm');
+ h.run('finishCampaignCopy(true)');await review;
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'A sentence with spaces');
+});
+
+
+test('long-idle copy proposal receives a new blur review without interrupting another field',async()=>{
+ const h=harness();h.c.tab='copy';h.c.modal=null;
+ h.c.draft.products[0].copy_overrides={'en-US':{message:'Custom'}};
+ h.c.document={activeElement:{matches:()=>true}};
+ h.c.openModal=kind=>h.c.modal=kind;h.c.closeModal=()=>h.c.modal=null;
+ h.c.saveProject=options=>h.c.confirmCampaignCopyChanges(options);
+ h.run('changeCampaignWording("message","Long idle proposal")');
+ await h.timers.get(h.run('campaignCopyTimer'))();
+ assert.equal(h.c.modal,null);
+ h.c.blurEvent={target:{matches:()=>true}};
+ h.run('scheduleCampaignCopyBlur(briefHost,blurEvent)');
+ await h.timers.get(h.run('campaignCopyTimer'))();
+ assert.equal(h.c.modal,null,'moving to another text field must defer review');
+ h.c.document.activeElement={matches:()=>false};
+ h.run('scheduleCampaignCopyBlur(briefHost,blurEvent)');
+ const review=h.timers.get(h.run('campaignCopyTimer'))();
+ assert.equal(h.c.modal,'campaign-copy-confirm');
+ h.run('finishCampaignCopy(true)');await review;
+ assert.equal(h.c.draft.markets['en-US'].copy.message,'Long idle proposal');
+ h.run('changeCampaignWording("message","New proposal");briefHost.rendering=true');
+ const timer=h.run('campaignCopyTimer');
+ h.run('scheduleCampaignCopyBlur(briefHost,blurEvent)');
+ assert.equal(h.run('campaignCopyTimer'),timer,'render teardown does not reschedule');
 });

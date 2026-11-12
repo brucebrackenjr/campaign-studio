@@ -90,6 +90,9 @@ function productionView(context, operationHtml = "", notices = "") {
     operationHtml,
   };
   let html = MotifProducerRepair.production(view);
+  notices += unresolvedRegenerationNotice();
+  if (model.regeneration && model.regeneration.outcome !== "pending")
+    notices += `<p role="status">${esc(model.regeneration.message)}</p>`;
   const changedSources = context.plan?.changed_source_products || [];
   if (changedSources.length && !context.active) {
     const names = changedSources.map(product => product.name).join(", ");
@@ -115,7 +118,16 @@ function refreshProductionStatus() {
   panel.replaceWith(next);
   // Keep unchanged product cards and the user's coverage expansion in place.
   const cards = $$(".pr-product-card"), updated = $$(".pr-product-card", template.content);
-  cards.forEach((card, index) => { if (updated[index] && card.outerHTML !== updated[index].outerHTML) card.replaceWith(updated[index]); });
+  const content = card => {
+    const clone = card.cloneNode(true);
+    for (const image of $$("img[data-visual-url]", clone)) {
+      image.removeAttribute("src");
+      image.removeAttribute("data-visual-mounted");
+      image.removeAttribute("title");
+    }
+    return clone.outerHTML;
+  };
+  cards.forEach((card, index) => { if (updated[index] && content(card) !== content(updated[index])) card.replaceWith(updated[index]); });
   const add = $('.wf-product-management [data-pr-action="add"]'), nextAdd = $('.wf-product-management [data-pr-action="add"]', template.content);
   if (add && nextAdd) add.disabled = nextAdd.disabled;
   const keyAccess = $(".pr-key-access"), nextKeyAccess = $(".pr-key-access", template.content);
@@ -125,6 +137,7 @@ function refreshProductionStatus() {
   const availability = $(".wf-studio-availability"), nextAvailability = $(".wf-studio-availability", template.content);
   if (availability && !nextAvailability) availability.remove();
   else if (!availability && nextAvailability) $(".wf-production-sidebar").append(nextAvailability);
+  if (typeof MotifVisuals !== "undefined") MotifVisuals.mount($(".pr-workspace"));
   const studio = $('[data-pr-action="studio"]'), nextStudio = $('[data-pr-action="studio"]', template.content);
   if (studio && nextStudio) {
     studio.disabled = nextStudio.disabled;
@@ -146,8 +159,10 @@ function studioView() {
     id: product.id, name: product.name,
     sourceAvailable: !!model.editable_products?.[product.id] || !!model.source_urls?.[product.id] ||
       (model.concept_preview_version === model.version && !!model.concept_previews?.[product.id]),
+    thumbnails: Object.fromEntries(C.markets.flatMap(language => FMT.map((format, f) =>
+      [`${MARKET[language]}|${format.ratio}`, outputFor(index, language, f)?.thumbnail_url || null]))),
     outputs: Object.fromEntries(C.markets.flatMap(language => FMT.map((format, f) =>
-      [`${MARKET[language]}|${format.ratio}`, outputFor(index, language, f)?.url || null]))),
+      [`${MARKET[language]}|${format.ratio}`, outputFor(index, language, f)?.gallery_url || outputFor(index, language, f)?.url || null]))),
   }));
   const shown = products.flatMap(product => Object.entries(product.outputs))
     .filter(([key, url]) => (imageMarket === "all" || key.startsWith(imageMarket + "|"))
@@ -208,6 +223,7 @@ async function producerAction(button) {
     if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
     if (action === "open-output" && outputFor(p, lang, f)?.url)
       return dispatchAction({ action: `inspect:${p}:${f}:${lang}` });
+    retainStudioGallery();
     selected[0] = p;
     formats[0] = f < 0 ? 0 : f;
     reviewTab = "product";
@@ -219,6 +235,7 @@ async function producerAction(button) {
   if (button.dataset.prMarket) lang = button.dataset.prMarket === "es-MX" ? "es" : "en";
   const mapped = {
     "add-image": `addProductImage:${id}`, "update-key": "updateKey", resumeGeneration: "resumeGeneration",
+    regenerate: `regenerate:${id}`,
     add: "addProduct", "close-cap": "close", edit: `product:${id}`, source: `productSource:${id}`,
     "review-plan": "plan", "plan-input": "planDraftInput", settings: "settings", start: "start", key: "missingKey", stop: "stop",
     studio: "nav:review", browse: "pickProduct", save: "saveProduct", cancel: "cancelEdits",

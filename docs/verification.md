@@ -1,6 +1,6 @@
 # Verification
 
-Motif 0.3.2 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
+Motif 0.4.0 saves editing instructions throughout the workflow and creates finished images for download. The checks below cover that distinction, the files delivered to a producer, and the packaged installation.
 
 ## Repeatable local checks
 
@@ -21,6 +21,63 @@ uv run --locked campaign-studio sample-run --replay --data-dir ./motif-check-dat
 The check commands use separate ordinary campaign records and require no provider key. The synthetic two-product case composes 12 outputs and corrects six. The three-product, one-market case produces nine. Saved-source replay composes 12, corrects six, reopens storage, and exports with zero new attempts. A missing or changed replay master is refused locally instead of triggering a purchase.
 
 JavaScript tests use Node’s built-in runner without npm dependencies. Provider and configuration failure tests use dummy credentials and controlled transport. Do not point development checks at a workspace containing work you want to keep.
+
+## Version 0.4.0 verification
+
+The campaign-creation and Handoff selection additions were checked in actual WebKit and Chromium browsers. Creation tests cover manual entry, downloadable-example import, switching routes without losing fields or files, malformed/oversized/named-field errors, a temporary busy refusal, and recovery after an import commits but its campaign cannot initially open. That recovery sent exactly one import POST.
+
+Handoff checks cover all-selected defaults, empty selection, selections across pages/products/markets/formats, filter and Studio round trips, keyboard focus, unavailable-selection removal, full and partial campaign behavior, individual PNG/Inspect independence, and selection controls frozen during export. Actual browser ZIPs contained exactly 30, two, and one PNGs as requested. Their reports and manifests matched those scopes. Controlled browser-model fixtures exercised unavailable/deleted selection presentation; server tests independently exercise missing sources and invalid IDs.
+
+The integrated local Python run passed **1,079 tests**, with five native-Windows tests skipped on macOS. The JavaScript suite passed **563 tests**, and Ruff and formatting checks passed. Regression cases verify that an empty selection cannot become all images, a save flush cannot widen a captured campaign selection, a failed subset retry keeps its IDs and successful renders, and selected report counts remain separate from campaign-wide spend. No paid provider request was used.
+
+An independent code review exercised 205 focused JavaScript tests, 49 delivery tests, and additional HTTP boundary probes. It found two campaign-creation recovery defects, both corrected and independently rechecked: a failed catalog refresh after creation could lead to a duplicate campaign, and starting another campaign from the campaign menu could retain the previous creation identity. Recovery now reopens the committed campaign, while a deliberate New campaign action starts a fresh draft. Boundary probes also checked cross-campaign export ownership, stale versions, changed source bytes during export, and prohibited-word protection outside a selected subset.
+
+The integrated browser review downloaded four selected images spanning products, markets, formats, and pages, then all 30 images. Both ZIPs contained the exact requested image identities; dimensions and checksums matched their manifests. WebKit rendered the extracted selected report through a separate static server with all four images and no application, API, or external requests. Direct file navigation was blocked by that automation environment. A separate native Safari check opened the packaged installation’s extracted two-image report directly from its local file, with the Motif server stopped, and visibly rendered both images and their saved wording. Editor checks cover all 12 tool/format refresh combinations, logo reset on the first visit after refresh, Story thumbnail containment, and navigation waiting for a pending save.
+
+The established Motif designer reviewed the creation and Handoff layouts at 1440 × 900 and 1366 × 768. Resulting corrections distinguish campaign-wide readiness from the selected ZIP and preserve keyboard focus after filtering or removing the final unavailable selection. The offline report preview remains explicitly campaign-wide. Finished PNGs are reused for retries within the same failed export, not cached across separate successful downloads.
+
+
+This release keeps the existing stack. Focused Chromium and WebKit checks cover canceled rename/rule proposals, uninterrupted typing before shared-copy confirmation, text movement after Reset, description saves while Source details is open, and optional empty CTA styling. Required headlines can temporarily be blank: the active canvas removes the old headline while retaining the photograph, logo, and CTA. Other products and markets remain editable, including a combined case with a separate incomplete product. Strict and partial ZIP, report, and individual-image delivery remain blocked until required wording is complete. These checks use disposable workspaces without a provider key.
+
+Preview-cache regressions cover source and font contents, file ownership, unchanged filenames/size/timestamps with changed image bytes, stale campaign versions, simultaneous planning requests, defensive copies, expiration, and memory bounds. Delivery performs its own strict validation. A separate comparison of 33 gallery/editor PNGs across all three formats found identical decoded RGBA pixels and dimensions. Faster temporary compression increased the combined PNG payload by about 2.37%; it did not alter source files.
+
+The table records individual local Chromium measurements using the same pristine bundled campaigns on the same computer, before and after the maintenance changes. Autumn has five supplied product photographs; Winter has two available sources and one product awaiting generation. Each action waits for the relevant tool state and image decoding. A cold gallery clears the browser cache, not the operating-system file cache; these are reproducible fixture observations rather than a cross-device benchmark or percentile guarantee.
+
+| Interaction | Autumn baseline → candidate | Winter baseline → candidate |
+| --- | ---: | ---: |
+| Initial Studio gallery | 2878 → 822ms | 1502 → 549ms |
+| Gallery reload | 2801 → 523ms | 1356 → 358ms |
+| First Text tool | 952 → 314ms | 693 → 298ms |
+| First Logo tool | 921 → 358ms | 834 → 522ms |
+| Edit to saved preview and thumbnails | 2390 → 1506ms | 1970 → 1430ms |
+
+These measurements describe the first preview-cache pass, before the persistent-scene refactor below. Its intentional one-second Studio typing delay remained, and a preview could finish before autosave and then refresh after the save. That measured Autumn edit downloaded more local preview data despite finishing sooner. At that checkpoint, HTTP responses remained `no-store`; reuse was inside the application.
+
+### Persistent Studio scene and gallery reuse
+
+The persistent editor keeps one canvas and save queue across Logo, Text, Framing, and Inspect. Geometry tests cover reverse layer selection, transparent bounds, movement limits, and resize anchors. Scene-controller tests cover edits during an in-flight save, acknowledged-version adoption, byte-identical uncertain retries, conflict pause, pending font choices before initial geometry, stale thumbnail suppression, per-field wording scope, keyboard framing, safety bounds, and gesture cancellation.
+
+Service checks recompose the returned source, logo, and exact text layers and compare them with Pillow's finished composition. They exercise combined layout/wording saves, description conflicts with rollback, duplicate requests, stale versions, and bounded 160/640-pixel thumbnails. Visual-cache checks distinguish changed source bytes, branding, layout, and campaign identities, account for decoded pixel memory, and allow retry after a failed request. Successful versioned visual responses require HTTP revalidation; mutable state and errors remain `no-store`. This prevents a same-path asset or font replacement from returning stale HTTP-cached pixels under a new browser visual identity.
+
+Focused Playwright journeys in Chromium and WebKit cover direct selection, overlapping padded text bounds, actual logo attachment/replacement through file pickers, pointer and keyboard resize, crop/safety controls, delayed saves with newer input, failed-save retry, genuine stale-tab conflicts, late raster responses, empty CTA styling, field-specific Apply to all products, and market/format switches. A failed save retains its recovery controls across tool changes without retrying merely because a field blurred. Production partial refresh preserves unchanged image nodes while updating changed content.
+
+A follow-up holds the pointer while a changed-wording response arrives, then releases it and checks that the latest text renders without another edit. Controller regressions also cover a preview timer firing during a held gesture and the resize handles' accessible names as the selected layer changes.
+
+One WebKit observation measured six tool clicks from event capture through two animation frames: 29–32ms, with the same canvas retained and zero preview requests. Returning from All Images to All Products displayed 20 already-decoded images with zero thumbnail requests. Moving or resizing the logo sent only the save request; its local thumbnail changed while other formats stayed unchanged. Text resize can show a provisional scaled thumbnail while awaiting exact glyph rasters, but that provisional image is never cached as a finished saved composition. These are local observations, not cross-device latency guarantees. A first visit still has to load and decode imagery.
+
+A real browser ZIP download contained 30 PNGs. All dimensions, encoded-file checksums, and decoded-pixel checksums matched the manifest. The report displayed all 30 images with the browser offline, and the changed product wording appeared in its three English formats. A separate prepared-product service fixture verified that the layered source retains its transparent cutout over a mocked generated background in every format; this was not a live provider request. This focused browser pass uses macOS WebKit and Chromium, not native Windows or a screen-reader certification.
+
+Provider deadline checks use synthetic localhost responses and the real SDK/HTTP transport. A 65-second silent response was abandoned by the baseline at about 60 seconds and received by the candidate at about 65 seconds. Fast regressions and independent probes also cover a silent response body, overall deadline expiry, disconnects, cancellation, one dispatch, and unknown-outcome accounting. No live provider request was made for this maintenance candidate. These measurements do not establish actual provider latency or image quality.
+
+### Regeneration, navigation, and delivery follow-up
+
+The regeneration and navigation changes add a deliberately confirmed replacement request, browser history, and Handoff description persistence. Regeneration service and HTTP tests use controlled provider transport. They check simultaneous duplicate confirmations, an old confirmation after a later replacement, stale inputs, failure, timeout, Stop followed by a late response, and a changed campaign when a successful result arrives. The old accepted image stays available for PNG and ZIP export during the request. Separate cases reject supplied-scene regeneration and verify that regenerating a prepared-product background preserves the uploaded cutout bytes. Generic start, retry, and local recovery paths cannot bypass the replacement decision or silently adopt a stopped or conflicting result. No paid provider call is made.
+
+Actual Chromium journeys exercise the regeneration review, its prompt and cost details, cancellation without dispatch, and successful replacement. WebKit journeys exercise failure, success, and Stop while a controlled request is in flight. After its late response, the current version and accepted source URLs remain unchanged, while the dispatched attempt is still counted. Screenshots are inspected separately from service results.
+
+Chromium and WebKit navigation journeys cover Back and Forward, a delayed Studio save, shared-copy confirmation and Cancel, and a conflicting save. The current URL and editing controls stay in place while a save or decision is pending. Handoff descriptions survive retry, close, and reload and remain specific to the selected product, market, and format. Tests dispatch the actual beforeunload handler with pending and failed description saves; this verifies the warning condition, not the appearance of every browser's native prompt. Studio gallery-return checks cover All images and Compare, including rejecting another campaign's retained view.
+
+Actual individual PNG downloads distinguish `en-US` and `es-MX` and decode at the expected 1080 × 1080 dimensions. A 30-PNG ZIP passed archive integrity checks and carried the saved description in both the manifest and offline HTML. A separate mocked-generation report displays verified generated and supplied source classifications while preserving the producer's provenance. These follow-up browser checks use macOS Chromium and WebKit, not native Windows or Safari, and do not constitute a new live provider test.
 
 ## Version 0.3.2 installation checks
 

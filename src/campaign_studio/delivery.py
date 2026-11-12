@@ -30,9 +30,17 @@ from campaign_studio.state import StateError
 from campaign_studio.storage import delivery_component
 
 
-def delivery_manifest(snapshot, *, allow_partial=False):
+def delivery_manifest(snapshot, *, allow_partial=False, output_ids=None):
     """Public inventory from current saved instructions, without exposing local paths."""
     plan = snapshot["plan"]
+    selected = None if output_ids is None else set(output_ids)
+    if selected is not None and (
+        not selected
+        or len(selected) != len(output_ids)
+        or not selected.issubset({output.id for output in plan.outputs})
+    ):
+        raise StateError("Choose available images from this campaign.", code="export_selection")
+    # Selection changes the package inventory, never campaign-wide validation.
     findings = list(plan.findings)
     for output in plan.outputs:
         findings.extend(copy_findings(plan.brief, output))
@@ -49,6 +57,8 @@ def delivery_manifest(snapshot, *, allow_partial=False):
     metadata = snapshot.get("metadata", {})
     outputs = []
     for output in plan.outputs:
+        if selected is not None and output.id not in selected:
+            continue
         problems = [f.evidence for f in findings if blocks_output(f, output)]
         if output.product_id not in snapshot["sources"]:
             problems.append("The source image is not ready. Open Production to prepare it.")
@@ -71,6 +81,11 @@ def delivery_manifest(snapshot, *, allow_partial=False):
             }
         )
     ready = [item for item in outputs if not item["omission"]]
+    if selected is not None and len(ready) != len(outputs):
+        raise StateError(
+            "A selected image is no longer available. Review your selection before downloading.",
+            code="export_selection",
+        )
     if not ready:
         raise StateError("No images are ready to export. Check Production and the campaign inputs.")
     if len(ready) != len(outputs) and not allow_partial:
@@ -86,17 +101,23 @@ def delivery_manifest(snapshot, *, allow_partial=False):
         "campaign_name": plan.brief.name,
         "composition_version": snapshot["version"],
         "complete": len(ready) == len(outputs),
-        "product_names": {p.id: p.name for p in plan.brief.products},
+        "product_names": {
+            p.id: p.name
+            for p in plan.brief.products
+            if selected is None or any(o["product_id"] == p.id for o in outputs)
+        },
         "logo_provenance": plan.brief.brand.logo_provenance.model_dump(mode="json"),
         "outputs": outputs,
         "sources": [
             {
                 "product_id": p.id,
                 "role": p.source.role,
+                "imagery_origin": snapshot.get("source_origins", {}).get(p.id),
                 "provenance": p.source.provenance.model_dump(mode="json"),
                 "sha256": snapshot["sources"][p.id].sha256 if p.id in snapshot["sources"] else None,
             }
             for p in plan.brief.products
+            if selected is None or any(o["product_id"] == p.id for o in outputs)
         ],
         "findings": [f.model_dump(mode="json") for f in findings],
         "campaign_metrics": summary,
@@ -113,11 +134,18 @@ def delivery_manifest(snapshot, *, allow_partial=False):
             else None
         ),
     }
+    if selected is not None:
+        manifest["export_scope"] = {
+            "kind": "selection",
+            "output_ids": [item["id"] for item in outputs],
+            "campaign_image_count": len(plan.outputs),
+        }
     paths = delivery_paths(manifest)
     for item in ready:
         item["file"] = paths[item["id"]]
     name = delivery_component(plan.brief.brand.name, "Campaign")
-    manifest["package_name"] = f"{name}-{snapshot['version'][:8]}"
+    scope = "-selected" if selected is not None else ""
+    manifest["package_name"] = f"{name}{scope}-{snapshot['version'][:8]}"
     require_public_metadata(manifest)
     return manifest
 
@@ -314,7 +342,10 @@ def current_image(state, snapshot, output_id, *, preview=False):
         with captured_sources(state, snapshot, [output]) as (paths, destination):
             render_png(snapshot, paths, output, destination, preview=preview)
             name = delivery_component(manifest["product_names"][output.product_id], "Product")
-            return destination.read_bytes(), f"{name} - {Path(record['file']).name}"
+            return (
+                destination.read_bytes(),
+                f"{name} - {output.market} - {Path(record['file']).name}",
+            )
     except (ImageProblem, OSError) as error:
         raise StateError(
             "There was an issue creating the image. Your saved edits are unchanged. Try again.",

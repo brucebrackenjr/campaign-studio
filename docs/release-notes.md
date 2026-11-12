@@ -1,3 +1,32 @@
+# Motif v0.4.0 – Direct editing and flexible delivery
+
+Motif 0.4.0 keeps its local Python and plain JavaScript architecture while making editing more immediate, campaign creation easier, and delivery more flexible.
+
+- A newly created campaign remains recoverable if opening it or refreshing the Workbench fails. Retry opens the saved campaign without creating another one.
+- **New campaign** combines manual entry and JSON import in one dialog. Switching routes preserves unfinished entries, and **Download example JSON** supplies a valid, adaptable brief.
+- Handoff starts with all available output images selected. One **Download ZIP** action exports the checked images across pages, markets, and formats. Clearing selection disables it. Subset ZIPs contain only the selected PNGs and a matching offline report; campaign-wide export checks and failed-image retry remain in force.
+- Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
+- Reset logo placement becomes available as soon as the logo loads after refresh or a first visit to a format, without requiring another tool switch or edit.
+- Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
+- Completed layout gestures update the selected format thumbnail directly from the browser canvas. Other formats retain their images unless shared wording or campaign artwork changes.
+- Live format thumbnails remain contained within their cards, including tall Story images.
+- Pending text previews resume after a drag, including a response that arrived while the pointer was held. Resize handles identify the currently selected logo, headline, or call to action for assistive technology.
+- Production and Studio galleries use sized previews and retain decoded images across view changes. Source, wording, layout, market, and branding changes invalidate the affected visual entries.
+- Canceling a rename or prohibited-word dialog leaves the applied campaign values unchanged.
+- Campaign copy confirmation waits until the field loses focus or the producer explicitly saves or navigates, preserving custom wording until confirmation.
+- Studio remains usable after resetting text placement, opening source details while a description saves, or styling an empty call to action.
+- Clearing a headline keeps the product visible and editable. Export remains blocked until required wording is restored.
+- Preview planning and gallery images use bounded, content-checked caches to avoid repeating image decoding and layout work. Temporary editor PNGs use faster lossless compression.
+- Image generation honors its configured overall response deadline without an earlier 60-second read-inactivity cutoff. Automatic paid retries remain disabled, and uncertain outcomes remain recorded.
+- Production offers **Regenerate image** for a verified app-generated source, with a one-request estimate and explicit confirmation. The current image remains usable while generation runs and is retained after failure, an accepted Stop, or a conflicting edit. Request and cost accounting remain cumulative.
+- Browser Back and Forward respect pending saves and confirmations. Returning from an image restores the selected Studio gallery view.
+- Accessible descriptions entered in Handoff persist for the selected image and appear in its downloaded report. Individual PNG names include the market code, and reports distinguish verified app-generated sources from supplied imagery.
+- The README and Motif website present the application as an independent product. A new engineering case study explains architecture, preview recovery, and measured performance.
+
+See the [verification notes](verification.md) for release checks and measured performance.
+
+---
+
 # Motif v0.3.2 – Reliable installation and Studio editing
 
 - Fixed a white-canvas flicker when attaching the first campaign logo in Studio and then moving or resizing it. The photograph and wording stay visible while the logo is arranged.

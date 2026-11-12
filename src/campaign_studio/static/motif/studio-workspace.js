@@ -3,6 +3,41 @@
 // A product visit owns one shell and one existing editor controller at a time.
 // Requests, geometry, and publication stay in those controllers.
 let studioWorkspace = null;
+let studioGalleryReturn = null;
+// Keep this tab's place without saving navigation into the campaign document.
+// The server still supplies every editable value after a reload.
+function retainStudioNavigation() {
+  if (typeof history === "undefined" || page !== "review" || !studioWorkspace) return;
+  history.replaceState({ ...history.state, studio: {
+    campaign: C.id, product: studioWorkspace.product, language: lang,
+    format: currentFormat, mode: studioWorkspace.mode,
+    block: studioWorkspace.scene?.selected || "message",
+  } }, "", location.href);
+}
+async function restoreStudioNavigation(context) {
+  if (!context || page !== "review" || context.campaign !== C.id ||
+      !C.markets.includes(context.language) || !Number.isInteger(context.format) ||
+      !FMT[context.format] || !["inspect", "framing", "logo", "text"].includes(context.mode) ||
+      !["message", "cta"].includes(context.block)) return false;
+  const product = C.products.findIndex(item => item.id === context.product);
+  if (product < 0) return false;
+  const output = outputFor(product, context.language, context.format);
+  if (!output || !(output.url || canEditProduct(product))) return false;
+  if (studioWorkspace) finishStudioVisit();
+  currentProduct = product; currentFormat = context.format; lang = context.language;
+  await openStudioWorkspace(context.mode);
+  studioWorkspace?.scene?.setMode(context.mode, context.block);
+  return true;
+}
+function retainStudioGallery() {
+  if (reviewTab !== "product") studioGalleryReturn = { campaign: C.id, reviewTab, selected: [...selected], formats: [...formats], imageMarket, pageNum, filter, lang };
+}
+function restoreStudioGallery() {
+  if (studioGalleryReturn?.campaign === C.id) {
+    ({ reviewTab, imageMarket, pageNum, filter, lang } = studioGalleryReturn);
+    selected = [...studioGalleryReturn.selected]; formats = [...studioGalleryReturn.formats];
+  } else reviewTab = "products";
+}
 // One target's verified preview work lives only for this Studio visit. A new
 // document or target releases every old image reference and preview response.
 function studioPreviewCache() {
@@ -103,9 +138,11 @@ function studioTextAvailable() {
   return canEditProduct(currentProduct) && !!output;
 }
 function studioBusy() {
+  if (studioWorkspace?.scene) return !!studioWorkspace.scene.uploading;
   return !!(textEditor?.saving || frameSaving || logoEditor?.busy || logoEditor?.uploading || logoEditor?.reviewing);
 }
 function studioDirty() {
+  if (studioWorkspace?.scene) return studioWorkspace.scene.queue.dirty();
   if (!studioWorkspace) return false;
   if (modal === "text") return Object.keys(textEditor?.placements || {}).length > 0 || wordingIntent(textEditor).fields.length > 0;
   if (modal === "frame") return JSON.stringify(framingDraft) !== framingInitial;
@@ -121,12 +158,18 @@ function studioApplyButton() {
 async function resolveStudioChanges() {
   const owner = studioWorkspace;
   if (!owner) return true;
+  if (owner.scene?.gesture || owner.scene?.uploading) return false;
   if (logoEditor?.uploading || framingPan?.active() || framingDrawing || textEditor?.input?.active()) return false;
   return await flushStudioSave() && studioWorkspace === owner;
 }
 function teardownStudioTool() {
   const owner = studioWorkspace;
   if (!owner) return;
+  if (owner.scene) {
+    owner.scene.dispose(); owner.scene = null;
+    studioSave = null; modal = '';
+    return;
+  }
   studioRetainImage();
   studioRetainSurface();
   owner.tearingDown = true;
@@ -156,6 +199,7 @@ function studioShellView(mode) {
 }
 async function openStudioWorkspace(mode = "text") {
   if (studioWorkspace) return switchStudioTarget({ mode });
+  retainStudioGallery();
   selected[0] = currentProduct;
   formats[0] = currentFormat;
   reviewTab = "product";
@@ -169,6 +213,9 @@ function mountStudioVisit(mode = "inspect") {
   owner.root = $(".ws-workspace");
   owner.root.classList.add("mf-editor", "is-direct");
   for (const type of ["input", "change", "pointerup", "keyup", "click"]) owner.root.addEventListener(type, event => {
+    // The persistent scene schedules only actual edits. Tool clicks must not
+    // restart an autosave timer or silently retry a failed request.
+    if (owner.scene) return;
     if (event.target.closest("[data-studio-save],[data-studio-recovery]")) return;
     queueMicrotask(() => { if (studioWorkspace === owner) scheduleStudioSave(type === "change" || type === "pointerup"); });
   });
@@ -180,7 +227,7 @@ function mountStudioVisit(mode = "inspect") {
       if (control.dataset.wsMode) await switchStudioTarget({ mode: control.dataset.wsMode });
       else if (control.dataset.wsTarget === "format") await switchStudioTarget({ format: FMT.findIndex(f => f.ratio === control.dataset.wsFormat) });
       else if (control.dataset.wsAction === "all-products" && await leaveStudioWorkspace()) {
-        reviewTab = "products"; render();
+        restoreStudioGallery(); render();
       }
     } catch (error) { toast(error.message); }
   });
@@ -223,6 +270,8 @@ function studioThumbnailSignature(output, format) {
   return JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format,
     !!output?.url, output?.copy, product?.source, product?.framing?.[MARKET[lang]]?.[FMT[format].ratio],
     brand?.logo_path, brand?.text_color,
+    model.visual_sources?.[product?.id], model.visual_products?.[product?.id], model.visual_logo,
+    typeof MotifVisuals !== "undefined" ? MotifVisuals.fontKey(product, MARKET[lang], FMT[format].ratio, output?.copy) : null,
     model.source_urls?.[product?.id]?.replace(/\/composition\/[^/]+\//, "/composition/current/")]);
 }
 function refreshStudioThumbnail(button, thumbnail, output, format, url) {
@@ -231,7 +280,13 @@ function refreshStudioThumbnail(button, thumbnail, output, format, url) {
   const signature = studioThumbnailSignature(output, format);
   const target = JSON.stringify([C.id, C.products[currentProduct]?.id, lang, format]);
   let state = owner.thumbnails.get(button);
-  let shown = thumbnail.querySelector?.("img");
+  let shown = thumbnail.querySelector?.("img,canvas");
+  // A text resize can show its local scaled pixels while Pillow prepares the
+  // exact font raster. It is deliberately not a final cache entry.
+  if (shown?.tagName === 'CANVAS' && owner.scene?.format === format && owner.scene.rasterDirty &&
+      owner.localThumbnail?.target === target && owner.localThumbnail.signature === null) return;
+  if (shown?.tagName === 'CANVAS' && owner.localThumbnail?.format === format &&
+      owner.localThumbnail.target === target && owner.localThumbnail.signature === signature) return;
   if (!state) {
     state = { signature, target, url, sequence: 0 };
     owner.thumbnails.set(button, state);
@@ -242,7 +297,7 @@ function refreshStudioThumbnail(button, thumbnail, output, format, url) {
     state.target = target; state.signature = null; state.pending = null; state.sequence++;
     thumbnail.innerHTML = '<span aria-hidden="true">–</span>';
     shown = null;
-  } else if (state.signature === signature && shown?.complete && shown.naturalWidth) {
+  } else if (state.signature === signature && (shown?.tagName === 'CANVAS' || shown?.complete && shown.naturalWidth)) {
     // An unchanged, decoded thumbnail is presentation only. Never use its old
     // URL to authorize a new preview request or save.
     return;
@@ -318,6 +373,13 @@ function mountStudioParts(markup, { tools, surface, status, footer = ".modal-foo
 async function mountStudioTool(mode) {
   const owner = studioWorkspace;
   if (!owner) return;
+  if (typeof StudioScene !== 'undefined') {
+    owner.mode = mode;
+    if (owner.scene) owner.scene.setMode(mode);
+    else new StudioScene(owner);
+    refreshStudioTargets();
+    return;
+  }
   if (mode === "framing" && C.products[currentProduct].treatment === "prepared") {
     if (owner.mode !== "inspect") await mountStudioTool("inspect");
     toast("This saved source uses a separate prepared product and background. Product placement is not adjustable in this version. Your saved image remains unchanged.");
@@ -390,6 +452,10 @@ async function switchStudioTarget({ mode = studioWorkspace?.mode, format = curre
   const sequence = owner.switchSequence = (owner.switchSequence || 0) + 1;
   const current = () => studioWorkspace === owner && owner.switchSequence === sequence;
   if (mode === owner.mode && format === currentFormat && language === lang) return;
+  if (owner.scene && format === currentFormat && language === lang) {
+    owner.scene.setMode(mode);
+    return;
+  }
   if (!await resolveStudioChanges() || !current()) return;
   let targetSurface = language === lang && format !== currentFormat ? studioFormatSurface(format) : null;
   if (!targetSurface && language === lang && format !== currentFormat) {
@@ -459,5 +525,9 @@ function finishStudioVisit() {
   teardownStudioTool();
   studioWorkspace.sequence++;
   studioWorkspace = null;
+  if (typeof history !== "undefined") {
+    const { studio, ...state } = history.state || {};
+    history.replaceState(state, "", location.href);
+  }
   document.body.classList.remove("ws-active");
 }

@@ -376,6 +376,14 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
         result["composition_issues"] = validation_issues(error)
         return result
     plan, sources = current["plan"], current["sources"]
+    from campaign_studio.regeneration import eligible, public_status
+
+    result["regeneratable_products"] = [
+        product.id
+        for product in plan.brief.products
+        if eligible(workspace, document, product, sources.get(product.id))
+    ]
+    result["regeneration"] = public_status(document, run)
     result["composition_issues"] = current["composition_issues"]
     result["unplanned_draft"] = bool(result["composition_issues"])
     expected_images = len(value["products"]) * len(plan.brief.markets) * 3
@@ -400,7 +408,9 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
     # request. Removing a missing product can make every remaining source ready;
     # adding a concept after a completed run requires a new reviewed request.
     needs_generation = bool(plan.generation_products)
-    if not needs_generation:
+    if not needs_generation and not (
+        result.get("regeneration") and result["regeneration"]["outcome"] == "failed"
+    ):
         result["notice"] = None
     admitted = bool(
         run
@@ -484,7 +494,8 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
             "file": output.id + ".png" if available else None,
             "eligible_for_export": output.product_id in sources and not blocked,
             "url": url,
-            "thumbnail_url": url,
+            "thumbnail_url": url.replace("/images/", "/thumbnails/") + "?edge=160" if url else None,
+            "gallery_url": url.replace("/images/", "/thumbnails/") + "?edge=640" if url else None,
             "sha256": None,
             "source_role": product.source.role,
             "synthetic": product.source.provenance.synthetic,
@@ -537,6 +548,20 @@ def campaign_data(workspace, campaign_id, *, verify_saved_files=True):
     result["source_urls"] = {
         pid: f"/api/campaigns/{campaign_id}/composition/{version}/sources/{pid}" for pid in sources
     }
+    result["source_thumbnail_urls"] = {
+        pid: f"/api/campaigns/{campaign_id}/composition/{version}/source-thumbnails/{pid}"
+        for pid in sources
+    }
+    result["visual_sources"] = {pid: asset.sha256 for pid, asset in sources.items()}
+    result["visual_logo"] = plan.assets["logo"].sha256 if "logo" in plan.assets else None
+    result["visual_products"] = {
+        product.id: asset.sha256
+        for product in plan.brief.products
+        if (asset := plan.assets.get(f"products/{product.id}"))
+    }
+    from campaign_studio.preview_cache import PreviewCache
+
+    result["visual_fonts"] = dict(PreviewCache.font_key(plan.brief))
     result["rule_withheld_outputs"] = [
         o.id
         for o in plan.outputs

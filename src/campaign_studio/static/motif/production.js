@@ -138,6 +138,7 @@ function productionContext() {
       description: concept ? product.source.description : product.description,
       mode: concept ? "concept" : "photo", image, sourceLabel,
       filename: product.source.path?.split("/").pop() || "", requested,
+      regeneratable: !active && !pending && !!model.regeneratable_products?.includes(product.id),
       outputSummary: model.composition_version
         ? saved ? `${saved} ${saved === 1 ? "preview" : "previews"}` : "No preview available"
         : saved ? saved === expected ? `${saved} saved ${saved === 1 ? "image" : "images"}` : `${saved} of ${expected} saved` : "No saved images",
@@ -445,4 +446,108 @@ async function recheckRules() {
     ruleRecovery = error.message;
     openModal("rules-recheck-blocked");
   }
+}
+
+
+let regenerationReview = null;
+async function reviewRegeneration(productId) {
+  if (operation?.active) return;
+  if (!await flushCurrentWork()) throw new Error("Finish saving before reviewing regeneration.");
+  const campaign = draft.campaign_id, version = model.version;
+  const reviewed = await boundedEstimateRequest(signal => api(`/api/campaigns/${campaign}/regeneration/preview`,
+    { version, product_id: productId }, { signal }));
+  if (draft.campaign_id !== campaign || model.version !== version) return;
+  regenerationReview = { ...reviewed, campaign, confirming: false, error: "", uncertain: false };
+  openModal("regenerate");
+}
+function regenerationDialog() {
+  const review = regenerationReview;
+  if (!review || review.campaign !== draft?.campaign_id) return dialog("Review regeneration again.", "", btn("Close", "close"));
+  const request = review.request, estimate = review.cost_estimate?.estimated_usd;
+  return dialog(`Regenerate image for ${review.product_name}?`,
+    `<p>One new AI request for <strong>${esc(review.product_name)}</strong>${review.background_only ? "’s background. The supplied product photograph stays unchanged" : ""}. Other products stay unchanged.</p>
+    <p><strong>Estimated AI cost: ${esc(Number.isFinite(estimate) ? compactUSD(estimate) : "Not available")} USD.</strong> Actual charges may differ.</p>
+    <p>The current image stays available for editing and download. A replacement is used only after it succeeds and this saved campaign remains current. Failure, timeout, or Stop keeps the current image.</p>
+    <details><summary>Exact request and cost assumptions</summary><p>${esc(request.model)} · ${esc(request.size)} · ${esc(request.quality)} · ${request.deadline_seconds}s deadline · zero automatic paid retries</p><pre class="small" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(request.prompt)}</pre><p>Estimate dated ${esc(review.cost_estimate?.pricing_date)}. One new request; prior usage stays in the campaign total.</p></details>
+    <p>A dispatched request may be charged even if its result cannot be used. Stopping locally cannot guarantee provider cancellation.</p>${review.error ? `<p role="alert">${esc(review.error)}</p>` : ""}${review.uncertain ? `<p role="status">A request may already be running. Closing this dialog does not stop it. Choose Check this confirmed request to see its progress, then use Stop regeneration in Production to keep the current image. If the request has already completed, its accepted result may already be in use.</p>` : ""}`,
+    btn(review.uncertain ? "Close dialog" : "Keep current image", "close", "", review.confirming ? "disabled" : "") +
+    (review.notRecorded ? btn("Review a new paid request", `regenerate:${review.product_id}`, "", review.confirming ? "disabled" : "") : "") +
+    btn(review.confirming ? review.uncertain ? "Checking…" : "Confirming…" : review.uncertain ? "Check this confirmed request" : "Confirm 1 paid request", "confirmRegeneration", "primary", review.confirming ? "disabled" : ""));
+}
+async function confirmRegeneration() {
+  const review = regenerationReview;
+  if (!review || review.confirming || review.campaign !== draft?.campaign_id) return;
+  if (review.uncertain) return resolveRegenerationStatus();
+  if (!keyAvailable) { closeModal(); await openKeySetup(); return; }
+  if (model.version !== review.version || projectQueue?.isDirty())
+    throw new Error("This campaign changed. Review regeneration again before confirming.");
+  review.confirming = true; review.error = ""; openModal("regenerate");
+  try {
+    const result = await api(`/api/campaigns/${review.campaign}/regeneration/start`,
+      Object.fromEntries(["version", "product_id", "operation_id", "digest"].map(key => [key, review[key]])));
+    if (draft.campaign_id !== review.campaign) return;
+    const current = await api(`/api/motif/campaigns/${review.campaign}`);
+    if (draft.campaign_id !== review.campaign) return;
+    review.confirming = false;
+    closeModal({ retain: false });
+    useData(current, { sourceCompletion: result.run_id,
+      confirmedRegeneration: { operationId: review.operation_id, version: review.version } });
+    operation = result;
+    page = "production"; updateURL(); render();
+    regenerationReview = null;
+    if (result.active) await poll(review.campaign, result.run_id);
+  } catch (error) {
+    review.confirming = false;
+    review.uncertain = !error.status;
+    review.error = review.uncertain
+      ? "The confirmation response could not be read. Check this same request before reviewing another. Nothing is resent automatically."
+      : error.message;
+    if (draft?.campaign_id === review.campaign && modal === "regenerate") openModal("regenerate");
+  }
+}
+
+async function resolveRegenerationStatus() {
+  const review = regenerationReview;
+  if (!review || !review.uncertain || review.confirming || review.campaign !== draft?.campaign_id) return;
+  review.confirming = true;
+  if (modal === "regenerate") openModal("regenerate");
+  try {
+    const result = await api(`/api/campaigns/${review.campaign}/regeneration/status`,
+      Object.fromEntries(["version", "product_id", "operation_id", "digest"].map(key => [key, review[key]])));
+    if (regenerationReview !== review || draft?.campaign_id !== review.campaign) return;
+    if (!result.found) {
+      review.confirming = false; review.notRecorded = true; review.error = result.message;
+      if (modal === "regenerate") openModal("regenerate");
+      else if (page === "production") refreshProductionStatus();
+      return;
+    }
+    const observedModel = model, observedVersion = model.version;
+    const current = await api(`/api/motif/campaigns/${review.campaign}`);
+    if (regenerationReview !== review || draft?.campaign_id !== review.campaign) return;
+    if (model !== observedModel || model.version !== observedVersion) {
+      setTimeout(() => {
+        if (regenerationReview !== review || draft?.campaign_id !== review.campaign) return;
+        review.confirming = false; resolveRegenerationStatus();
+      }, 200);
+      return;
+    }
+    review.confirming = false; regenerationReview = null;
+    if (modal === "regenerate") closeModal({ retain: false });
+    useData(current, { sourceCompletion: result.run_id,
+      confirmedRegeneration: { operationId: review.operation_id, version: review.version } });
+    operation = result;
+    if (page === "production") refreshProductionStatus();
+    if (result.active && isCurrentRun(review.campaign, result.run_id)) await poll(review.campaign, result.run_id);
+  } catch (error) {
+    review.confirming = false;
+    review.error = "The saved request status could not be read. This check sent no image request. Try checking again.";
+    if (regenerationReview !== review || draft?.campaign_id !== review.campaign) return;
+    if (modal === "regenerate") openModal("regenerate");
+    else if (page === "production") refreshProductionStatus();
+  }
+}
+function unresolvedRegenerationNotice() {
+  const review = regenerationReview;
+  if (!review?.uncertain || review.campaign !== draft?.campaign_id) return "";
+  return `<div role="status"><p>${esc(review.error || "The confirmation could not be read. The request may still be running; closing its dialog does not stop it.")}</p>${btn(review.confirming ? "Checking request…" : "Check this confirmed request", "confirmRegeneration", "pr-button pr-small", review.confirming ? "disabled" : "")}${review.notRecorded ? btn("Review a new paid request", `regenerate:${review.product_id}`, "pr-button pr-small") : ""}</div>`;
 }

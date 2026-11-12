@@ -72,7 +72,10 @@ class OpenAIImages:
     async def generate(
         self, request: GenerationRequest, storage: Storage, response_ref: str
     ) -> Receipt:
-        network_timeout = httpx.Timeout(connect=10, read=60, write=30, pool=10)
+        # Image generation may be silent until the complete response is ready.
+        # The saved request's overall deadline bounds that wait, including reads;
+        # an independent read-inactivity limit would abandon timely responses.
+        network_timeout = httpx.Timeout(connect=10, read=None, write=30, pool=10)
         try:
             async with (
                 httpx.AsyncClient(

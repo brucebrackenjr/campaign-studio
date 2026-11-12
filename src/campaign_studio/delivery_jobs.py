@@ -22,13 +22,18 @@ JOB_IDLE_SECONDS = 600
 
 
 class DeliveryJob:
-    def __init__(self, state, snapshot, operation_id, *, allow_partial=False, on_close=None):
+    def __init__(
+        self, state, snapshot, operation_id, *, allow_partial=False, output_ids=None, on_close=None
+    ):
         self.state = state
         self.snapshot = snapshot
         self.operation_id = operation_id
         self.campaign_id = snapshot["plan"].brief.campaign_id
-        self.manifest = delivery.delivery_manifest(snapshot, allow_partial=allow_partial)
+        self.manifest = delivery.delivery_manifest(
+            snapshot, allow_partial=allow_partial, output_ids=output_ids
+        )
         self.allow_partial = allow_partial
+        self.output_ids = sorted(output_ids) if output_ids is not None else None
         self.records = {o["id"]: o for o in self.manifest["outputs"] if o["file"]}
         self.outputs = [o for o in snapshot["plan"].outputs if o.id in self.records]
         self.sources = {}

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from campaign_studio.brief import Brief, Contract, Product
+from campaign_studio.brief import Brief, Contract, Identifier, Product
 
 MODEL = "gpt-image-2.5-flare-2026-09-08"
 
@@ -34,6 +34,17 @@ class GenerationRequest(Contract):
     max_retries: Literal[0] = 0
     deadline_seconds: float = Field(default=120.0, gt=0)
     prompt: str
+
+
+class ReplacementIntent(Contract):
+    """An explicit one-product request, separate from its unchanged image prompt."""
+
+    operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    product_id: Identifier
+    document_version: str
+    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_reference: str
+    confirmation_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 def request_for(brief: Brief, product: Product) -> GenerationRequest:

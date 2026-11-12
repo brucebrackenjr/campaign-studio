@@ -381,20 +381,13 @@ function restoreProjectControls({ preserveModal = false } = {}) {
 function captureProject() {
   const forms = projectBuffers.form_drafts;
   if (typeof captureProductInputs === "function") captureProductInputs();
-  if (modal === "rule" && ruleIndex >= 0 && $("#mw-rule-phrase")) {
-    const rule = draft.markets[MARKET[lang]]?.phrase_rules?.[ruleIndex];
-    if (rule && rule.phrase !== $("#mw-rule-phrase").value) {
-      const previousRules = copy(draft.markets[MARKET[lang]].phrase_rules);
-      rule.phrase = $("#mw-rule-phrase").value;
-      if (typeof requeueAllowedCampaignCopy === "function") requeueAllowedCampaignCopy(previousRules);
-    }
-  }
-  if (modal === "rename" && $("#rename-name")) draft.name = $("#rename-name").value;
+  // Rename and rule dialogs keep recoverable form drafts until their explicit
+  // Save action. Autosaving that buffer must not apply a cancelled proposal.
   if (page === "campaign") {
     captureProjectFields(`brief/${tab}/${lang}`, $("#main"));
   }
   const formKey = projectFormKey();
-  if (formKey && modal !== "inspect") captureProjectFields(formKey, imageEditorRoot());
+  if (formKey && modal !== "inspect" && !(typeof studioWorkspace !== 'undefined' && studioWorkspace?.scene)) captureProjectFields(formKey, imageEditorRoot());
   if (forms.fields && !Object.keys(forms.fields).length) delete forms.fields;
   const captured = {
     brief: copy(draft),
@@ -486,7 +479,7 @@ function initializeProject(saved) {
     restore: restoreProject,
     send: (id, body) => api(`/api/motif/campaigns/${encodeURIComponent(id)}/authored`, body),
     changed: publishProjectState,
-    autosave: saveProject,
+    autosave: () => saveProject({ deferTyping: true }),
     canAutosave: () => !["text", "frame", "logo", "inspect"].includes(modal),
     validate: authored => MotifTextLimits.authoredIssue(authored),
     acknowledged(ack, id, submitted, current) {
@@ -563,7 +556,7 @@ function reconcileAppliedBrief(local, before, after) {
     advance(product.source, old?.source, current?.source, ["role", "path", "provenance", "description", "imagery_absent", "subject_box"]);
   }
 }
-function receiveProject(data, previous, { applied = false, reset = false, sourceCompletion = null } = {}) {
+function receiveProject(data, previous, { applied = false, reset = false, sourceCompletion = null, confirmedRegeneration = null } = {}) {
   if (!data.project) return;
   if (reset || projectOwner !== data.value.campaign_id) {
     draft = copy(data.project.authored.brief);
@@ -573,8 +566,15 @@ function receiveProject(data, previous, { applied = false, reset = false, source
   // Only an acknowledged own action or an unchanged authored guard can advance
   // this tab's base. A newly observed other-tab save must still conflict.
   const acknowledged = projectQueue.authored();
+  // A lost start response can leave this tab on the preceding run. Only its
+  // exact server-recorded confirmation may identify that newly completed run;
+  // observe still requires unchanged acknowledged authored content below.
+  const confirmedReplacement = !!confirmedRegeneration &&
+    confirmedRegeneration.operationId === data.regeneration?.operation_id &&
+    confirmedRegeneration.version === data.regeneration?.reviewed_version &&
+    confirmedRegeneration.version === previous?.version;
   const completedSourceRun = !!sourceCompletion && sourceCompletion === data.run?.id &&
-    sourceCompletion === previous?.run?.id;
+    (sourceCompletion === previous?.run?.id || confirmedReplacement);
   if (applied || projectQueue.observe(data.project, { sourceCompletion: completedSourceRun })) {
     reconcileAppliedBrief(draft, acknowledged.brief, data.project.authored.brief);
     reconcileAppliedForms(acknowledged, data.project.authored);
@@ -604,9 +604,9 @@ function reconcileAppliedForms(previous, current) {
       }
   }
 }
-async function saveProject() {
+async function saveProject({ deferTyping = false } = {}) {
   if (!projectQueue) return false;
-  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges()) return false;
+  if (typeof confirmCampaignCopyChanges === "function" && !await confirmCampaignCopyChanges({ deferTyping })) return false;
   const owner = projectOwner;
   const saved = await projectQueue.saveCurrent();
   if (saved && owner === projectOwner) dirty = false;

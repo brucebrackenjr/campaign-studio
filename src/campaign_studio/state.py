@@ -618,6 +618,11 @@ class State:
         snapshot.digest = canonical_hash(
             {
                 "brief": snapshot.brief.model_dump(mode="json"),
+                **(
+                    {"replacement": snapshot.replacement.model_dump()}
+                    if snapshot.replacement
+                    else {}
+                ),
                 "assets": {name: asset.model_dump() for name, asset in assets.items()},
                 "generation_requests": {
                     name: request.model_dump()
@@ -807,9 +812,26 @@ class State:
             db.execute("UPDATE runs SET state=? WHERE id=?", (status, run_id))
 
     def stop(self, run_id: str) -> None:
-        self.run(run_id)
+        run = self.run(run_id)
+        replacement = json.loads(run["plan_json"] or "{}").get("replacement")
         with self.storage.connect() as db:
-            db.execute("UPDATE runs SET stop_requested=1 WHERE id=?", (run_id,))
+            if replacement:
+                # Publication commits its terminal state under the same SQLite
+                # write boundary. A Stop arriving after that must refuse rather
+                # than report acceptance after the new image is already in use.
+                changed = db.execute(
+                    "UPDATE runs SET stop_requested=1 WHERE id=? "
+                    "AND state IN ('running','confirmed')",
+                    (run_id,),
+                )
+                if not changed.rowcount:
+                    raise StateError(
+                        "This regeneration is no longer running. Reopen Production "
+                        "to see its accepted image.",
+                        code="not_running",
+                    )
+            else:
+                db.execute("UPDATE runs SET stop_requested=1 WHERE id=?", (run_id,))
 
     def attempts(self, run_id: str) -> list[dict]:
         with self.storage.connect() as db:

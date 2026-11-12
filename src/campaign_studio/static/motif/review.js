@@ -118,16 +118,31 @@ function requireIntactExport() {
 }
 let exportRecovery = null;
 let exportReceipt = null;
+function exportReceiptSummary() {
+  const count = exportReceipt?.count ?? model.manifest.metrics.completed_images;
+  const unit = exportReceipt?.selected ? `selected image${count === 1 ? "" : "s"}` : `full-size PNG${count === 1 ? "" : "s"}`;
+  const missing = exportReceipt?.missing || 0;
+  return `${count} ${unit}, the offline overview, and delivery details were sent to your browser.${missing ? ` ${missing} campaign ${missing === 1 ? "image was" : "images were"} unavailable and ${missing === 1 ? "is" : "are"} listed in the report.` : ""}`;
+}
 let pendingExport = "zip";
+let pendingExportSelection = null;
+let pendingExportIds = null;
+function currentExportSelection() {
+  const selected = selectedExportImages();
+  const available = model.manifest.outputs.filter(selectableExportImage);
+  const allAvailable = selected.length === available.length &&
+    selected.every(selectableExportImage);
+  return allAvailable && selected.length ? null : selected.map(output => output.id);
+}
 let reportPreviewURL = null;
-async function exportFailure(error, target, snapshot, kind, allowPartial, operationId = null) {
+async function exportFailure(error, target, snapshot, kind, allowPartial, operationId = null, outputIds = null, capturedIds = null) {
   if (await wordingExportRefused(error)) return;
   if (!model?.manifest || deliveryPath() !== target) return;
   let progress = null;
   if (operationId) {
     try { progress = await api(`${target}/progress/${operationId}`); } catch {}
   }
-  exportRecovery = { target, snapshot, kind, allowPartial, operationId, progress, code: error.code, message: error.message };
+  exportRecovery = { target, snapshot, kind, allowPartial, operationId, outputIds, capturedIds, progress, code: error.code, message: error.message };
   openModal("export-failure");
 }
 function exportRequiresRefresh(recovery) {
@@ -146,7 +161,7 @@ function exportFailureModal() {
   if (exportRequiresRefresh(recovery)) {
     const next = recovery.kind === "report"
       ? "After refreshing, open the report preview again."
-      : "After refreshing, choose Download ZIP again.";
+      : "Refreshing resets the selection to all available images. Review the checkboxes before choosing Download ZIP again.";
     return dialog(
       "The campaign has changed.",
       `${notice(window.MotifSave.conflictMessage, "", "block")}<p>${next}</p>`,
@@ -184,7 +199,7 @@ async function retryExport() {
   if (!await flushCurrentWork()) return;
   const changed = deliveryVersion() !== previous.snapshot;
   if (changed && previous.operationId) await api(`${previous.target}/cancel`, { operation_id: previous.operationId });
-  if (previous.kind === "zip") await downloadZIP(previous.allowPartial, changed ? null : previous.operationId);
+  if (previous.kind === "zip") await downloadZIP(previous.allowPartial, changed ? null : previous.operationId, previous.outputIds, previous.capturedIds);
   else await previewReport(previous.allowPartial);
 }
 function watchDeliveryProgress(campaign, operationId, button) {
@@ -211,16 +226,31 @@ function watchDeliveryProgress(campaign, operationId, button) {
   timer = setTimeout(poll, 200);
   return () => { stopped = true; clearTimeout(timer); detail?.remove(); };
 }
-async function downloadZIP(allowPartial, retryOperationId = null) {
+async function downloadZIP(allowPartial, retryOperationId = null, outputIds = null, capturedIds = null) {
+  // Freeze the exact requested subset before waiting for saves or a response.
+  outputIds = outputIds === null ? null : [...outputIds];
+  capturedIds = capturedIds === null ? outputIds : [...capturedIds];
+  const campaign = C.id;
   if (!await flushCurrentWork()) throw new Error("Your changes are still here. Save them before exporting.");
+  if (C.id !== campaign) throw new Error("The campaign changed. Review your selection before downloading.");
   requireIntactExport();
+  if (outputIds !== null && (!outputIds.length || outputIds.some(id =>
+    !selectableExportImage(model.manifest.outputs.find(output => output.id === id)))))
+    throw new Error("Review your selected images before downloading.");
+  if (outputIds === null && capturedIds !== null) {
+    const currentIds = model.manifest.outputs.filter(selectableExportImage).map(output => output.id);
+    if (currentIds.length !== capturedIds.length || capturedIds.some(id => !currentIds.includes(id)))
+      throw new Error("The available images changed. Review your selection before downloading.");
+  }
   const target = deliveryPath(), snapshot = deliveryVersion();
+  const count = outputIds?.length ?? model.manifest.metrics.completed_images;
+  const missing = outputIds === null ? Math.max(0, (model.manifest.metrics.requested_images ?? count) - count) : 0;
   const button = $("#overlay [data-action='confirmPartial'], #overlay [data-action='retryExport']") ||
     $("[data-action='exportZip']");
   const label = button?.textContent;
   if (button) {
     const completed = retryOperationId && exportRecovery?.operationId === retryOperationId ? exportRecovery.progress?.completed || 0 : 0;
-    button.textContent = `Creating images: ${completed} of ${model.manifest.metrics.completed_images}.`;
+    button.textContent = `Creating images: ${completed} of ${outputIds?.length ?? model.manifest.metrics.completed_images}.`;
     button.setAttribute("aria-busy", "true");
   }
   const operationId = retryOperationId || crypto.randomUUID().replaceAll("-", "");
@@ -230,6 +260,7 @@ async function downloadZIP(allowPartial, retryOperationId = null) {
       operation_id: operationId,
       version: snapshot,
       allow_partial: allowPartial,
+      ...(outputIds === null ? {} : { output_ids: outputIds }),
     });
     if (response.headers.get("Content-Type")?.split(";")[0] !== "application/zip")
       throw new Error("Motif did not receive the ZIP. Try the download again.");
@@ -250,10 +281,10 @@ async function downloadZIP(allowPartial, retryOperationId = null) {
       // Give the browser's download manager time to take ownership of a large ZIP.
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
-    exportReceipt = { filename };
+    exportReceipt = { filename, count, missing, selected: outputIds !== null };
     openModal("export-success");
   } catch (error) {
-    await exportFailure(error, target, snapshot, "zip", allowPartial, operationId);
+    await exportFailure(error, target, snapshot, "zip", allowPartial, operationId, outputIds, capturedIds);
   } finally {
     stopProgress();
     if (button) {
@@ -303,9 +334,66 @@ async function previewReport(allowPartial = false) {
   }
 }
 document.addEventListener("change", event => {
+  if (event.target.matches?.("[data-export-select]")) {
+    const id = event.target.dataset.exportSelect;
+    if (busy) { event.target.checked = handoffSelection.has(id); return; }
+    if (event.target.checked) handoffSelection.add(id);
+    else handoffSelection.delete(id);
+    render();
+    $$('[data-export-select]').find(input => input.dataset.exportSelect === id)?.focus({ preventScroll: true });
+  }
   if (event.target.id === "overview-filter") {
     filter = event.target.value;
     pageNum = 0;
     render();
+    $("#overview-filter")?.focus({ preventScroll: true });
   }
 });
+
+// Handoff's modal owns a current-composition description queue, just as Studio
+// Inspect does. It never saves a generated-image revision or a form-only draft.
+let handoffDescriptionSave = null;
+function beginHandoffDescriptionSave() {
+  if (page !== "handoff" || modal !== "inspect") return;
+  const field = $("#image-description"), campaign = C.id;
+  if (!canDescribeCreative(currentProduct, lang, currentFormat)) { field.readOnly = true; return; }
+  const product = C.products[currentProduct].id, market = MARKET[lang], ratio = FMT[currentFormat].ratio.replace(":", "x");
+  const owner = { field, campaign, product, market, ratio };
+  const queue = compositionSaveQueue({
+    capture: () => ({ description: field.value || null }),
+    send: async attempt => {
+      if (!await saveProject()) throw new Error("Finish saving the campaign before saving its description.");
+      if (C.id !== campaign) throw new Error("The editing target changed before saving.");
+      if (!attempt.request) {
+        attempt.path = `/api/campaigns/${campaign}/composition/${model.composition_version || model.version}/metadata/${product}/${market}/${ratio}`;
+        attempt.request = { ...attempt.captured, mode: "current", expected_version: model.metadata.creatives[`${product}/${market}/${ratio}`]?.version || 0 };
+      }
+      return api(attempt.path, attempt.request);
+    },
+    accept: async data => {
+      if (handoffDescriptionSave?.owner !== owner) return;
+      useData(mergeStudioAcknowledgement(model, data), { applied: true });
+      render({ preserveModal: true });
+    },
+    changed: state => {
+      const status = $("#handoff-description-status");
+      if (status) status.textContent = state.phase === "error" || state.phase === "conflict"
+        ? state.error?.message || "The description could not be saved. Your changes are still here."
+        : state.phase === "saving" ? "Saving description…" : "Changes save automatically.";
+      const retry = $('[data-action="retryDescription"]');
+      if (retry) {
+        retry.hidden = !["error", "conflict"].includes(state.phase);
+        retry.textContent = state.phase === "conflict" ? "Refresh" : "Try saving description again";
+      }
+    },
+  });
+  handoffDescriptionSave = { owner, queue };
+  field.addEventListener("input", () => queue.schedule());
+}
+async function flushHandoffDescriptionSave() {
+  try { return handoffDescriptionSave ? await handoffDescriptionSave.queue.flush() : true; }
+  catch { return false; }
+}
+function endHandoffDescriptionSave() {
+  handoffDescriptionSave?.queue.stop(); handoffDescriptionSave = null;
+}

@@ -453,17 +453,17 @@ class Workspace:
     def logo(self, campaign_id: str, edit: LogoEdit, *, allow_unchanged=False):
         from campaign_studio.compositions import candidate
 
-        return candidate(self, campaign_id, edit)
+        return candidate(self, campaign_id, edit, preview=allow_unchanged)
 
     def text(self, campaign_id: str, edit: TextEdit, *, allow_unchanged=False):
         from campaign_studio.compositions import candidate
 
-        return candidate(self, campaign_id, edit)
+        return candidate(self, campaign_id, edit, preview=allow_unchanged)
 
     def frame(self, campaign_id: str, edit: FrameEdit, *, allow_unchanged=False):
         from campaign_studio.compositions import candidate
 
-        return candidate(self, campaign_id, edit)
+        return candidate(self, campaign_id, edit, preview=allow_unchanged)
 
 
 def image_url(campaign_id: str, revision_id: str, item: dict) -> str | None:
