@@ -75,7 +75,7 @@ ${latest
     : `<p>Bring your products, your words, and your point of view.</p>`}
 <div class="row home-continue-row">${latest
     ? `${btn("Continue working", "openCampaign", "dark", `data-campaign-id="${esc(latest.id)}" aria-label="${esc(`Continue working on ${identity}`)}"`)}<span class="small muted">Pick up your most recent campaign.</span>`
-    : btn("Create campaign", "new", "dark") + btn("Import brief", "import")}</div>
+    : btn("New campaign", "new", "dark")}</div>
 </div>
 <div class="hero-art" aria-label="${latest ? esc(`Preview of ${identity}`) : "Your campaign workspace"}">
 <div class="art-card home-art-card"><div class="home-art-image">${artwork}</div><div class="caption">${latest ? "CAMPAIGN PREVIEW" : "YOUR WORKSPACE"}</div></div>
@@ -113,7 +113,7 @@ function workbenchCard(c) {
 
 function library() {
   let cards = workbenchCampaigns();
-  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("Import brief", "import") + btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${typeof setupNotice !== "undefined" && setupNotice ? notice(setupNotice, "", "info") : ""}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0"><button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:#e8e2d5;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>Something new?</h3><p class="small muted" style="padding:8px 25px;color:#596059">Bring your products, your words,<br>and your point of view.</p></button>${cards.map(workbenchCard).join("")}</div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Create a campaign or import a brief above. Your saved work will appear here.</p></div>`}`;
+  return `${head("Good work starts here.", "Creative automation for social campaigns. Your next idea starts here.", cards.length ? btn("＋ New campaign", "new", "primary") : "", "YOUR WORKSPACE")}${typeof setupNotice !== "undefined" && setupNotice ? notice(setupNotice, "", "info") : ""}${homeHero(cards[0])}<div class="section-title"><h2>On your workbench <span class="muted small">${cards.length} saved ${cards.length === 1 ? "campaign" : "campaigns"}</span></h2><div class="workbench-tools"><span class="small muted" title="Campaigns are ordered by their most recent saved change, review, or completed run.">Recent activity</span>${pendingDeletionControl()}${cards.length ? `<button class="workbench-arrow" data-action="workbench:previous" aria-label="Previous campaigns" aria-controls="workbench-track">←</button><button class="workbench-arrow" data-action="workbench:next" aria-label="Next campaigns" aria-controls="workbench-track">→</button>` : ""}</div></div>${cards.length ? `<div class="campaign-grid" id="workbench-track" role="region" aria-roledescription="carousel" aria-label="Saved campaigns, most recent activity first. Use arrow keys to scroll." tabindex="0"><button class="campaign-card" data-action="new" style="display:grid;place-content:center;text-align:center;min-height:280px;background:#e8e2d5;border-style:dashed"><div class="display" style="font-size:56px;color:#dd442d">＋</div><h3>New campaign</h3><p class="small muted" style="padding:8px 25px;color:#596059">Bring your products, your words,<br>and your point of view.</p></button>${cards.map(workbenchCard).join("")}</div>` : `<div class="empty"><div class="empty-symbol">↗</div><h2>Your next campaign belongs here.</h2><p>Choose New campaign to enter details or import a JSON brief. Your saved work will appear here.</p></div>`}`;
 }
 function brief() {
   return '<div id="brief-root"></div>';
@@ -132,6 +132,12 @@ function dialog(title, body, foot = "", wide = false, eyebrow = null) {
 </div>`;
 }
 
+let newCampaignDraft = { name: "", brand: "", audience: "" };
+function campaignCreationRoutes(route) {
+  return `<div class="campaign-creation-routes" role="tablist" aria-label="Create campaign with">
+${[ ["manual", "Enter details"], ["import", "Import JSON"] ].map(([id, label]) => btn(label, `campaignRoute:${id}`, "", `role="tab" id="creation-${id}" aria-controls="creation-panel" aria-selected="${route === id}" tabindex="${route === id ? 0 : -1}"`)).join("")}</div>`;
+}
+
 function modalView() {
   switch (modal) {
     case "campaign-copy-confirm":
@@ -141,7 +147,7 @@ function modalView() {
     case "new":
       return dialog(
         "What are we making?",
-        `${input("Campaign name", "new-name", "", "text", "A name you will recognize in saved work.")}${input("Brand name", "new-brand", "")}${area("Audience", "new-audience", "")}`,
+        `${campaignCreationRoutes("manual")}<div id="creation-panel" role="tabpanel" aria-labelledby="creation-manual">${input("Campaign name", "new-name", newCampaignDraft.name, "text", "A name you will recognize in saved work.")}${input("Brand name", "new-brand", newCampaignDraft.brand)}${area("Audience", "new-audience", newCampaignDraft.audience)}</div>`,
         `<span class="small muted">Start with a draft. Add the rest as you go.</span>${btn("Create campaign →", "create", "primary")}`,
       );
     case "product":
@@ -389,6 +395,51 @@ function outputCorrectionNotice(output) {
   const messages = outputCorrectionMessages(output);
   return messages.length ? `<div class="overview-issue" role="note"><strong>Changes needed</strong>${messages.map(message => `<p>${esc(message)}</p>`).join("")}</div>` : "";
 }
+let handoffSelection = null;
+let exportSelectionFrozen = false;
+function resetHandoffSelection() { handoffSelection = null; }
+function focusHandoffSelection() {
+  const target = $('[data-action="clearExportSelection"]:not(:disabled)') ||
+    $('[data-action="selectExportAll"]:not(:disabled)') || $("#export-selection-status");
+  target?.focus({ preventScroll: true });
+}
+function freezeHandoffSelection(value) {
+  exportSelectionFrozen = value;
+  for (const control of $$('[data-export-select]')) {
+    const output = model?.manifest?.outputs.find(item => item.id === control.dataset.exportSelect);
+    control.disabled = value || (!handoffSelection?.has(control.dataset.exportSelect) && !selectableExportImage(output));
+  }
+  const selected = selectedExportImages(), available = (model?.manifest?.outputs || []).filter(selectableExportImage);
+  for (const [action, disabled] of [
+    ["selectExportAll", !available.some(output => !handoffSelection.has(output.id))],
+    ["clearExportSelection", !selected.length], ["removeUnavailableSelection", false],
+  ]) {
+    const control = $(`[data-action="${action}"]`);
+    if (control) control.disabled = value || disabled;
+  }
+}
+function selectedExportImages() {
+  const outputs = model?.manifest?.outputs || [];
+  if (handoffSelection === null)
+    handoffSelection = new Set(outputs.filter(selectableExportImage).map(output => output.id));
+  // Never silently drop requested images, even when another view removed them.
+  return [...handoffSelection].map(id => outputs.find(output => output.id === id) || { id, url: null });
+}
+function selectableExportImage(output) {
+  return !!output?.url && output.eligible_for_export !== false && !outputCorrectionMessages(output).length;
+}
+function exportSelectionToolbar(visibleIds) {
+  const selected = selectedExportImages();
+  const hidden = selected.filter(output => !visibleIds.includes(output.id)).length;
+  const unavailable = selected.filter(output => !selectableExportImage(output)).length;
+  const available = (model.manifest?.outputs || []).filter(selectableExportImage);
+  return `<div class="export-selection-controls">
+<div><strong id="export-selection-status" role="status" tabindex="-1">${selected.length} ${selected.length === 1 ? "image" : "images"} selected${hidden ? ` · ${hidden} outside this view` : ""}</strong>
+${unavailable ? `<p class="small error">${unavailable} selected ${unavailable === 1 ? "image needs" : "images need"} attention. Fix or remove ${unavailable === 1 ? "it" : "them"} from your selection.</p>` : !selected.length ? '<p class="small muted">Select at least one image to download.</p>' : ""}
+<p class="small muted">Selection spans all pages and filters.</p></div>
+<div class="row wrap">${btn("Select all available", "selectExportAll", "small", !exportSelectionFrozen && available.some(output => !handoffSelection.has(output.id)) ? "" : "disabled")}${btn("Clear selection", "clearExportSelection", "small", !exportSelectionFrozen && selected.length ? "" : "disabled")}${unavailable ? btn("Remove unavailable", "removeUnavailableSelection", "small", exportSelectionFrozen ? "disabled" : "") : ""}</div></div>`;
+}
+
 function overviewView(exporting = false) {
   let entries = allEntries().filter(
     (e) =>
@@ -398,8 +449,9 @@ function overviewView(exporting = false) {
   const per = 6,
     max = Math.max(1, Math.ceil(entries.length / per));
   pageNum = Math.min(pageNum, max - 1);
+  const visible = entries.slice(pageNum * per, (pageNum + 1) * per);
   return `<div class="review-toolbar">
-<span class="small muted">${entries.length} ${filter === "all" ? "expected" : "matching"} creatives · ${C.products.length} products · all selected markets</span>
+${exporting ? exportSelectionToolbar(visible.map(e => outputFor(e.p, e.l, e.f)?.id)) : `<span class="small muted">${entries.length} ${filter === "all" ? "expected" : "matching"} creatives · ${C.products.length} products · all selected markets</span>`}
 <div class="review-filter">
 <select id="overview-filter" aria-label="Filter creative overview">
 <option value="all" ${filter === "all" ? "selected" : ""}>All creatives</option>
@@ -414,16 +466,18 @@ function overviewView(exporting = false) {
       const firstImages = !model.manifest;
       const layout = layoutRepairTarget(output);
       const withheld = missing && currentRuleWithholding().includes(output?.id);
-      return `<article class="overview-item">${
+      const chosen = exporting && handoffSelection.has(output?.id);
+      const selectionControl = exporting ? `<label class="export-select"><input type="checkbox" data-export-select="${esc(output?.id || "")}" aria-label="Select ${esc(C.products[e.p].name)}, ${esc(LANG[e.l])}, ${esc(FMT[e.f].name)}" aria-describedby="output-info-${e.key}" ${chosen ? "checked" : ""} ${exportSelectionFrozen || (!chosen && !selectableExportImage(output)) ? "disabled" : ""}><span>${chosen ? "Selected" : "Select image"}</span></label>` : "";
+      return `<article class="overview-item${chosen ? " export-selected" : ""}">${
         missing
           ? `<div class="missing-tile">
 <strong>${firstImages ? "Ready for first images" : layout ? "Layout needs attention" : withheld ? "Image withheld by current rules." : "Image not available"}</strong>
 <p class="small">${esc(firstImages ? "Review the production plan to create this image." : layout ? layoutFindingsFor(output).map(finding => finding.evidence).join(" ") : withheld ? "Correct the prohibited wording above to update this image." : unavailableSource() ? "Replace the unavailable source in Production before rebuilding this image." : outputFor(e.p, e.l, e.f)?.omission || "This saved output is unavailable. Open Production to review recovery options.")}</p>
 </div>`
           : `<div class="overview-image">${creative(e.p, e.l, e.f, `data-action="inspect:${e.p}:${e.f}:${e.l}" tabindex="0" role="button"`)}</div>`
-      }<div class="info">
-<h3>${esc(C.products[e.p].name)}</h3>
-<p class="small muted">${LANG[e.l]} · ${FMT[e.f].name} ${FMT[e.f].ratio}</p>
+      }<div class="info" id="output-info-${e.key}">
+${exporting ? `<div class="output-selection-heading"><h3>${esc(C.products[e.p].name)}</h3>${selectionControl}</div>` : `<h3>${esc(C.products[e.p].name)}</h3>`}
+<p class="small muted">${LANG[e.l]} · ${FMT[e.f].name} ${FMT[e.f].ratio}${missing ? " · Image unavailable" : ""}</p>
 ${exporting ? outputCorrectionNotice(output) : ""}
 <div class="row between">${missing ? firstImages ? btn("Review production plan", "plan", "small quiet") : layout ? btn(layout.label, layout.action, "small quiet") : badge(withheld ? "Withheld" : "Missing", "block") : ""}${missing ? "" : btn(exporting ? "Download PNG" : "Inspect", exporting ? `download:${e.p}:${e.l}:${e.f}` : `inspect:${e.p}:${e.f}:${e.l}`, "small quiet", exporting ? `data-wording-export="available" ${exportBlocked() ? "disabled" : ""}` : "")}</div>
 </div>
@@ -487,6 +541,8 @@ function handoff() {
 <div class="empty-symbol">↗</div>
 <h2>No composition is ready to export yet.</h2>
 <p>Finish any incomplete campaign fields and provide source imagery for your products. Production can generate missing source images.</p>${btn("Open Production", "nav:production")}</div>`;
+  const selectedImages = selectedExportImages();
+  const selectionUnavailable = !selectedImages.length || selectedImages.some(output => !selectableExportImage(output));
   const layoutBlocked = currentLayoutFindings().length > 0,
     changesNeeded = layoutBlocked || currentWordingView().phase === "blocked",
     partial = model.manifest && !model.manifest.complete,
@@ -495,12 +551,12 @@ function handoff() {
     missing = otherUnavailableOutputs().length;
   return `${head("Ready for the next pair of eyes.", `${C.name} · Current images`, btn("← Studio", "nav:review", "small quiet"), "", "wf-stage-header")}<section class="export-hero">
 <div>
-<span class="eyebrow">${changesNeeded ? "CHANGES NEEDED" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN PACKAGE</span>
-<h2>${layoutBlocked ? "Review the affected layouts." : empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} images. One clear handoff.`}</h2>
-<p class="small muted" style="margin-top:8px">${C.markets.length} ${C.markets.length === 1 ? "market" : "markets"} · 3 formats · offline review included</p>
+<span class="eyebrow">${changesNeeded ? "CHANGES NEEDED" : damaged ? "RECOVERY REQUIRED" : partial ? "PARTIAL" : "COMPLETE"} CAMPAIGN</span>
+<h2>${layoutBlocked ? "Review the affected layouts." : empty ? "Nothing to export yet." : `${model.manifest?.metrics.completed_images ?? 0} campaign images available.`}</h2>
+<p class="small muted" style="margin-top:8px">Campaign coverage: ${C.markets.length} ${C.markets.length === 1 ? "market" : "markets"} · 3 formats</p>
 </div>
-<div class="row wrap">${btn("Preview offline report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn("Download ZIP ↓", "exportZip", "primary", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}</div>
-</section><div data-logo-notice>${handoffLogoNotice()}</div>${wordingNotice()}${layoutNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : !layoutBlocked && empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved source images or review a new AI request. Export creates finished formats from available sources." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : !layoutBlocked && partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing. The package will say so.`, "Export creates finished images from the available sources and current saved settings. Missing sources are listed in the package.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
+<div class="row wrap">${btn("Preview campaign report ↗", "report", "", `data-wording-export="${damaged || empty ? "unavailable" : "available"}" ${damaged || empty || exportBlocked() ? "disabled" : ""}`)}${btn(`Download ZIP · ${selectedImages.length} ${selectedImages.length === 1 ? "image" : "images"} ↓`, "exportZip", "primary", `data-wording-export="${damaged || empty || selectionUnavailable ? "unavailable" : "available"}" ${damaged || empty || selectionUnavailable || exportBlocked() ? "disabled" : ""}`)}</div>
+</section><div data-logo-notice>${handoffLogoNotice()}</div>${wordingNotice()}${layoutNotice()}${unavailableSource() ? sourceRecoveryNotice() : damaged ? notice(`${damaged} saved image ${damaged === 1 ? "file needs" : "files need"} recovery.`, "These files were saved previously but are now missing or changed. Recover from saved sources before packaging this version.", "block", "nav:production", "Open local recovery") : !layoutBlocked && empty && nonRuleOmissions() ? notice("No images are available from this run.", canRecoverCurrentOutputs() ? "Open Production to recover saved source images or review a new AI request. Export creates finished formats from available sources." : "Review the available images. No new request starts automatically.", "info", "nav:production", "Review recovery options") : !layoutBlocked && partial && nonRuleOmissions() ? notice(`${missing} ${missing === 1 ? "output is" : "outputs are"} missing.`, "A whole-campaign download lists the missing images. Select a subset below to download only those images.", "", canRecoverCurrentOutputs() ? "recover" : "nav:production", canRecoverCurrentOutputs() ? "Recover missing work" : "Review recovery options") : ""}<div class="two-col" style="margin-top:24px">
 <section class="panel">
 <h3>Everything travels together.</h3>
 <div class="file-list">Package contents<br>&nbsp; ├─ index.html &nbsp; <span class="muted">the visual review</span>
@@ -518,11 +574,11 @@ function handoff() {
 <span>Accessible descriptions</span>
 <b>${descriptionCount()} of ${total()} supplied</b>
 </div>
-<p class="small muted">Export renders every available image from the current saved settings. Filters below change the view, never the package.</p>
+<p class="small muted">All available images start selected. Change your selection below, then download the ZIP. The report preview shows the whole campaign.</p>
 </section>
 </div>
 <div class="section-title">
-<h2>The campaign, at a glance</h2>${badge(changesNeeded ? "Changes needed" : damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Images missing" : "All formats included", changesNeeded || damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
+<h2>The campaign, at a glance</h2>${badge(changesNeeded ? "Changes needed" : damaged ? "Recovery required" : empty ? "Nothing to export" : partial ? "Images missing" : "All campaign images ready", changesNeeded || damaged ? "block" : partial ? "warning" : "")}</div>${overviewView(true)}`;
 }
 function editorParts(body, foot) {
   return `${body}<footer class="modal-foot">${foot}</footer>`;

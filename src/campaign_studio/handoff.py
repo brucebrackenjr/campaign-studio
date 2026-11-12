@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from campaign_studio.brief import Contract
 from campaign_studio.exporting import (
@@ -37,6 +37,14 @@ class DeliveryAction(Contract):
     version: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     operation_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     allow_partial: bool = Field(default=False, strict=True)
+    output_ids: list[str] | None = Field(default=None, min_length=1, max_length=30)
+
+    @field_validator("output_ids")
+    @classmethod
+    def unique_selection(cls, value):
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("Choose each image only once.")
+        return sorted(value) if value is not None else None
 
 
 class Handoff:
@@ -94,6 +102,7 @@ class Handoff:
                     or current["version"] != job.snapshot["version"]
                     or action.version != job.snapshot["version"]
                     or action.allow_partial != job.allow_partial
+                    or action.output_ids != job.output_ids
                 ):
                     job.close()
                     raise StateError(
@@ -115,6 +124,7 @@ class Handoff:
                     snapshot,
                     operation_id,
                     allow_partial=action.allow_partial,
+                    output_ids=action.output_ids,
                     on_close=lambda finished: jobs.pop(finished.operation_id, None),
                 )
                 jobs[operation_id] = job
@@ -123,6 +133,12 @@ class Handoff:
     def create_current_preview(self, campaign_id, action: DeliveryAction):
         from campaign_studio.delivery import delivery_manifest
 
+        if action.output_ids is not None:
+            raise StateError(
+                "The online preview shows the whole campaign. Download selected images "
+                "for a report of your selection.",
+                code="export_selection",
+            )
         snapshot = self.current_snapshot(campaign_id, action.version)
         manifest = delivery_manifest(snapshot, allow_partial=action.allow_partial)
         created = int(datetime.now(UTC).timestamp())

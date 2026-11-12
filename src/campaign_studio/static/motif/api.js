@@ -255,6 +255,7 @@ function useData(data, projectOptions = {}) {
     operation = null;
   }
   if (draft?.campaign_id !== data.value.campaign_id) {
+    if (typeof resetHandoffSelection === "function") resetHandoffSelection();
     selected = [0, 1];
     imageMarket = "all";
     pageNum = 0;

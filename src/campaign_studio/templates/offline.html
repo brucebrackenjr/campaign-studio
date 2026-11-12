@@ -8,12 +8,14 @@
 <title>{{ campaign.campaign_name }} – Motif campaign report</title>
 <style>body{margin:0;background:#f5f3eb;color:#26372a;font:15px/1.5 Arial,sans-serif}header{background:#263b2d;color:#f6f2df;padding:48px 6%}h1{font-size:56px;line-height:1.05;max-width:900px;margin:16px 0}h2{font-size:30px;margin-top:0}nav{padding:20px 6%;border-bottom:1px solid #cad2bd;display:flex;gap:25px;flex-wrap:wrap}a{color:inherit}main{padding:30px 6%}section{margin-bottom:42px}.stats{display:flex;gap:40px;flex-wrap:wrap}.stats strong{font-size:32px;display:block}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}.card{background:#fffdf7;border:1px solid #cbd2c0;border-radius:5px;overflow:hidden}.image{height:330px;background:#e2e5d9;padding:18px;display:flex;align-items:center;justify-content:center}.image{overflow:hidden}.image a{display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-width:0;min-height:0}.image img{width:100%;height:100%;object-fit:contain;max-width:100%;max-height:100%}.info{padding:20px}.info h3{margin:0 0 8px}.tag{background:#e1e9d4;padding:4px 7px;border-radius:4px;font-size:11px;display:inline-block}.missing{height:330px;background:#e7e8dd;display:grid;place-content:center;padding:18px;text-align:center}.muted{color:#68745e;font-size:13px}.details{padding:20px;background:#e6ecd9}.desc{font-size:13px}.row{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #d4dcc6;padding:14px 0}footer{border-top:1px solid #cbd2bd;padding:25px 6%;font-size:12px}a:focus-visible{outline:3px solid #c43826;outline-offset:5px}@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}h1{font-size:42px}}@media(max-width:550px){.grid{grid-template-columns:1fr}.image{height:360px}}@media print{.card{break-inside:avoid}nav{display:none}}</style>
 </head><body>
+{% set selected = campaign.export_scope is defined and campaign.export_scope.kind == "selection" %}
 <header>
 <div style="letter-spacing:3px;font-size:12px">{{ brand_name }} / CAMPAIGN REVIEW</div>
 <h1>{{ campaign.campaign_name }}</h1>
-<p>{% if campaign.composition_version %}{{ 'Saved campaign preview' if campaign.preview else 'Saved campaign export' }} · {% else %}Revision {{ revision_number }} · {% endif %}{{ ('Complete preview' if campaign.complete else 'Partial preview') if campaign.preview else ('Complete campaign package' if campaign.complete else 'Partial campaign package') }} · {{ campaign.metrics.completed_images }} of {{ campaign.metrics.requested_images }} images</p>
+<p>{% if campaign.composition_version %}{{ 'Saved campaign preview' if campaign.preview else 'Saved campaign export' }} · {% else %}Revision {{ revision_number }} · {% endif %}{{ ('Complete preview' if campaign.complete else 'Partial preview') if campaign.preview else ('Selected images package' if selected else ('Complete campaign package' if campaign.complete else 'Partial campaign package')) }} · {{ campaign.metrics.completed_images }} of {{ campaign.metrics.requested_images }} images</p>
 <p style="font-size:13px">{% if campaign.preview %}Preview the current saved campaign. Full-size PNGs and the offline report are created when you download the ZIP. Keep Motif running to view this preview.{% else %}Open, inspect, and retrieve every available full-size PNG. This report works offline.{% endif %}{% if report_created_label %}<br>Report snapshot · {{ report_created_label }}. Later work is not included.{% endif %}</p>
 </header>
+{% if selected %}<p class="details">This package contains {{ campaign.metrics.completed_images }} selected {{ "image" if campaign.metrics.completed_images == 1 else "images" }} from {{ campaign.export_scope.campaign_image_count }} campaign images. Generation attempts and spend below describe the whole campaign.</p>{% endif %}
 <nav aria-label="Recipient report sections"><a href="#images">Creative overview</a><a href="#production">Production record</a><a href="#provenance">Origins &amp; descriptions</a></nav>
 <main>
 <section class="stats" aria-label="Package summary">
@@ -22,7 +24,7 @@
 <div><strong>{{ campaign_display.spend }}</strong>Campaign spend estimate{% if campaign_display.spend_helper %}<p class="muted">{{ campaign_display.spend_helper }}</p>{% endif %}</div>
 </section>
 {% set logo_omitted = campaign.findings|default([])|selectattr('rule', 'equalto', 'logo_presence')|selectattr('severity', 'equalto', 'warning')|list %}
-<section id="images"><h2>The complete picture.</h2>
+<section id="images"><h2>{{ "Your selected images." if selected else "The complete picture." }}</h2>
 {% if logo_omitted %}<p><strong>These images have no logo.</strong></p>{% endif %}
 <p class="muted">{{ 'These previews show the saved composition. Download the ZIP from Handoff for full-size PNGs.' if campaign.preview else 'Click an image for its full-size PNG.' }}</p>
 <div class="grid">
@@ -49,7 +51,7 @@
 <section id="production">
 <h2>The work behind the work.</h2>
 <div class="row"><span>Campaign</span><b>{{ campaign.campaign_name }}{% if not campaign.composition_version %} / revision {{ revision_number }}{% endif %}</b></div>
-<div class="row"><span>Current images · available / expected</span><b>{{ campaign.metrics.completed_images }} / {{ campaign.metrics.requested_images }}</b></div>
+<div class="row"><span>{{ "Selected images · included / selected" if selected else "Current images · available / expected" }}</span><b>{{ campaign.metrics.completed_images }} / {{ campaign.metrics.requested_images }}</b></div>
 <div class="row"><span>Campaign generation attempts</span><b>{{ campaign_display.attempts }}{% if campaign_display.attempts_helper %}<br><small class="muted">{{ campaign_display.attempts_helper }}</small>{% endif %}</b></div>
 <div class="row"><span>This operation · processing</span><b>{{ (campaign.metrics.elapsed_processing_seconds|string ~ ' seconds') if campaign.metrics.elapsed_processing_seconds is not none else 'Not recorded' }}</b></div>
 <div class="row"><span>Campaign spend estimate</span><b>{{ campaign_display.spend }}{% if campaign_display.spend_helper %}<br><small class="muted">{{ campaign_display.spend_helper }}</small>{% endif %}</b></div>

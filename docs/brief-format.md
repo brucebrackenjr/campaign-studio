@@ -77,3 +77,7 @@ The brand name identifies the company; the campaign name identifies its project.
 Motif counts Unicode code points consistently in the browser and server. An emoji such as 🦊 counts as one; a letter followed by a combining accent counts as two. Over-limit text is retained in the open form for correction and is not saved until shortened. Incomplete fields can still be saved as drafts. Text is never automatically truncated.
 
 Campaign Copy & Rules flags prohibited words as you type. The current wording saves and appears in previews and Studio while you correct it. Removing one prohibited word updates the text everywhere and leaves warnings only for the words that remain. Export stays blocked until the wording is corrected or the rule is deliberately changed. Production prepares source photos independently of these finished-ad checks.
+
+## Starting from an example
+
+Choose **New campaign → Import JSON → Download example JSON**. The download is a filled-in brief that validates against the public model, not a JSON Schema. Adapt its values yourself or give it to an AI assistant with your campaign requirements. It includes both supported markets and a fictional product photo filename. Import it, then attach your actual photograph and optional logo through the application. Import assigns fresh campaign and product identities, never reads arbitrary file paths, and never starts a paid request. Manual creation and JSON import are two routes in the same dialog; switching routes retains your temporary entries and chosen file.

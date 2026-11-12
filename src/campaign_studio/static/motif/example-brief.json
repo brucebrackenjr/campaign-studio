@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "campaign_id": "a60d130b-6536-46ab-b824-3bcb59b6ac92",
+  "name": "Everyday Essentials",
+  "audience": "People looking for a simple tote for daily use.",
+  "creative_direction": "A clean product photograph, soft daylight, a warm neutral background, and room for the headline and call to action.",
+  "brand": {
+    "id": "field-and-form",
+    "name": "Field & Form",
+    "logo_path": "",
+    "logo_provenance": {
+      "label": "Not provided",
+      "rights": "Not provided",
+      "synthetic": false
+    },
+    "palette": [
+      "#263B30",
+      "#F4F2EC",
+      "#CE3825"
+    ],
+    "text_color": "#263B30"
+  },
+  "copy_provenance": {
+    "label": "AI-authored example copy for a fictional brand.",
+    "rights": "Illustrative example. Replace with approved campaign copy.",
+    "synthetic": false
+  },
+  "markets": {
+    "en-US": {
+      "copy": {
+        "message": "Ready for every day.",
+        "cta": "Explore the collection"
+      },
+      "phrase_rules": null
+    },
+    "es-MX": {
+      "copy": {
+        "message": "Listo para cada día.",
+        "cta": "Explora la colección"
+      },
+      "phrase_rules": null
+    }
+  },
+  "products": [
+    {
+      "id": "everyday-tote",
+      "name": "Everyday Tote",
+      "description": "A natural canvas tote with dark green handles.",
+      "source": {
+        "role": "finished_scene",
+        "path": "everyday-tote.jpg",
+        "provenance": {
+          "label": "Placeholder filename. Attach your product photo after import.",
+          "rights": "Not provided. Replace with your image usage rights.",
+          "synthetic": false
+        },
+        "subject_box": null
+      },
+      "copy_overrides": {},
+      "framing": {}
+    }
+  ]
+}

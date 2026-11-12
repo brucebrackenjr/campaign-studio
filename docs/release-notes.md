@@ -2,6 +2,8 @@
 
 This local candidate retains Motif's Python and plain JavaScript stack. It has not been published as a release.
 
+- **New campaign** combines manual entry and JSON import in one dialog. Switching routes preserves unfinished entries, and **Download example JSON** supplies a valid, adaptable brief.
+- Handoff starts with all available output images selected. One **Download ZIP** action exports the checked images across pages, markets, and formats. Clearing selection disables it. Subset ZIPs contain only the selected PNGs and a matching offline report; campaign-wide export checks and failed-image retry remain in force.
 - Studio uses one persistent editing scene and save queue across tools. Click a logo or text block to select it, click the photograph outside those bounds for Framing, and choose Inspect explicitly. Overlapping elements follow their visible layer order.
 - Completed layout gestures update the selected format thumbnail directly from the browser canvas. Other formats retain their images unless shared wording or campaign artwork changes.
 - Pending text previews resume after a drag, including a response that arrived while the pointer was held. Resize handles identify the currently selected logo, headline, or call to action for assistive technology.

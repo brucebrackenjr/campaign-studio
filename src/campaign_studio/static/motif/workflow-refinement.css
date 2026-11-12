@@ -37,3 +37,24 @@
 .mf-producer-shell #project-save-recovery:empty{display:none}
 
 .hlb .bf-tab-row .wf-sequence-actions .bf-button{font-size:12px;font-weight:400;min-height:36px;padding:6px 10px;background:transparent;border-color:transparent}
+
+/* Campaign entry routes and per-image Handoff selection. */
+.campaign-creation-routes { display: flex; gap: 8px; margin-bottom: 24px; }
+.campaign-creation-routes .btn { flex: 1; }
+.campaign-creation-routes [aria-selected="true"] { background: #e9eedf; border-color: #58754d; box-shadow: inset 0 -3px #58754d; }
+.brief-example { margin: 16px 0; }
+.brief-example a { text-decoration: underline; font-weight: 600; }
+.brief-example p { margin: 8px 0 0; }
+.export-selection-controls { min-width: 0; }
+.export-selection-controls .row { gap: 8px; margin-top: 8px; }
+.export-selection-controls p { margin: 5px 0 0; }
+#export-selection-status:focus-visible { outline: 3px solid #df3c26; outline-offset: 4px; }
+.overview-item.export-selected { border-color: #34563b; box-shadow: inset 0 0 0 1px #34563b; }
+.overview-item.export-selected .info { background: #e7eee2; }
+.output-selection-heading { display: flex; align-items: flex-start; gap: 8px; }
+.output-selection-heading h3 { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.export-select { display: flex; gap: 7px; align-items: center; min-height: 44px; min-width: 44px; cursor: pointer; font-size: 11px; flex-shrink: 0; }
+.export-select span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.export-select input { width: 20px; height: 20px; margin: 0; accent-color: #34563b; }
+.export-select:has(input:disabled) { color: #68735e; cursor: default; }
+.export-select:focus-within { outline: 3px solid #df3c26; outline-offset: 2px; }

@@ -137,12 +137,14 @@ A successful request does not create every final ad. The photograph stays separa
 
 ## What happens during Download ZIP
 
-Handoff shows previews based on the current saved settings. Download ZIP then performs these steps:
+Handoff shows previews based on the current saved settings. A campaign-scoped browser selection stores stable product/market/format output IDs, initially selecting every available image. An intentionally empty selection disables ZIP delivery. Pagination, filters, and Studio round trips retain the selection; switching campaigns or reloading initializes it again. Removed or unavailable selected IDs remain visible in the count until explicitly removed.
+
+Download ZIP freezes the selected IDs before waiting for saves. A nonempty selection matching all available outputs resolves to campaign scope, retaining partial-campaign confirmation for missing imagery. A smaller selection sends `output_ids` to the existing delivery service. Empty, duplicate, unknown, or unavailable selections are refused. The selection changes the output inventory, never campaign-wide validation. Download ZIP then performs these steps:
 
 1. **Finish saving edits.** The browser waits for its pending autosaves. The server checks that the requested campaign version is still current.
 2. **Keep consistent inputs for this download.** Motif takes the current instructions and temporary copies of the required photographs and logos. It checks that each file belongs to the campaign and has not changed while being copied. An edit in another window cannot alter only some images halfway through the download.
 3. **Create and check each PNG.** Pillow combines each photograph, text, and any attached logo. Motif checks dimensions, the color profile, text placement, and the rendered artwork. Prohibited wording stops the download. A logo is optional; Handoff reminds the producer when none is attached, but the images can still be downloaded.
-4. **Package the files.** The ZIP contains the PNGs, an `index.html` report, and a `manifest.json` listing the delivered files. Motif checks the archive before sending it to the browser.
+4. **Package the files.** The ZIP contains the selected PNGs, an `index.html` report, and a `manifest.json` listing the delivered files. A subset records `export_scope` with its selected IDs and campaign image count; its report identifies the selection and keeps campaign-wide spend separate. Motif checks the archive before sending it to the browser.
 5. **Release temporary files.** When the response finishes or closes, Motif removes its temporary working files. The browser saves the downloaded ZIP wherever the producer chooses.
 
 A checksum is a value calculated from a file’s contents. Motif uses it to notice when a file has changed or been damaged. The downloaded manifest lists the PNGs with their products, markets, formats, dimensions, wording, and checksums. It describes the delivery; it is not the editable campaign document that Studio reads.
@@ -151,7 +153,7 @@ A checksum is a value calculated from a file’s contents. Motif uses it to noti
 
 Each PNG is created separately. If images 3, 10, and 12 fail, Motif continues with the others and then tries those failed images once more. The counter reports the number successfully created and checked, for example **Creating images: 14 of 30**.
 
-If problems remain, **Retry failed images** works only on the failures. Successful PNGs stay temporarily available. A problem packaging the ZIP also keeps the completed PNGs available, so they do not need to be created again.
+If problems remain, **Retry failed images** works only on the failures. Successful PNGs stay temporarily available. A retry keeps the same selection, composition version, and partial-delivery choice; reusing a job ID with a different selection is refused. A problem packaging the ZIP also keeps the completed PNGs available, so they do not need to be created again.
 
 Motif keeps at most one temporary export job. Its files may use operating-system temporary storage outside the campaign folder. They are released after delivery, cancellation, application exit, or ten minutes without activity while waiting for a retry. Starting another export replaces an idle failed job. On Windows, temporary files may be visible in the system temporary directory until they close; they are not permanent campaign files.
 
@@ -161,9 +163,9 @@ An explicitly selected partial download can omit product photographs already kno
 
 ## The browser report and the downloaded report
 
-**Preview offline report** opens a preview of the current campaign. Motif is still serving temporary preview images, so the application must remain running. If the campaign changes, the producer needs to reopen the report to see the latest work.
+**Preview campaign report** opens a preview of the whole current campaign, independently of the Handoff selection. Motif is still serving temporary preview images, so the application must remain running. If the campaign changes, the producer needs to reopen the report to see the latest work.
 
-The report inside the ZIP uses the full-size PNGs included in that ZIP. After extraction, a recipient can open `index.html` without Motif, an API key, or an internet connection. The image links keep working when the extracted folder is moved as a whole.
+The report inside the ZIP uses only the full-size PNGs included in that ZIP. Intentionally unselected outputs are not omissions. PNGs are not retained for reuse across separate successful exports; the temporary cache serves recovery within one failed export. After extraction, a recipient can open `index.html` without Motif, an API key, or an internet connection. The image links keep working when the extracted folder is moved as a whole.
 
 ## Why these technologies
 
