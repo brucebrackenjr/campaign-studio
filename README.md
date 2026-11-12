@@ -272,6 +272,8 @@ Navigation waits for pending saves. If a save fails, the proposed edits remain a
 
 Browser Back and Forward follow the main workflow pages and campaign switches while respecting those save and confirmation checks. Returning from a Studio product restores the gallery view it was opened from, including All images or Compare.
 
+Refreshing the page while editing restores that tab's product, market, format, tool, and selected text block. Motif reloads the saved campaign values from the server; remembering your place does not create a campaign edit.
+
 ### 4. Handoff – create and download the finished files
 
 Handoff shows previews from the current saved instructions. **Download ZIP** captures one consistent set of settings and source images, creates the finished PNGs, prepares the ZIP, checks it, and starts the browser download. Progress messages identify the actual stage. Individual image downloads create only the requested finished PNG. There is no separate Generate Images or Export Folder action.

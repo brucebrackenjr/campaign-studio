@@ -428,6 +428,7 @@ class StudioScene {
     $(".ws-scene-missing", this.output).hidden =
       mode !== "logo" || !!this.brand.logo_path || !!this.state.asset;
     this.output.dataset.mode = mode;
+    if (typeof retainStudioNavigation === "function") retainStudioNavigation();
   }
   controls() {
     const root = $('[data-ws-slot="controls"]', this.owner.root),

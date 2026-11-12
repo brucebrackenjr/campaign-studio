@@ -4,6 +4,31 @@
 // Requests, geometry, and publication stay in those controllers.
 let studioWorkspace = null;
 let studioGalleryReturn = null;
+// Keep this tab's place without saving navigation into the campaign document.
+// The server still supplies every editable value after a reload.
+function retainStudioNavigation() {
+  if (typeof history === "undefined" || page !== "review" || !studioWorkspace) return;
+  history.replaceState({ ...history.state, studio: {
+    campaign: C.id, product: studioWorkspace.product, language: lang,
+    format: currentFormat, mode: studioWorkspace.mode,
+    block: studioWorkspace.scene?.selected || "message",
+  } }, "", location.href);
+}
+async function restoreStudioNavigation(context) {
+  if (!context || page !== "review" || context.campaign !== C.id ||
+      !C.markets.includes(context.language) || !Number.isInteger(context.format) ||
+      !FMT[context.format] || !["inspect", "framing", "logo", "text"].includes(context.mode) ||
+      !["message", "cta"].includes(context.block)) return false;
+  const product = C.products.findIndex(item => item.id === context.product);
+  if (product < 0) return false;
+  const output = outputFor(product, context.language, context.format);
+  if (!output || !(output.url || canEditProduct(product))) return false;
+  if (studioWorkspace) finishStudioVisit();
+  currentProduct = product; currentFormat = context.format; lang = context.language;
+  await openStudioWorkspace(context.mode);
+  studioWorkspace?.scene?.setMode(context.mode, context.block);
+  return true;
+}
 function retainStudioGallery() {
   if (reviewTab !== "product") studioGalleryReturn = { campaign: C.id, reviewTab, selected: [...selected], formats: [...formats], imageMarket, pageNum, filter, lang };
 }
@@ -500,5 +525,9 @@ function finishStudioVisit() {
   teardownStudioTool();
   studioWorkspace.sequence++;
   studioWorkspace = null;
+  if (typeof history !== "undefined") {
+    const { studio, ...state } = history.state || {};
+    history.replaceState(state, "", location.href);
+  }
   document.body.classList.remove("ws-active");
 }

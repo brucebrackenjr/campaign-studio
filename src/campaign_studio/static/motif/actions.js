@@ -1602,14 +1602,18 @@ document.addEventListener("keydown", event => {
 });
 
 (async () => {
+  // Opening the server's current campaign records fresh history. Capture this
+  // entry's editor location first so refresh can restore it afterward.
+  const studioLocation = typeof history === "undefined" ? null : history.state?.studio;
   try {
     await refreshCatalog();
-    if (document.body.dataset.campaign)
+    if (document.body.dataset.campaign) {
       await openCampaign(
         document.body.dataset.campaign,
         document.body.dataset.page,
       );
-    else {
+      await restoreStudioNavigation(studioLocation);
+    } else {
       const intent = new URLSearchParams(location.search).get("action");
       render();
       updateURL();

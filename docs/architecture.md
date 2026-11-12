@@ -103,6 +103,8 @@ Dragging, framing, and color changes redraw locally. Wording and font changes ob
 
 The scene owns one save queue across all tools. Its request combines changed wording, layout, artwork, and description under the existing campaign version check. Acknowledgements update the saved baseline without replacing newer local input. An uncertain retry retains the exact original request. Changing format, market, or page waits for pending saves; merely selecting another tool does not.
 
+The browser history entry also retains the active product ID, language, format, tool, and text block. Refresh loads the campaign from the server, validates that this navigation target still exists and is editable, and restores the editor. This tab-specific location contains no draft edits or version marker and causes no campaign write. Leaving the editor clears it.
+
 The selected thumbnail is copied from the local canvas after a gesture, excluding selection handles. It is not marked current while updated text rasters are still pending. Unchanged format thumbnails remain in place. Product wording changes invalidate that product's other formats in the selected language, while campaign-logo replacement invalidates all affected outputs.
 
 Preview and download share Pillow text layout and the packaged fonts, Noto Sans Regular and Barlow Condensed Semibold. The browser transforms layers during interaction; the final PNG is composed and checked by Pillow at export resolution. Selection boxes and editing handles are not included in downloaded images.

@@ -1,5 +1,8 @@
 # Unreleased – Portfolio maintenance
 
+- Refreshing a Studio editor restores the same product, market, format, tool, and selected text block in that browser tab. Navigation does not create an authored save.
+- Live format thumbnails remain contained within their cards, including tall Story images. The intentional green surround around the main image is unchanged.
+
 This local candidate retains Motif's Python and plain JavaScript stack. It has not been published as a release.
 
 - **New campaign** combines manual entry and JSON import in one dialog. Switching routes preserves unfinished entries, and **Download example JSON** supplies a valid, adaptable brief.

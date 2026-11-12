@@ -29,7 +29,7 @@
 .ws-formats button{display:flex;align-items:center;gap:10px;min-width:145px;padding:8px 12px;border:1px solid #cbd3c1;background:#fffef9;text-align:left}
 .ws-formats button:hover{background:#edf0e5;border-color:#7e9272}
 .ws-formats button[aria-pressed=true]{background:#edf1e4;border:2px solid #56734e;padding:7px 11px}
-.ws-thumb{width:56px;height:56px;background:#e4e8dc;display:grid;place-items:center;flex-shrink:0}
+.ws-thumb{width:56px;height:56px;background:#e4e8dc;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);place-items:center;flex-shrink:0;overflow:hidden}
 .ws-thumb img{height:100%;width:100%;object-fit:contain}
 .ws-formats strong{display:block;font-size:12px}
 .ws-formats small{display:block;font-size:11px;color:#64715f;margin-top:4px}
